@@ -174,6 +174,8 @@ COMMANDS_DURING_CAPTURE = frozenset({
 COMMAND_TIMEOUT_S = 5.0
 #: seconds the capture thread waits for a line before it looks at the stop flag again
 CAPTURE_LINE_TIMEOUT_S = 0.5
+#: seconds the capture thread waits after the capture data for answers to commands sent during it
+LATE_ANSWER_S = 2.0
 #: seconds between two looks of the service thread for monitor reports (while no capture runs)
 SERVICE_INTERVAL_S = 0.1
 #: longest time one look reads reports: a monitor sends them without a pause, and the lock (the
@@ -240,6 +242,9 @@ class PicoDriver(AnalyzerDriverBase):
         self._command_lock = threading.Lock()
         #: answers the capture thread read while a buffer capture runs (protocol 8)
         self._answers: "queue.Queue[str]" = queue.Queue()
+        #: answers of commands sent while a buffer capture runs that did not come yet (the board sends
+        #: an answer that crossed the end of the capture after the capture data)
+        self._awaiting = 0
         #: what to do with the lines a board sends of itself: prefix -> handler (``STATE:``, ``WATCHDOG``)
         self.line_handlers: dict[str, Callable[[str], None]] = {}
         #: capture channels of the running capture (their pins are busy)
@@ -421,6 +426,8 @@ class PicoDriver(AnalyzerDriverBase):
                         if self._capturing and not self._streaming:
                             while not self._answers.empty():
                                 self._answers.get_nowait()
+                            if answer:
+                                self._awaiting += 1
                             self._send(packet)
                             line = self._queued_answer(deadline) if answer else ""
                             break
@@ -577,7 +584,25 @@ class PicoDriver(AnalyzerDriverBase):
             if line == "CAPTURE_DATA":
                 return
             if not self._route(line):
-                self._answers.put(line)
+                self._queue_answer(line)
+
+    def _queue_answer(self, line: str) -> None:
+        self._awaiting = max(self._awaiting - 1, 0)
+        self._answers.put(line)
+
+    def _collect_late_answers(self) -> None:
+        """The answers of commands sent during the capture that the board sent after its data: read
+        before the capture ends, so a capture its completion handler starts (a flow) neither drops
+        them (``reset_input``) nor takes one for the answer to its start."""
+        deadline = time.monotonic() + LATE_ANSWER_S
+        while self._awaiting > 0 and time.monotonic() < deadline:
+            try:
+                line = self._transport.read_line(timeout=max(deadline - time.monotonic(), 0.01))
+            except TransportTimeout:
+                break
+            if not self._route(line):
+                self._queue_answer(line)
+        self._awaiting = 0  # (one that did not come within the time: its command times out as before)
 
     # ------------------------------------------------------------- properties
     @property
@@ -678,6 +703,7 @@ class PicoDriver(AnalyzerDriverBase):
             if not session.capture_channels or not self._analog_valid(session):
                 return CaptureError.BAD_PARAMS
             self.capture_numbers = tuple(session.channel_numbers)
+            self._awaiting = 0
             if session.acquisition_mode == ACQUISITION_STREAM:
                 if session.clock_channel is not None and not self.supports_stream_state():
                     return CaptureError.UNSUPPORTED  # the stream samples at its rate only
@@ -750,6 +776,7 @@ class PicoDriver(AnalyzerDriverBase):
             if length == 0:
                 # Only a trigger sequence capture ends without samples: its evaluation fell behind
                 self._read_timestamps()
+                self._collect_late_answers()
                 raise RuntimeError(SEQUENCE_OVERFLOW_ERROR)
 
             payload = self._transport.read_exactly(length * mode.bytes_per_sample)
@@ -759,6 +786,7 @@ class PicoDriver(AnalyzerDriverBase):
             timestamps = self._read_timestamps()
             session.bursts = self._compute_bursts(session, timestamps)
             self._read_analog_appendix(session)
+            self._collect_late_answers()
 
             for index, channel in enumerate(session.capture_channels):
                 channel.samples = unpack_channel_samples(raw_samples, index)

@@ -173,6 +173,9 @@ again from 0.1.
   answer kept the window frozen for up to about 12 s.
 - DSLogic: an endless stream whose trigger scrolled out of the samples kept (or a stream stopped
   before its trigger) marks no sample as the trigger (before, sample 0 or one past the end).
+- Pico: the answer to a command sent as a capture ends comes after the capture data; it reaches its
+  command even when the completion starts the next capture at once (a flow) - before, the new
+  capture dropped it or took it for its own answer and failed.
 
 ### Firmware
 

@@ -489,3 +489,32 @@ def test_pattern_blocks_round_trip():
 def test_capability_values_with_a_comma():
     assert protocol.split_capabilities("GPIO,PATTERN_GEN=50000000,8,STREAM=800000,TX_UART") == [
         "GPIO", "PATTERN_GEN=50000000,8", "STREAM=800000", "TX_UART"]
+
+
+def test_an_answer_after_the_capture_data_reaches_its_command(pico, board):
+    """A command sent as the capture ends is answered after the capture data; a capture the completion
+    handler starts at once (a flow) must neither drop that answer nor take it for its own."""
+    driver = pico.capture.driver
+    held = []
+
+    def handle(command, data):
+        if command == protocol.CMD_READ and board.capturing:
+            board.commands.append((command, data))
+            held.append("LEVELS:4")  # (answered after the capture data)
+            return
+        FakeBoard.handle(board, command, data)
+
+    board.handle = handle
+    restarted = []
+    assert driver.start_capture(make_session(), lambda args: restarted.append(
+        driver.start_capture(make_session(), lambda more: None))) == CaptureError.NONE
+    answers = []
+    reader = threading.Thread(target=lambda: answers.append(driver.command(protocol.CMD_READ, struct.pack("<I", 4))))
+    reader.start()
+    wait_for(lambda: held)
+    board.complete([1, 2, 3, 4, 5, 6, 7, 8])
+    board.reply(*held)
+    reader.join(4)
+    assert answers == ["LEVELS:4"]
+    wait_for(lambda: restarted)
+    assert restarted == [CaptureError.NONE]
