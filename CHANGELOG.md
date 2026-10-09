@@ -156,6 +156,10 @@ again from 0.1.
   *Install firmware* takes the image for the board; installing another image there, and a board just
   written with one, ask again. A board used at one's own risk says so on its device card. Flows,
   scripts and the command line refuse it with the reason.
+- **Record**: a stream to the disk until *Stop* that keeps everything (as long as the disk has room),
+  from the data view and the device card of every device that streams; it runs at the rate of the
+  settings or the highest the stream reaches and shows its time, size and the free space while it
+  runs.
 - A stopped capture of a device in a device process (the DSLogic, a Pico) no longer leaves the
   application thinking it still captures: a stopped buffer capture reports nothing, and the
   application waited for it for ever (*Stop* seemed to hang). A result that comes after the stop

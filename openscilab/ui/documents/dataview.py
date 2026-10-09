@@ -391,6 +391,7 @@ class DataView(QMainWindow, Document):
         # ---------------------------------------------------------- capture
         bar.add_widget("capture", controls.capture_button, "Capture", "capture", HIGH, pinned=True)
         bar.add_widget("again", controls.repeat_button, "Capture again", "capture", NORMAL)
+        bar.add_widget("record", controls.record_button, "Record a stream", "capture", NORMAL)
         bar.add_widget("stop", controls.stop_button, "Stop", "capture", HIGH, text=False)
         # ---------------------------------------------------------- device
         bar.add_widget("device", self.device_combo, "Device", "device", HIGH)
@@ -455,7 +456,7 @@ class DataView(QMainWindow, Document):
         self.use_instrument(data)
 
     #: entries of the tool bar for capturing: not in a view of data that come from elsewhere
-    CAPTURE_ENTRIES = ("capture", "again", "stop", "device", "quick", "settings", "profiles", "state", "open")
+    CAPTURE_ENTRIES = ("capture", "again", "record", "stop", "device", "quick", "settings", "profiles", "state", "open")
 
     def set_viewer(self, viewer: bool = True) -> None:
         """A view of data that come from elsewhere - the run data of a flow, a scope node: it shows

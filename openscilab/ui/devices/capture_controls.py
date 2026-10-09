@@ -66,6 +66,12 @@ class CaptureControls(QObject):
         set_icon(self.capture_button, "record")
         self.capture_button.setToolTip("Capture with these settings (F5)")
         self.capture_button.clicked.connect(self.start_capture)
+        self.record_button = QPushButton("Record", parent)
+        set_variant(self.record_button, "tool")
+        set_icon(self.record_button, "save")
+        self.record_button.setToolTip("Record a stream to the disk until Stop: everything is kept (as long as the "
+                                      "disk has room), at the rate of the settings or the highest the stream reaches")
+        self.record_button.clicked.connect(self.record_stream)
         self.repeat_button = QPushButton("Again", parent)
         set_variant(self.repeat_button, "tool")
         set_icon(self.repeat_button, "repeat")
@@ -140,6 +146,9 @@ class CaptureControls(QObject):
     def repeat_capture(self) -> bool:
         return self.controller is not None and bool(self.controller.repeat_capture())
 
+    def record_stream(self) -> bool:
+        return self.controller is not None and self.controller.record(self.parent_widget)
+
     def stop_capture(self) -> None:
         if self.controller is not None:
             self.controller.abort()
@@ -164,6 +173,12 @@ class CaptureControls(QObject):
         for widget in (self.quick_capture, self.settings_button, self.capture_button, self.profiles_button):
             widget.setEnabled(connected and not capturing)
         self.repeat_button.setEnabled(connected and not capturing and controller.last_session is not None)
+        can_record = controller is not None and controller.can_record()
+        if hasattr(self._parent, "set_available"):
+            self._parent.set_available("record", can_record)  # (a tool bar places its widgets itself)
+        else:
+            self.record_button.setVisible(can_record)
+        self.record_button.setEnabled(connected and not capturing and can_record)
         self.stop_button.setEnabled(capturing)
         self.update_state()
         self.summary_label.setText(self.summary())

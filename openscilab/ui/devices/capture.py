@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import logging
 import threading
+import time
 
 from typing import Callable, Optional
 
@@ -36,8 +37,8 @@ from ...core.profiles import (
     read_profiles_file,
     write_profiles_file,
 )
-from ...driver.base import CAPABILITY_SIMULATION, AnalyzerDriverBase, CaptureError
-from ...driver.models import CaptureSession
+from ...driver.base import ACQUISITION_STREAM, CAPABILITY_SIMULATION, AnalyzerDriverBase, CaptureError
+from ...driver.models import CaptureSession, TriggerType
 from .. import background, messages
 from ..icons import icon
 
@@ -72,6 +73,8 @@ def connection_error(text: str) -> bool:
 #: after a stop: how often and how long the controller waits for the driver to be idle
 ABORT_CHECK_MS = 50
 ABORT_CHECKS = 100
+#: a stopped stream recording gets this many times as long to hand over what it received
+RECORDING_STOP_FACTOR = 12
 
 
 class CaptureController(QObject):
@@ -116,6 +119,13 @@ class CaptureController(QObject):
         #: the time of the samples of the running capture (``core.timing.Acquisition``)
         self.acquisition = None
         self._running = False
+        #: ``time.monotonic`` when the running stream recording started (``None``: no recording)
+        self.recording_since: Optional[float] = None
+        #: samples of every channel the running recording received so far
+        self.recorded_samples = 0
+        self._recording_timer = QTimer(self)
+        self._recording_timer.setInterval(1000)
+        self._recording_timer.timeout.connect(self.state_changed.emit)  # (the time of the recording counts up)
         self.bridge.tile.connect(lambda args: self.view is not None and self.view._on_tile(args))
         self.driver.add_capture_completed_handler(self.bridge.completed.emit)
         self.driver.add_capture_progress_handler(self.bridge.progress.emit)
@@ -246,6 +256,61 @@ class CaptureController(QObject):
             return False
         return self.capture(session.clone_settings())
 
+    # ----------------------------------------------------- stream recording
+    def can_record(self) -> bool:
+        """The device streams: a recording takes everything until it is stopped."""
+        return ACQUISITION_STREAM in tuple(self.driver.acquisition_modes() or ())
+
+    def recording_session(self) -> Optional[CaptureSession]:
+        """The channels of the current settings as a stream to the disk that runs until it is stopped
+        (as long as the free space allows) at the rate of the settings, at most the stream's."""
+        base = self.settings()
+        if base is None or not base.capture_channels:
+            return None
+        session = base.clone_settings()
+        channels = session.channel_numbers
+        session.acquisition_mode = ACQUISITION_STREAM
+        session.to_disk = True
+        session.continuous = False
+        session.software_trigger = False
+        session.trigger_type = TriggerType.IMMEDIATE
+        session.trigger_sequence = None
+        session.clock_channel = None
+        session.loop_count = 0
+        rates = self.driver.sample_rates(channels, ACQUISITION_STREAM)
+        highest = self.driver.max_frequency_for(channels, ACQUISITION_STREAM)
+        if rates:
+            fitting = [rate for rate in rates if rate <= min(session.frequency, highest)]
+            session.frequency = fitting[-1] if fitting else rates[0]
+        else:
+            session.frequency = max(1, min(session.frequency, highest))
+        limits = self.driver.get_limits(channels, ACQUISITION_STREAM, to_disk=True)
+        session.pre_trigger_samples = 0
+        session.post_trigger_samples = limits.max_post_samples
+        return session if session.post_trigger_samples > 0 else None
+
+    def record(self, parent: Optional[QWidget] = None) -> bool:
+        """Record a stream to the disk until *Stop* (or the disk is nearly full): everything that
+        arrives is kept and shown in the data view when it ends."""
+        if self.is_capturing or not self.can_record():
+            return False
+        session = self.recording_session()
+        if session is None:
+            messages.warning(parent or self.view, "Record", "There is nothing to record.",
+                             "Choose the channels in the settings first, and make sure the disk has free space.")
+            return False
+        if not self.capture(session):
+            return False
+        self.recording_since = time.monotonic()
+        self.recorded_samples = 0
+        self._recording_timer.start()
+        self.state_changed.emit()
+        return True
+
+    def _end_recording(self) -> None:
+        self.recording_since = None
+        self._recording_timer.stop()
+
     def use_channel_names(self, names: dict[int, str]) -> bool:
         """The next capture of this device names its channels ``names`` (channel number -> name)."""
         from ..dialogs.capture_dialog import capture_settings_file
@@ -332,11 +397,14 @@ class CaptureController(QObject):
             self._abort_timer.stop()  # its result arrived (a stream)
             return
         self._abort_checks += 1
-        if self.driver.is_capturing and self._abort_checks < ABORT_CHECKS:
+        # (a stopped recording hands over what it received - that may take a while: waited for longer)
+        limit = ABORT_CHECKS * (RECORDING_STOP_FACTOR if self.recording_since is not None else 1)
+        if self.driver.is_capturing and self._abort_checks < limit:
             return
         if not self.driver.is_capturing and self._abort_checks < 2:
             return  # a result on its way through the event queue gets one more turn
         self._abort_timer.stop()
+        self._end_recording()
         self._running = False
         self.received = None
         if self.view is not None:
@@ -374,13 +442,33 @@ class CaptureController(QObject):
             self.view._queue_capture_progress(args)
         total = max(args.session.total_samples, 1) if args.session is not None else 0
         received = max((len(samples) for samples in args.samples.values()), default=0) if args.samples else 0
+        if self.recording_since is not None:
+            self.recorded_samples = (getattr(args, "first_sample", 0) or 0) + received
         fraction = min(received / total, 1.0) if total else None
         if fraction != self.received:
             self.received = fraction
             self.state_changed.emit()
 
+    def recording_text(self) -> str:
+        """``Recording 01:23 · 1.2 GB · 210 GB free`` while a stream recording runs."""
+        from ...core import units
+        from ...core.sample_store import disk_sample_bytes
+
+        seconds = int(time.monotonic() - (self.recording_since or time.monotonic()))
+        channels = len(self.last_session.capture_channels) if self.last_session is not None else 1
+        written = self.recorded_samples * max(channels, 1)  # (one byte per sample and channel on the disk)
+        try:
+            free = units.format_quantity(disk_sample_bytes(), "B", 3)
+        except Exception:  # noqa: BLE001 - the free space is only shown
+            free = "?"
+        clock = (f"{seconds // 3600:d}:{seconds // 60 % 60:02d}:{seconds % 60:02d}" if seconds >= 3600
+                 else f"{seconds // 60:02d}:{seconds % 60:02d}")
+        return f"Recording {clock}  ·  {units.format_quantity(written, 'B', 3)}  ·  {free} free"
+
     def state_text(self) -> tuple[str, str]:
         """What the capture does now, for people, and its kind: ``idle``, ``armed``, ``busy``, ``error``."""
+        if self.recording_since is not None and self.is_capturing:
+            return self.recording_text(), "busy"
         if self._running and self.is_capturing:
             if not self.received:
                 return "Armed, waiting for the trigger", "armed"
@@ -392,6 +480,7 @@ class CaptureController(QObject):
         return "Ready", "idle"
 
     def _completed(self, args) -> None:
+        self._end_recording()
         acquisition, self.acquisition = self.acquisition, None
         if acquisition is not None:
             from ...core import timing_tools

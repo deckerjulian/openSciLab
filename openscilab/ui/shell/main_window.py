@@ -1586,6 +1586,7 @@ class ShellWindow(QMainWindow):
         document.reconnect_requested.connect(self.reconnect_instrument)
         document.action_performed.connect(self.mark_action)
         document.record_requested.connect(self.record_monitor)
+        document.stream_record_requested.connect(self.record_stream)
         document.stimulus_requested.connect(self.stimulus_and_capture)
         document.firmware_requested.connect(self.update_device_firmware)
         document.example_requested.connect(self.open_example)
@@ -1684,6 +1685,14 @@ class ShellWindow(QMainWindow):
                           "Capture once with it (or set the toolbar's settings) first.")
             return False
         return True
+
+    def record_stream(self, instrument: Instrument) -> bool:
+        """*Record* of a device card: a stream to the disk until it is stopped, in the device's data view."""
+        controller = self.capture_controller(instrument)
+        if controller is None:
+            return False
+        self.show_data(instrument, beside=True)
+        return controller.record(self)
 
     def record_monitor(self, instrument: Instrument) -> Optional[DataView]:
         """Record the monitor of ``instrument`` into a new data view."""

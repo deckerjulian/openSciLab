@@ -227,6 +227,8 @@ class DeviceDocument(DocumentWidget):
     action_performed = Signal(object, str)
     #: record the monitor as a capture: (instrument, rate, pins, analog)
     record_requested = Signal(object)
+    #: *Record*: a stream of the device to the disk until it is stopped (into its data view)
+    stream_record_requested = Signal(object)
     #: *Update firmware* of the instrument
     firmware_requested = Signal(object)
     #: open an example of the library (``13-time/01-align-instruments``)
@@ -379,6 +381,15 @@ class DeviceDocument(DocumentWidget):
         self.data_button.setToolTip("Capture with this device in a data view (settings, start, the captures)")
         self.data_button.clicked.connect(lambda: self.data_requested.emit(self.instrument))
         header.addWidget(self.data_button)
+        self.stream_record_button = QPushButton("Record", self)
+        self.stream_record_button.setObjectName("stream-record")
+        set_icon(self.stream_record_button, "save")
+        self.stream_record_button.setToolTip("Record a stream to the disk until Stop: everything is kept (as long as "
+                                             "the disk has room); the recording opens in the data view")
+        self.stream_record_button.clicked.connect(lambda: self.stream_record_requested.emit(self.instrument))
+        self.stream_record_button.setVisible(getattr(self, "controller", None) is not None
+                                             and self.controller.can_record())
+        header.addWidget(self.stream_record_button)
         # the capture profiles of the device: saved settings (and decoders) loaded at a click
         self.profiles_button = QPushButton("Profiles", self)
         set_icon(self.profiles_button, "bookmark")
@@ -1294,6 +1305,9 @@ class DeviceDocument(DocumentWidget):
             subtitle.append(firmware.describe_firmware(driver.device_version))
         self.kind_label.setText("  ·  ".join(subtitle))
         self.data_button.setVisible(instrument.capture is not None)
+        controller = getattr(self, "controller", None)
+        self.stream_record_button.setVisible(controller is not None and controller.can_record())
+        self.stream_record_button.setEnabled(controller is not None and not controller.is_capturing)
         self.action_firmware.setVisible(driver is not None and firmware.update_method(driver) is not None)
         connected = instrument in self.hub and instrument.status != InstrumentStatus.DISCONNECTED
         for widget in (self.data_button, self.disconnect_button, self.safe_button, self.record_button):

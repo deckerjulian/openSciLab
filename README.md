@@ -29,6 +29,7 @@ view* of the lab. Windows, macOS and Linux; GPL-3.0.
 * **Panels** with switches, sliders, numbers, LEDs, charts and scopes bound to a flow – a measuring
   station of your own, also full screen.
 * **The logic analyzer** (*data view*): captures with triggers and trigger sequences, streams,
+  *Record* (a stream to the disk until it is stopped, everything kept),
   analog channels and state captures, sigrok decoders, cursors, measurements, search, buses,
   comparison with a reference, sample editing – and a C64/6502 bus decoder with disassembly.
 * **Signal generation**: waveforms, arbitrary points, digital patterns, UART/SPI/I²C frames, and
