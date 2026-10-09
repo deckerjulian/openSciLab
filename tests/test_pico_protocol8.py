@@ -330,6 +330,29 @@ def test_monitor_reports_arrive_while_idle(pico, board):
     assert struct.unpack("<IIB", board.sent(protocol.CMD_MONITOR)[-1]) == (0, 0, 0)
 
 
+def test_heartbeat_and_commands_while_reports_never_pause(pico, board):
+    # a monitor at 1 kHz sends a report every millisecond: the service thread must not keep
+    # reading them for ever (the watchdog of the board released the outputs after 1 s)
+    pico.monitor.on_state(lambda state: None)
+    pico.monitor.start(1000.0, ["GP2"])
+    stop = threading.Event()
+
+    def reports() -> None:
+        while not stop.wait(0.001):
+            board.reply("STATE:1,4")
+
+    threading.Thread(target=reports, daemon=True).start()
+    try:
+        pico.gpio.write("GP2", 1)
+        count = len(board.sent(protocol.CMD_HEARTBEAT))
+        wait_for(lambda: len(board.sent(protocol.CMD_HEARTBEAT)) >= count + 2, seconds=1.5)
+        started = time.monotonic()
+        pico.gpio.write("GP4", 1)
+        assert time.monotonic() - started < 0.2
+    finally:
+        stop.set()
+
+
 def test_analog_read(pico):
     values = pico.facet(AnalogInFacet).read(["A2", "A0"])
     assert values == {"A0": pytest.approx(100 * 3.3 / 4096), "A2": pytest.approx(300 * 3.3 / 4096)}

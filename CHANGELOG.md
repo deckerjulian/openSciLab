@@ -137,6 +137,9 @@ again from 0.1.
   (two-point calibration, NTC thermistor).
 - *Simulate* of a flow runs a simulated Arduino (`arduino-sim:`) on the simulator *uno* and a
   simulated Rigol (`rigol-sim:`) on *dho924s*, as it does for the real devices (before: *free*).
+- A Pico whose monitor reports 100 times a second or more keeps its outputs: the driver read the
+  reports as long as they came and sent no heartbeat meanwhile, so the board's watchdog released
+  the outputs and stopped the monitor after 1 s, and commands waited up to half a second.
 
 ### Firmware
 

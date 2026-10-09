@@ -172,6 +172,9 @@ COMMAND_TIMEOUT_S = 5.0
 CAPTURE_LINE_TIMEOUT_S = 0.5
 #: seconds between two looks of the service thread for monitor reports (while no capture runs)
 SERVICE_INTERVAL_S = 0.1
+#: longest time one look reads reports: a monitor sends them without a pause, and the lock (the
+#: commands) and the heartbeat must not wait for the end of them
+SERVICE_READ_S = 0.02
 #: seconds between two heartbeats (the watchdog of the firmware runs out after 1 s)
 HEARTBEAT_INTERVAL_S = 0.3
 #: highest sum of the analog sample rates (the ADC samples its inputs in turn)
@@ -435,7 +438,8 @@ class PicoDriver(AnalyzerDriverBase):
         try:
             if self._capturing:
                 return
-            while True:
+            deadline = time.monotonic() + SERVICE_READ_S
+            while time.monotonic() < deadline:
                 try:
                     line = self._transport.read_line(timeout=0.01)
                 except TransportTimeout:
