@@ -153,6 +153,9 @@ STATE_MODE_TRIGGERS = (
     TriggerType.FAST,
     TriggerType.SEQUENCE,
 )
+#: PIO cycles per sample of a trigger sequence capture (``SEQUENCE_CYCLES`` of the firmware): a
+#: capture without stages (the immediate trigger) runs up to the system clock / 5
+SEQUENCE_CYCLES = 5
 #: Conditions of a state mode sequence: the samples have no time base
 STATE_MODE_CONDITIONS = frozenset({ConditionKind.PATTERN.value, ConditionKind.EDGE.value})
 
@@ -655,7 +658,9 @@ class PicoDriver(AnalyzerDriverBase):
                 if session.clock_channel is not None and not self.supports_stream_state():
                     return CaptureError.UNSUPPORTED  # the stream samples at its rate only
                 return self._start_stream(session, completed_handler, internal_test)
-            if session.trigger_type == TriggerType.SEQUENCE or session.clock_channel is not None:
+            # The immediate trigger: a trigger sequence without stages, the capture starts at once
+            if (session.trigger_type in (TriggerType.SEQUENCE, TriggerType.IMMEDIATE)
+                    or session.clock_channel is not None):
                 return self._start_sequence(session, completed_handler)
 
             if (
@@ -760,6 +765,19 @@ class PicoDriver(AnalyzerDriverBase):
         stages, kinds, rate = limits
         return stages, kinds, min(rate, self.max_frequency) if rate else self.max_frequency
 
+    def immediate_max_frequency(self) -> int:
+        """Highest rate of a buffer capture with the immediate trigger: a trigger sequence capture
+        without stages, 5 PIO cycles per sample (40 MHz at a system clock of 200 MHz)."""
+        # The system clock without asking the board (not while a capture starts): the details read
+        # before, else the state mode's limit (system clock / 8), else twice the highest rate of
+        # the simple capture (2 cycles per sample)
+        try:
+            clock = int((self._details or {}).get("CLOCK") or 0)
+        except ValueError:
+            clock = 0
+        clock = clock or 8 * self.state_max_clock or 2 * self.max_frequency
+        return min(self.max_frequency, clock // SEQUENCE_CYCLES)
+
     def supports_state_mode(self) -> bool:
         """Samples on the edges of a clock channel (``CaptureSession.clock_channel``)."""
         return CAPABILITY_STATE_MODE in self.capabilities()
@@ -781,10 +799,12 @@ class PicoDriver(AnalyzerDriverBase):
     ) -> tuple[CaptureError, list[SequenceStage], list[int]]:
         """Stages of the capture in samples and the channels they look at.
 
-        In state mode the edge and pattern triggers become a sequence of one stage and the
-        immediate trigger one without stages.
+        In state mode the edge and pattern triggers become a sequence of one stage; the
+        immediate trigger is a sequence without stages in either mode.
         """
         trigger = session.trigger_type
+        if trigger == TriggerType.IMMEDIATE:
+            return CaptureError.NONE, [], []
         if state_mode:
             if trigger not in STATE_MODE_TRIGGERS:
                 return CaptureError.BAD_PARAMS, [], []
@@ -888,6 +908,10 @@ class PicoDriver(AnalyzerDriverBase):
             return CaptureError.UNSUPPORTED
         if session.trigger_type == TriggerType.SEQUENCE and self.trigger_sequence_limits() is None:
             return CaptureError.UNSUPPORTED
+        if session.trigger_type == TriggerType.IMMEDIATE and not (
+            self.trigger_sequence_limits() is not None or self.supports_state_mode()
+        ):
+            return CaptureError.UNSUPPORTED  # firmware without command 10
 
         error, stages, trigger_channels = self._sequence_stages(session, state_mode)
         if error != CaptureError.NONE:
@@ -906,9 +930,11 @@ class PicoDriver(AnalyzerDriverBase):
         # The firmware evaluates the stages on the samples: their channels must be part of them
         mode = self.get_capture_mode(list(channels) + trigger_channels)
         limits = self.get_limits(list(channels) + trigger_channels)
+        # Without stages the trigger is the first sample after the pre-trigger samples: none needed
+        min_pre = limits.min_pre_samples if stages else 0
         if not (
             session.loop_count == 0
-            and limits.min_pre_samples <= session.pre_trigger_samples <= limits.max_pre_samples
+            and min_pre <= session.pre_trigger_samples <= limits.max_pre_samples
             and limits.min_post_samples <= session.post_trigger_samples <= limits.max_post_samples
             and session.pre_trigger_samples + session.post_trigger_samples <= limits.max_total_samples
         ):
@@ -916,7 +942,7 @@ class PicoDriver(AnalyzerDriverBase):
             return CaptureError.BAD_PARAMS
         if not state_mode:
             limit = self.trigger_sequence_limits()
-            max_rate = limit[2] if limit else self.max_frequency
+            max_rate = (limit[2] if limit else self.max_frequency) if stages else self.immediate_max_frequency()
             if not self.min_frequency <= session.frequency <= max_rate:
                 log.debug("Sequence capture rejected: %d Hz, at most %d Hz", session.frequency, max_rate)
                 return CaptureError.BAD_PARAMS

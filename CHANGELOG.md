@@ -140,6 +140,13 @@ again from 0.1.
 - A Pico whose monitor reports 100 times a second or more keeps its outputs: the driver read the
   reports as long as they came and sent no heartbeat meanwhile, so the board's watchdog released
   the outputs and stopped the monitor after 1 s, and commands waited up to half a second.
+- **The latency of a Pico is measured with a capture** (*Timing* tab, `timing.calibrate` with
+  `mode: capture`): its capture without a trigger failed with "Specified parameters are incorrect",
+  since the firmware has no immediate trigger of its own. The driver now starts it as a trigger
+  sequence without stages, which begins at the first sample - up to a fifth of the system clock
+  (40 MHz on a Pico at 200 MHz), and the *Timing* tab offers the rates up to it. A Pico takes no
+  command while it streams, so a measurement with a stream says to measure with a capture, and an
+  output that cannot be switched ends the capture instead of leaving the device capturing.
 
 ### Firmware
 

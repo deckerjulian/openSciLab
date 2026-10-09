@@ -196,8 +196,9 @@ def loopback_samples(instrument: Instrument, channel: str, samples: int) -> int:
 
 def loopback_rate_limit(instrument: Instrument, channel: str, mode: str = "stream", samples: int = 100_000) -> int:
     """The highest rate a loopback measurement of ``channel`` can run at in ``mode`` (0: unknown): a
-    stream as fast as its link carries, a capture of ``samples`` (at most its memory) as long as it
-    lasts long enough to switch the output in it (three times :data:`MIN_SWITCH`)."""
+    stream as fast as its link carries, a capture of ``samples`` (at most its memory) as fast as the
+    device captures without a trigger and as long as it lasts long enough to switch the output in it
+    (three times :data:`MIN_SWITCH`)."""
     from ..driver.base import ACQUISITION_STREAM
 
     capture = instrument.facet(CaptureFacet)
@@ -209,9 +210,21 @@ def loopback_rate_limit(instrument: Instrument, channel: str, mode: str = "strea
     except (LatencyError, AttributeError, TypeError, ValueError):
         return 0
     if mode == "capture":
+        highest = _immediate_limit(capture.driver, highest)
         long_enough = int(loopback_samples(instrument, channel, samples) / (3 * MIN_SWITCH))
         highest = min(highest, long_enough) if highest else long_enough
     return highest
+
+
+def _immediate_limit(driver: Any, highest: int) -> int:
+    """``highest`` and the highest rate of a capture without a trigger, where the device says (a Pico
+    starts it as a trigger sequence without stages, slower than its edge trigger captures)."""
+    immediate = getattr(driver, "immediate_max_frequency", None)
+    try:
+        limit = int(immediate()) if callable(immediate) else 0
+    except (TypeError, ValueError):
+        limit = 0
+    return min(highest, limit) if highest and limit else (limit or highest)
 
 
 def loopback_plan(instrument: Instrument, channel: str, rate: float, mode: str, samples: int, repeats: int,
@@ -225,6 +238,11 @@ def loopback_plan(instrument: Instrument, channel: str, rate: float, mode: str, 
         if mode == "stream":
             raise LatencyError(f"{instrument.name} streams at most {units.format_quantity(highest, 'Hz')}; "
                                "choose a lower rate")
+        capture = instrument.facet(CaptureFacet)
+        immediate = _immediate_limit(capture.driver, 0) if capture is not None else 0
+        if immediate and rate > immediate:
+            raise LatencyError(f"{instrument.name} captures without a trigger at most at "
+                               f"{units.format_quantity(immediate, 'Hz', 3)}; choose a lower rate")
         held = loopback_samples(instrument, channel, samples)
         raise LatencyError(f"a capture of {held:,} samples at {units.format_quantity(rate, 'Hz')} lasts "
                            f"{units.format_quantity(held / rate, 's', 3)} - too short to switch the output in it; "
@@ -300,7 +318,13 @@ def measure_latency(instrument: Instrument, pin: str, channel: str, rate: float 
                 driver.stop_capture()
                 raise LatencyError("cancelled")
             commands.append(time.monotonic())  # (right before the command)
-            gpio.write(pin, (index + 1) % 2)
+            try:
+                gpio.write(pin, (index + 1) % 2)
+            except InstrumentError as error:
+                # (a Pico takes no command while it streams: any byte stops the stream)
+                driver.stop_capture()
+                hint = "; measure with a capture" if mode == "stream" else ""
+                raise LatencyError(f"{pin} could not be switched while the {mode} ran ({error}){hint}") from None
             time.sleep(step)
         if not done.wait(max(10.0, 4 * (repeats + 4) * interval)):
             driver.stop_capture()

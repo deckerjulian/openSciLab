@@ -58,6 +58,32 @@ def test_the_latency_is_measured_without_a_flow():
         timing_tools.measure_latency(open_simulated("dho924s"), "CH1", "CH2", store=False)
 
 
+def test_a_capture_loopback_keeps_to_the_rate_of_captures_without_a_trigger():
+    # a Pico captures without a trigger as a sequence without stages: up to 40 MHz, not 100 MHz
+    pico = open_simulated("pico", wiring=[{"from": "GP16", "to": "GP17"}])
+    driver = pico.facet(timing_tools.CaptureFacet).driver
+    driver.immediate_max_frequency = lambda: 5_000_000
+    assert timing_tools.loopback_rate_limit(pico, "GP17", "capture") == 5_000_000
+    assert timing_tools.loopback_rate_limit(pico, "GP17", "capture", samples=10_000) == int(10_000 / (3 * timing_tools.MIN_SWITCH))
+    with pytest.raises(timing_tools.LatencyError, match="without a trigger at most at 5 MHz"):
+        timing_tools.measure_latency(pico, "GP16", "GP17", rate=10_000_000, mode="capture", store=False)
+    assert timing_tools.measure_latency(pico, "GP16", "GP17", rate=5_000_000, mode="capture", store=False).value > 0
+
+
+def test_an_output_that_cannot_be_switched_ends_the_capture():
+    # (a Pico takes no command while it streams); the next measurement must not find it capturing
+    pico = open_simulated("pico", wiring=[{"from": "GP16", "to": "GP17"}])
+    gpio = pico.gpio
+    write = gpio.write
+    gpio.write = lambda pin, value: (_ for _ in ()).throw(timing_tools.InstrumentError("the device is streaming")) \
+        if pico.facet(timing_tools.CaptureFacet).driver.is_capturing else write(pin, value)
+    with pytest.raises(timing_tools.LatencyError, match="could not be switched while the stream ran.*measure with a capture"):
+        timing_tools.measure_latency(pico, "GP16", "GP17", rate=100_000, store=False)
+    assert wait(lambda: not pico.facet(timing_tools.CaptureFacet).driver.is_capturing)
+    gpio.write = write
+    assert timing_tools.measure_latency(pico, "GP16", "GP17", rate=100_000, store=False).value > 0
+
+
 def test_a_simulator_is_wired_and_its_usb_link_set():
     pico = open_simulated("pico")
     driver = pico.simulated_driver

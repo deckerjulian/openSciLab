@@ -427,6 +427,42 @@ def test_the_state_mode_without_firmware_sequences_is_immediate_only(monkeypatch
     assert run_capture(driver, session).success
 
 
+def test_an_immediate_capture_is_a_sequence_without_stages(pico):
+    """The firmware has no immediate trigger of its own: a sequence without stages starts at once
+    (the loopback of the *Timing* tab captures so)."""
+    session = sequence_session([], channels=(1,), pre=0, post=500, rate=16_000_000)
+    session.trigger_type = TriggerType.IMMEDIATE
+    transport = pico.test_transport
+    transport.queue_response("SEQUENCE_OK")
+    transport.queue_response("CAPTURE_STARTED")
+    transport.queue_response("CAPTURE_DATA")
+    transport.queue_data(build_capture_payload([index & 1 for index in range(500)], CaptureMode.CHANNELS_8))
+
+    result = run_capture(pico, session)
+    assert result.success
+    assert np.array_equal(result.session.capture_channels[0].samples, np.arange(500) & 1)
+    request = protocol.CaptureRequest(
+        trigger_type=7, channels=[1], channel_count=1, frequency=16_000_000, pre_samples=0, post_samples=500,
+    )
+    assert bytes(transport.written) == expected_packets(pico, SequenceRequest(stages=[]), request)
+
+
+def test_an_immediate_capture_runs_up_to_a_fifth_of_the_system_clock(pico):
+    # STATE_MAX_CLOCK=25000000 is the system clock / 8: 200 MHz, 5 cycles per sample
+    assert pico.immediate_max_frequency() == 40_000_000
+    session = sequence_session([], channels=(1,), pre=0, post=500, rate=50_000_000)
+    session.trigger_type = TriggerType.IMMEDIATE
+    assert pico.start_capture(session) is CaptureError.BAD_PARAMS
+    assert pico.test_transport.written == bytearray()
+
+
+def test_an_immediate_capture_needs_command_10(monkeypatch):
+    driver = make_driver(monkeypatch, OLD_CAPS)
+    session = sequence_session([], pre=0)
+    session.trigger_type = TriggerType.IMMEDIATE
+    assert driver.start_capture(session) is CaptureError.UNSUPPORTED
+
+
 def test_firmware_sources_report_the_capabilities():
     with open(os.path.join(FIRMWARE, "main.c")) as source:
         text = source.read()
