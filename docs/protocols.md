@@ -123,7 +123,8 @@ application only to offer the update. It opens boards whose `PROTOCOL:<n>` equal
 
 Pins are GPIO numbers (`GP<n>` in the pin table). Answers are `OK`, the answer named below, or
 `ERR:<reason>` (one line; the reason is for people). `ERR:BUSY` – the pin belongs to a running capture
-(a channel, a trigger or clock input; pins already driven before the capture stay usable) or the
+(a channel, a trigger or clock input; pins already driven before the capture keep their output
+and are captured through their input) or the
 command is not allowed while one runs; `ERR:RESERVED` – the pin is reserved (pin table);
 `ERR:PIN` – the pin cannot do it; `ERR:ARG` – a request of the wrong length or an impossible
 value; `ERR:FULL` – pattern data beyond the buffer; `ERR:NACK`, `ERR:TIMEOUT` – I²C. Hexadecimal

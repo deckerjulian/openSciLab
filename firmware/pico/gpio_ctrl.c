@@ -22,6 +22,9 @@
 static uint8_t modes[PIN_GPIO_COUNT];
 
 //PWM slices in use: divider and wrap, so pins sharing a slice keep one frequency
+//Time the pull-down of command 12 gets to discharge a pin (RP2350 erratum E9)
+#define PULL_DOWN_SETTLE_US 100
+
 #define PWM_SLICE_MAX 16
 static uint16_t sliceDiv16[PWM_SLICE_MAX];
 static uint16_t sliceTop[PWM_SLICE_MAX];
@@ -96,10 +99,11 @@ static void pulse_stop(void)
 
     aux_pio_release(&pulsePio);
 
-    //The pin keeps its idle level as an ordinary output
+    //The pin keeps its idle level as an ordinary output: SIO at the idle level first, then the
+    //function - gpio_set_function clears the inversion of a low pulse in the same write, so the
+    //pin does not dip (clearing it before would)
     gpio_put(pin, pulseLevel ? 0 : 1);
     gpio_set_dir(pin, GPIO_OUT);
-    gpio_set_outover(pin, GPIO_OVERRIDE_NORMAL);
     gpio_set_function(pin, GPIO_FUNC_SIO);
     modes[pin] = GPIO_MODE_OUTPUT;
 }
@@ -134,6 +138,19 @@ static void make_input(uint8_t gpio)
     modes[gpio] = GPIO_MODE_INPUT;
 }
 
+void gpio_ctrl_pull_down(uint8_t gpio, uint32_t settleUs)
+{
+#if PICO_RP2350
+    gpio_set_input_enabled(gpio, false);
+    gpio_pull_down(gpio);
+    busy_wait_us(settleUs);
+    gpio_set_input_enabled(gpio, true);
+#else
+    gpio_pull_down(gpio);
+    (void)settleUs;
+#endif
+}
+
 const char* gpio_ctrl_set_mode(uint8_t gpio, uint8_t mode)
 {
     static const uint8_t needs[] = { PIN_CAN_DIN, PIN_CAN_PULLUP, PIN_CAN_PULLDOWN, PIN_CAN_DOUT, PIN_CAN_PWM, PIN_CAN_ADC };
@@ -159,7 +176,7 @@ const char* gpio_ctrl_set_mode(uint8_t gpio, uint8_t mode)
 
         case PIN_MODE_PULLDOWN:
             make_input(gpio);
-            gpio_pull_down(gpio);
+            gpio_ctrl_pull_down(gpio, PULL_DOWN_SETTLE_US);
             modes[gpio] = GPIO_MODE_PULLDOWN;
             break;
 
@@ -325,9 +342,10 @@ const char* gpio_ctrl_pulse(uint8_t gpio, uint8_t level, uint32_t widthNs, uint1
     pio_sm_put(pio, sm, lowDelay);
     pio_sm_exec(pio, sm, pio_encode_pull(false, true));
 
-    //A low pulse: the output is inverted, so the idle level is high
-    gpio_set_outover(gpio, level ? GPIO_OVERRIDE_NORMAL : GPIO_OVERRIDE_INVERT);
+    //A low pulse: the output is inverted, so the idle level is high (after pio_gpio_init, which
+    //clears the overrides)
     pio_gpio_init(pio, gpio);
+    gpio_set_outover(gpio, level ? GPIO_OVERRIDE_NORMAL : GPIO_OVERRIDE_INVERT);
 
     pulsePin = gpio;
     pulseLevel = level;

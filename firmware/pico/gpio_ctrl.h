@@ -59,6 +59,12 @@ uint32_t gpio_ctrl_busy_mask(void);
 /// @brief Command 12
 const char* gpio_ctrl_set_mode(uint8_t gpio, uint8_t mode);
 
+/// @brief Enables the pull-down of an input and lets it pull the pin low. RP2350 erratum E9: with
+/// the input buffer enabled a pin that was high stays at about 2 V against the pull-down, so the
+/// pin is discharged with the buffer disabled (on the RP2040 only the pull-down is set).
+/// @param settleUs Time the pull-down gets to discharge the pin
+void gpio_ctrl_pull_down(uint8_t gpio, uint32_t settleUs);
+
 /// @brief Command 13: the pins of the mask become outputs with the levels
 const char* gpio_ctrl_write(uint32_t mask, uint32_t levels);
 

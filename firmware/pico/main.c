@@ -1509,6 +1509,10 @@ int main()
             {
                 send_capture();
 
+                //The host could send nothing while the data went out (over WiFi it waits 2 s first):
+                //the watchdog counts from the end of the transfer
+                lastFrameTime = time_us_64();
+
                 //Done!
                 capturing = false;
                 LED_ON();

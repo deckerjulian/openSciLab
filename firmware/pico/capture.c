@@ -561,6 +561,10 @@ void blast_capture_completed()
     irq_set_enabled(DMA_IRQ_0, false);
     irq_remove_handler (DMA_IRQ_0, blast_capture_completed);
 
+    //A capture stopped before its end leaves the channel paused but busy: abort it (with its
+    //interrupt off), else the next owner of the channel resumes the old transfer
+    dma_channel_abort(dmaPingPong0);
+
     //Unclaim the channels
     dma_channel_unclaim(dmaPingPong0);
 
@@ -898,9 +902,12 @@ bool StartCaptureFast(uint32_t freq, uint32_t preLength, uint32_t postLength, co
     pio_sm_restart(capturePIO, sm_Capture);
     captureOffset = pio_add_program(capturePIO, &FAST_CAPTURE_program);
 
-    //Modified for the W
+    //Modified for the W. The pin directions of a PIO block are shared by its state machines: on the
+    //RP2040 the outputs (pattern generator, pulses) run on PIO1 as well, so the pins they drive keep
+    //their direction (they are captured through their input)
     for(int i = 0; i < MAX_CHANNELS; i++)
-        pio_sm_set_consecutive_pindirs(capturePIO, sm_Capture, pinMap[i], 1, false);
+        if(!(GpioClaimedMask() & (1u << pinMap[i])))
+            pio_sm_set_consecutive_pindirs(capturePIO, sm_Capture, pinMap[i], 1, false);
 
     //Configure state machines
     pio_sm_config smConfig = FAST_CAPTURE_program_get_default_config(captureOffset);

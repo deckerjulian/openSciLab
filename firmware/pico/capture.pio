@@ -8,6 +8,13 @@
 
 ;--------------------------------------------------------------------------------------------
 .program BLAST_CAPTURE
+;The JMP pin reads 1 until the trigger (inverted for a rising edge): a trigger level that holds
+;already at the start does not trigger, the other level has to come first (an edge)
+
+ARM:
+
+    jmp pin LOOP                ;the other level: wait for the trigger
+    jmp ARM                     ;still at the trigger level
 
 LOOP:
 
@@ -113,11 +120,18 @@ LOCK:
 
 ;--------------------------------------------------------------------------------------------
 .program POSITIVE_CAPTURE
+;Rising edge: the trigger pin has to be low before it counts as high (a pin that is high at the
+;start does not trigger at once), also between the bursts
 
     pull
     out y 32    		        ;read loop count
     pull
     mov x, osr                  ;read capture length (use MOV instead of PULL so we can MOV it again on each loop)
+
+ARM:
+
+    in pins 32			        ;read sample
+    jmp pin ARM		            ;wait for the low level
 
 .wrap_target
 
@@ -143,6 +157,10 @@ LOOP:
 
     mov x, osr                  ;read loop count
 
+REARM:
+
+    jmp pin REARM               ;wait for the low level
+
 INNER_LOOP:
 
     jmp pin POST_CAPTURE        ;wait for trigger
@@ -150,11 +168,19 @@ INNER_LOOP:
 
 ;--------------------------------------------------------------------------------------------
 .program NEGATIVE_CAPTURE
+;Falling edge: the trigger pin has to be high before it counts as low, also between the bursts
 
     pull
     out y 32    		        ;read loop count
     pull
     mov x, osr                  ;read capture length (use MOV instead of PULL so we can MOV it again on each loop)
+
+.wrap_target
+
+    in pins 32			        ;read sample
+    jmp pin PRE_CAPTURE		    ;wait for the high level
+
+.wrap
 
 PRE_CAPTURE:
 
@@ -162,8 +188,6 @@ PRE_CAPTURE:
     jmp pin PRE_CAPTURE		    ;loop if pin is set
 
 POST_CAPTURE:
-
-.wrap_target
 
     in pins 32			        ;read sample
     jmp x-- POST_CAPTURE		;loop if more samples needed
@@ -180,19 +204,30 @@ LOOP:
 
     mov x, osr                  ;read loop count
 
-INNER_LOOP:
-    jmp pin INNER_LOOP          ;wait for trigger
+REARM:
 
-.wrap
+    jmp pin INNER_LOOP          ;wait for the high level
+    jmp REARM
+
+INNER_LOOP:
+
+    jmp pin INNER_LOOP          ;wait for trigger
+    jmp POST_CAPTURE
 
 ;--------------------------------------------------------------------------------------------
 .program POSITIVE_CAPTURE_MEASUREBURSTS
+;POSITIVE_CAPTURE with the timestamps of the bursts
 
     pull
     out y 32    		        ;read loop count
     pull
     mov x, osr                  ;read capture length (use MOV instead of PULL so we can MOV it again on each loop)
     irq wait 1                       ;trigger NMI to sync first timestamp
+
+ARM:
+
+    in pins 32			        ;read sample
+    jmp pin ARM		            ;wait for the low level
 
 .wrap_target
 
@@ -220,6 +255,10 @@ LOOP:
     irq 1                       ;trigger NMI on the CPU to capture burst timestamp
     mov x, osr                  ;read loop count
 
+REARM:
+
+    jmp pin REARM               ;wait for the low level
+
 INNER_LOOP:
 
     jmp pin POST_CAPTURE        ;wait for trigger
@@ -227,6 +266,7 @@ INNER_LOOP:
 
 ;--------------------------------------------------------------------------------------------
 .program NEGATIVE_CAPTURE_MEASUREBURSTS
+;NEGATIVE_CAPTURE with the timestamps of the bursts
 
     pull
     out y 32    		        ;read loop count
@@ -234,14 +274,19 @@ INNER_LOOP:
     mov x, osr                  ;read capture length (use MOV instead of PULL so we can MOV it again on each loop)
     irq wait 1                  ;trigger NMI to sync first timestamp
 
+.wrap_target
+
+    in pins 32			        ;read sample
+    jmp pin PRE_CAPTURE		    ;wait for the high level
+
+.wrap
+
 PRE_CAPTURE:
 
     in pins 32			        ;read sample
     jmp pin PRE_CAPTURE		    ;loop if pin is set
 
 POST_CAPTURE:
-
-.wrap_target
 
     in pins 32			        ;read sample
     jmp x-- POST_CAPTURE		;loop if more samples needed
@@ -260,10 +305,15 @@ LOOP:
     irq 1                       ;trigger NMI on the CPU to capture burst timestamp
     mov x, osr                  ;read loop count
 
-INNER_LOOP:
-    jmp pin INNER_LOOP          ;wait for trigger
+REARM:
 
-.wrap
+    jmp pin INNER_LOOP          ;wait for the high level
+    jmp REARM
+
+INNER_LOOP:
+
+    jmp pin INNER_LOOP          ;wait for trigger
+    jmp POST_CAPTURE
 
 ;--------------------------------------------------------------------------------------------
 .program COMPLEX_CAPTURE

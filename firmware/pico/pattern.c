@@ -255,6 +255,8 @@ const char* pattern_start(float rate, uint8_t firstPin, uint8_t pinCount, uint32
     pio_sm_exec(pio, sm, pio_encode_mov(pio_x, pio_osr));
     if(!timing.fast)
     {
+        //With autopull a PULL does nothing while the OSR is full: empty it first
+        pio_sm_exec(pio, sm, pio_encode_out(pio_null, 32));
         pio_sm_put(pio, sm, timing.delay);
         pio_sm_exec(pio, sm, pio_encode_pull(false, true));
         pio_sm_exec(pio, sm, pio_encode_mov(pio_isr, pio_osr));

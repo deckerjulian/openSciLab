@@ -40,8 +40,12 @@ static const char* check_pins(const uint8_t* pins, const uint8_t* caps, uint8_t 
 //The pin ends as an ordinary output at a level
 static void rest_output(uint8_t pin, bool level)
 {
-    gpio_ctrl_release(1u << pin);
-    gpio_ctrl_write(1u << pin, level ? 1u << pin : 0);
+    //SIO at the level first, then the function: gpio_set_function switches the source and clears
+    //the inversion of a clock with polarity 1 in one write, so the pin neither floats nor flips
+    gpio_put(pin, level);
+    gpio_set_dir(pin, GPIO_OUT);
+    gpio_set_function(pin, GPIO_FUNC_SIO);
+    gpio_ctrl_take(1u << pin, GPIO_MODE_OUTPUT);
 }
 
 //------------------------------------------------------------------------ UART
@@ -166,10 +170,10 @@ const char* tx_spi(uint8_t sck, uint8_t mosi, uint8_t miso, uint8_t cs, uint32_t
     pio_sm_set_pins_with_mask(pio, sm, 0, outputs);
     pio_sm_set_pindirs_with_mask(pio, sm, outputs, outputs);
 
-    //Clock polarity 1: the clock idles high
-    gpio_set_outover(sck, cpol ? GPIO_OVERRIDE_INVERT : GPIO_OVERRIDE_NORMAL);
     pio_gpio_init(pio, sck);
     pio_gpio_init(pio, mosi);
+    //Clock polarity 1: the clock idles high (after pio_gpio_init, which clears the overrides)
+    gpio_set_outover(sck, cpol ? GPIO_OVERRIDE_INVERT : GPIO_OVERRIDE_NORMAL);
 
     if(miso != 0xFF)
     {
@@ -209,7 +213,6 @@ const char* tx_spi(uint8_t sck, uint8_t mosi, uint8_t miso, uint8_t cs, uint32_t
         gpio_put(cs, 1);
 
     aux_pio_release(&slot);
-    gpio_set_outover(sck, GPIO_OVERRIDE_NORMAL);
 
     //Idle levels as ordinary outputs, MISO an input
     rest_output(sck, cpol);

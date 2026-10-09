@@ -202,13 +202,17 @@ checked with the internal pull-up and pull-down resistors.
 | `TRIGGER_LINK` | trigger output drives trigger input (Pico: GPIO 0 → GPIO 1), against the opposite pull | `OK` / `FAIL` / `SKIPPED` |
 | `CH1` … `CHn` | input follows pull-up and pull-down | `OK`, `STUCK_HIGH`, `STUCK_LOW`, `INVERTED` |
 | `SEQUENCE` | speed of the trigger sequence evaluation measured at start-up, `SEQUENCE_MAX_RATE` and `STATE_MAX_CLOCK` | `INFO` |
-| `CAPTURE` | capture the pull pattern (odd channel numbers high, even low) through PIO and DMA, 1000 samples at 1 MHz, channel 1 as trigger | `OK` / `FAIL` / `SKIPPED` |
+| `CAPTURE` | capture the pull pattern (odd channel numbers high, even low) through PIO and DMA, 1000 samples at 1 MHz, channel 1 as trigger (its pull-up comes on after the start: a rising edge) | `OK` / `FAIL` / `SKIPPED` |
 | `BLAST_CAPTURE` | the same in blast mode at maximum frequency | `OK` / `FAIL` / `SKIPPED` |
 
 The capture tests only compare channels that follow the pull resistors.
 
 **Limits:**
 * Shorts between two channels cannot be detected reliably with equally strong pull resistors.
+* RP2350 (erratum E9): a pin that was high stays at about 2 V against the pull-down while its
+  input buffer is enabled. The self-test (and command 12, input with pull-down) therefore pulls
+  the pin down with the buffer disabled and enables it again to read; a pin that is driven high
+  later and released floats high again.
 * Boards with input buffers or level shifters report their channels as `STUCK_*`, because the
   buffer drives the input.
 

@@ -138,6 +138,35 @@ again from 0.1.
 - *Simulate* of a flow runs a simulated Arduino (`arduino-sim:`) on the simulator *uno* and a
   simulated Rigol (`rigol-sim:`) on *dho924s*, as it does for the real devices (before: *free*).
 
+### Firmware
+
+Found on a Pico 2 with firmware 8 (the first test on hardware):
+
+- **The edge trigger waits for an edge**: a capture whose trigger channel was already at the
+  trigger level started at once, in the middle of the level, with pre-trigger samples that were
+  never recorded; between the bursts of a capture with a loop count the next burst started at once
+  as well (200 ns after the one before instead of at the next edge). The trigger channel now has to
+  be at the other level first, as the simulators always had it.
+- **The pattern generator below 50 MHz** put out its own timing value as the first sample and then
+  hung (endless) or ran through the pattern in a few cycles (a count of passes): with autopull a
+  `PULL` does nothing while the OSR is full, so the delay per sample never arrived.
+- **Low pulses** (`PULSE` with level 0) came out as high pulses, and **SPI modes 2 and 3** ran
+  their clock idle low: the inversion of the pin was set before `pio_gpio_init`, which clears it.
+- **Pull-downs on the RP2350** (Pico 2, Pico 2 W): erratum E9 keeps a pin that was high at about
+  2 V against the pull-down, so the self-test reported every channel `STUCK_HIGH` and skipped the
+  capture tests, and an input with pull-down read 1. The pin is now pulled down with its input
+  buffer disabled for a moment (`PIN_MODE` input with pull-down, the self-test).
+- Found in a review (not tried on hardware yet: the test board drives no outputs):
+  - The watchdog counts from the end of a capture's transfer: a capture that took long to send
+    (always over WiFi) released the outputs at once afterwards.
+  - A fast-trigger capture on an RP2040 board no longer turns the pins of the pattern generator and
+    the pulses into inputs (they run on the same PIO block).
+  - The blast trigger waits for an edge too (a trigger level at the start does not trigger).
+  - A blast capture stopped before its end aborts its DMA channel: the next owner of the channel
+    resumed the old transfer.
+  - A low pulse, SPI in modes 2 and 3 and UART end without a glitch: the pin no longer dips or floats
+    while it becomes an ordinary output.
+
 ## [0.1.0b1] - 2026-10-06
 
 The first release of **openSciLab**, the open measurement and control lab that PiPiLogicAnalyzer

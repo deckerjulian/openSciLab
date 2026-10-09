@@ -16,6 +16,7 @@
 #include "hardware/gpio.h"
 #include "hardware/clocks.h"
 #include "capture.h"
+#include "gpio_ctrl.h"
 #include "self_test.h"
 
 extern const uint8_t pinMap[];
@@ -29,8 +30,13 @@ extern const uint8_t pinMap[];
 
 static void report(SELFTEST_REPORT out, void* context, const char* item, const char* status, const char* detail)
 {
-    char line[192];
-    snprintf(line, sizeof(line), "SELFTEST:%s:%s:%s\n", item, status, detail ? detail : "");
+    char line[256];
+    int length = snprintf(line, sizeof(line), "SELFTEST:%s:%s:%s\n", item, status, detail ? detail : "");
+
+    //A cut line still ends the line: the host reads line by line
+    if(length >= (int)sizeof(line))
+        line[sizeof(line) - 2] = '\n';
+
     out(line, context);
 }
 
@@ -187,16 +193,37 @@ static void test_capture_path(SELFTEST_REPORT out, void* context, uint32_t usabl
         channels[channel] = channel;
         gpio_set_pulls(pinMap[channel], up, !up);
 
+#if PICO_RP2350
+        //Erratum E9: the pull-down discharges the pin only with the input buffer disabled
+        if(!up)
+            gpio_set_input_enabled(pinMap[channel], false);
+#endif
+
         if(up)
             expected |= 1u << channel;
     }
 
     busy_wait_ms(SETTLE_MS);
 
+#if PICO_RP2350
+    for(uint8_t channel = 0; channel < MAX_CHANNELS; channel++)
+        gpio_set_input_enabled(pinMap[channel], true);
+#endif
+
+    //The edge triggers need a rising edge on channel 1: it starts low and gets its pull-up once
+    //the capture waits
+    gpio_ctrl_pull_down(pinMap[0], SETTLE_MS * 1000);
+
     uint32_t frequency = blast ? MAX_BLAST_FREQ : PATTERN_FREQUENCY;
     bool started = blast ?
         StartCaptureBlast(frequency, PATTERN_SAMPLES, channels, MAX_CHANNELS, 0, false, MODE_24_CHANNEL) :
         StartCaptureSimple(frequency, 0, PATTERN_SAMPLES, 0, 0, channels, MAX_CHANNELS, 0, false, MODE_24_CHANNEL);
+
+    if(started)
+    {
+        busy_wait_us(10);
+        gpio_set_pulls(pinMap[0], true, false);
+    }
 
     if(started)
     {
