@@ -55,7 +55,7 @@ from ... import __version__
 from ...core import fuzzy, preferences, recent, settings
 from ...core.hub import EVENT_REMOVED, Hub
 from ...core.instrument import Instrument, InstrumentStatus
-from ...driver.base import DeviceConnectionError, FirmwareOutdatedError
+from ...driver.base import BoardMismatchError, DeviceConnectionError, FirmwareOutdatedError
 from ...driver.simulated import follow_routes
 from ...sigrok.provider import SigrokProvider
 from .. import background, devices, messages
@@ -1519,6 +1519,8 @@ class ShellWindow(QMainWindow):
             return None
         try:
             instrument = backend.open_instrument(entry, self)
+        except BoardMismatchError as error:
+            return self.resolve_board_mismatch(error, lambda: self.connect_entry(entry))
         except FirmwareOutdatedError as error:
             where = f" on {error.location}" if error.location else ""
             if messages.confirm(self, "Firmware update needed",
@@ -1541,6 +1543,29 @@ class ShellWindow(QMainWindow):
         self.hub.add(instrument)
         self.open_device_card(instrument)
         return instrument
+
+    def resolve_board_mismatch(self, error: BoardMismatchError, retry: Callable[[], Optional[Instrument]]
+                               ) -> Optional[Instrument]:
+        """A Pico on a board its firmware does not fit (``core/board_check.py``): the warning offers its
+        firmware; using it anyway takes the confirmed risk, then ``retry`` opens it again."""
+        from ...core import board_check
+        from ..dialogs import board_warning_dialog as warning
+
+        finding = error.finding
+        if not isinstance(finding, board_check.BoardFinding):
+            messages.error(self, "Wrong firmware for this board", str(error))
+            return None
+        choice = warning.ask(self, finding, warning.OPENING)
+        if choice == warning.ACCEPT:
+            board_check.accept(finding)
+            return retry()
+        if choice == warning.INSTALL:
+            document = self.show_hardware()
+            if document is not None:
+                document.install_fitting(error.location, finding)
+            return None
+        self.statusBar().showMessage("The board was not opened: its firmware does not fit it", 8000)
+        return None
 
     def device_card(self, instrument: Instrument) -> Optional[DeviceDocument]:
         for document in self.area.documents():
@@ -1793,6 +1818,10 @@ class ShellWindow(QMainWindow):
                                      lambda: open_instrument(instrument.uri))
         except background.Cancelled:
             return None
+        except BoardMismatchError as error:
+            if old_card is not None:
+                self.area.close_document(old_card, force=True)
+            return self.resolve_board_mismatch(error, lambda: self.reconnect_instrument(instrument))
         except Exception as error:  # noqa: BLE001 - every way a device can fail to open
             if old_card is not None:
                 old_card.show_banner(f"{instrument.name} could not be opened: {error}", "error")

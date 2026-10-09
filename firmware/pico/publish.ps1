@@ -22,7 +22,7 @@ param (
 $ErrorActionPreference = "Stop"
 Set-Location -Path $PSScriptRoot
 
-$allBoards = @("BOARD_PICO", "BOARD_PICO_2", "BOARD_PICO_W", "BOARD_PICO_W_WIFI", "BOARD_PICO_2_W", "BOARD_PICO_2_W_WIFI", "BOARD_ZERO", "BOARD_INTERCEPTOR")
+$allBoards = @("BOARD_PICO", "BOARD_PICO_2", "BOARD_PICO_W", "BOARD_PICO_W_WIFI", "BOARD_PICO_2_W", "BOARD_PICO_2_W_WIFI", "BOARD_ZERO", "BOARD_INTERCEPTOR", "BOARD_LOGICANALYZER_V2")
 if (-not $Boards) {
     $Boards = $allBoards
 }

@@ -15,7 +15,11 @@
 //only exercised with the internal pull resistors, nothing is driven on them.
 //
 //Every result is reported as a line "SELFTEST:<item>:<status>:<detail>\n", the test ends with
-//"SELFTEST_END\n". Status: OK, FAIL, INFO, SKIPPED, STUCK_HIGH, STUCK_LOW, INVERTED.
+//"SELFTEST_END\n". Status: OK, FAIL, INFO, SKIPPED, WARN, STUCK_HIGH, STUCK_LOW, INVERTED.
+//
+//Boards with level shifters in front of the channels (INPUT_LEVEL_SHIFTERS) report whether the
+//shifters are supplied (LEVEL_SHIFTERS) instead of the channels; the other boards warn when they
+//look like one (BOARD_TYPE).
 
 typedef void (*SELFTEST_REPORT)(const char* line, void* context);
 

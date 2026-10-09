@@ -41,6 +41,7 @@ from ..base import (
     CaptureMode,
     DeviceConnectionError,
     DeviceSection,
+    BoardMismatchError,
     FirmwareOutdatedError,
     SelfTestResult,
     UnsupportedFeatureError,
@@ -75,10 +76,13 @@ class MultiAnalyzerDriver(AnalyzerDriverBase):
         try:
             for connection_string in connection_strings:
                 self._devices.append(PicoDriver(connection_string))
+                check = getattr(self._devices[-1], "check_board", None)
+                if check is not None:
+                    check()  # (every board of the set, see core/board_check.py)
         except Exception as error:
             for device in self._devices:
                 device.dispose()
-            if isinstance(error, FirmwareOutdatedError):
+            if isinstance(error, (FirmwareOutdatedError, BoardMismatchError)):
                 raise
             raise DeviceConnectionError(f"Error connecting to the devices: {error}") from error
 

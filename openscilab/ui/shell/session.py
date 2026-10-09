@@ -95,6 +95,7 @@ def session_state(shell: "ShellWindow") -> dict[str, Any]:
 # --------------------------------------------------------------- restoring
 def reconnect(shell: "ShellWindow", uris: list[str]) -> list[str]:
     """Connect the devices of ``uris`` again; returns those that could not be opened."""
+    from ...driver.base import BoardMismatchError
     from ...lab.engine.devices import open_instrument
 
     failed = []
@@ -112,6 +113,15 @@ def reconnect(shell: "ShellWindow", uris: list[str]) -> list[str]:
                 instrument = background.run(shell, f"Connecting to {uri}...", lambda uri=uri: open_instrument(uri))
         except background.Cancelled:
             failed.append(uri)
+            continue
+        except BoardMismatchError as error:
+            # a board its firmware does not fit: the warning (install its firmware, or the confirmed risk)
+            opened = shell.resolve_board_mismatch(
+                error, lambda uri=uri: background.run(shell, f"Connecting to {uri}...", lambda: open_instrument(uri)))
+            if opened is None:
+                failed.append(uri)
+            else:
+                shell.hub.add(opened)
             continue
         except Exception as error:  # noqa: BLE001 - every way a device can be missing
             log.info("Device %s of the last session is not there: %s", uri, error)

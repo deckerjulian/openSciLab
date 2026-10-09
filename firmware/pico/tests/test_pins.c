@@ -42,7 +42,12 @@ int main(void)
         CHECK(info != NULL);
         CHECK(info->channel == channel);
         CHECK(info->reserved == NULL);
-        CHECK((info->caps & (PIN_CAN_DIN | PIN_CAN_DOUT | PIN_CAN_PWM | PIN_CAN_CLOCK)) == (PIN_CAN_DIN | PIN_CAN_DOUT | PIN_CAN_PWM | PIN_CAN_CLOCK));
+        #ifdef INPUT_LEVEL_SHIFTERS
+            // A level shifter drives the pin: an input only (no output, pulls, PWM or ADC)
+            CHECK(info->caps == (PIN_CAN_DIN | PIN_CAN_CLOCK));
+        #else
+            CHECK((info->caps & (PIN_CAN_DIN | PIN_CAN_DOUT | PIN_CAN_PWM | PIN_CAN_CLOCK)) == (PIN_CAN_DIN | PIN_CAN_DOUT | PIN_CAN_PWM | PIN_CAN_CLOCK));
+        #endif
     }
 
     // The trigger pins of a multi-board set are reserved
@@ -52,8 +57,16 @@ int main(void)
     CHECK(pins_reserved_mask() & (1u << COMPLEX_TRIGGER_OUT_PIN));
     CHECK(pins_valid_mask() == 0x3FFFFFFFu);
 
-    // The square wave output (GP22) is a free PWM pin
-    CHECK(pins_info(22)->reserved == NULL && (pins_info(22)->caps & PIN_CAN_PWM));
+    // The square wave output (GP22) is a free PWM pin (not behind a level shifter)
+    #ifdef INPUT_LEVEL_SHIFTERS
+        CHECK(!(pins_info(22)->caps & PIN_CAN_PWM));
+        // No pin of the board can be driven but the trigger output, and none is an analog input
+        for(uint8_t gpio = 0; gpio < pins_count(); gpio++)
+            if(!pins_info(gpio)->reserved)
+                CHECK(!(pins_info(gpio)->caps & (PIN_CAN_DOUT | PIN_CAN_PWM | PIN_CAN_PULLUP | PIN_CAN_PULLDOWN)));
+    #else
+        CHECK(pins_info(22)->reserved == NULL && (pins_info(22)->caps & PIN_CAN_PWM));
+    #endif
 
     // Every line has the fields of docs/protocols.md
     for(uint8_t gpio = 0; gpio < pins_count(); gpio++)
@@ -77,6 +90,19 @@ int main(void)
     #if defined (BUILD_ZERO) || defined (BUILD_INTERCEPTOR)
         CHECK(pins_adc_count() == 4);
         CHECK(pins_adc_mask() == 0x0F);
+    #elif defined (INPUT_LEVEL_SHIFTERS)
+        CHECK(pins_adc_count() == 0);
+        CHECK(pins_adc_mask() == 0);
+        CHECK(pins_info(29)->reserved != NULL);
+        CHECK(pins_info(25)->reserved != NULL);
+        CHECK(pins_info(23)->reserved != NULL);
+        CHECK(pins_info(24)->reserved != NULL);
+        pins_format(2, line, sizeof(line));
+        CHECK(strcmp(line, "PIN:GP2,DIN/CLOCK,0,3300,-") == 0);
+        pins_format(26, line, sizeof(line));
+        CHECK(strcmp(line, "PIN:GP26,DIN/CLOCK,21,3300,-") == 0);
+        pins_format(1, line, sizeof(line));
+        CHECK(strcmp(line, "PIN:GP1,DIN,-,3300,-,reserved: trigger input (tied to GP0 and the EXT trigger on the board)") == 0);
     #else
         CHECK(pins_adc_count() == 3);
         CHECK(pins_adc_mask() == 0x07);

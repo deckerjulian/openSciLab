@@ -69,6 +69,7 @@ from ..base import (
     CaptureMode,
     DeviceConnectionError,
     DeviceSection,
+    BoardMismatchError,
     FirmwareOutdatedError,
     SelfTestResult,
     UnsupportedFeatureError,
@@ -283,6 +284,8 @@ class PicoDriver(AnalyzerDriverBase):
             self._transport = SerialTransport(connection_string, timeout=connect_timeout)
 
         log.debug("Opening %s device %s", "network" if self._is_network else "serial", connection_string)
+        #: what the firmware measured about the board around the Pico (``core.board_check``)
+        self.board_finding = None
         try:
             self._query_device_info()
         except Exception as error:
@@ -335,6 +338,27 @@ class PicoDriver(AnalyzerDriverBase):
             self._channel_count,
             self._request_layout.size,
         )
+
+    def check_board(self) -> None:
+        """Raises ``BoardMismatchError`` for a board with level shifters that runs the image of a bare
+        board (its outputs would drive against the shifters), unless someone confirmed it for this
+        board (``core/board_check.py``). Called when the board is opened as an instrument."""
+        from ...core import board_check
+
+        if CAPABILITY_DEVICE_INFO not in self.capabilities():
+            return
+        details = self.device_details()
+        if not details:
+            self._details = None  # (no answer now: asked again when the details are needed)
+        self.board_finding = finding = board_check.examine(self._version, details)
+        if finding is None or not finding.mismatch:
+            return
+        if board_check.accepted(finding):
+            log.warning("%s: %s Used at the user's own risk (confirmed for this board).",
+                        self.connection_string, finding.message)
+            return
+        raise BoardMismatchError(f"{finding.title}: {finding.message}", self._version or "",
+                                 self.connection_string, finding)
 
     def _read_int_response(self, pattern: re.Pattern[str], description: str) -> int:
         line = self._read_answer(timeout=self._id_timeout)

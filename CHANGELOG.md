@@ -147,6 +147,15 @@ again from 0.1.
   (40 MHz on a Pico at 200 MHz), and the *Timing* tab offers the rates up to it. A Pico takes no
   command while it streams, so a measurement with a stream says to measure with a capture, and an
   output that cannot be switched ends the capture instead of leaving the device capturing.
+- **The board around a Pico is checked when it is opened and when it is written**: the firmware
+  measures it (`INFO:TRIGGER_CHAIN`, `INFO:CHANNELS_DRIVEN`). The LogicAnalyzer board of gusmanb
+  (its trigger chain pulls GP0/GP1 to GND) with the image of a bare Pico, whose outputs would drive
+  against the board's level shifters, is not opened: a warning offers the firmware for the board,
+  and using it anyway takes a tick that confirms the risk (kept for this board by the unique ID of
+  its chip). Such a board shows *wrong firmware for this board* in *Connected hardware*, whose
+  *Install firmware* takes the image for the board; installing another image there, and a board just
+  written with one, ask again. A board used at one's own risk says so on its device card. Flows,
+  scripts and the command line refuse it with the reason.
 
 ### Firmware
 
@@ -176,6 +185,14 @@ Found on a Pico 2 with firmware 8 (the first test on hardware):
     resumed the old transfer.
   - A low pulse, SPI in modes 2 and 3 and UART end without a glitch: the pin no longer dips or floats
     while it becomes an ordinary output.
+- **An image for the LogicAnalyzer board V2 of gusmanb** (`BOARD_LOGICANALYZER_V2`, with a
+  Pico 2; the board of his firmware 6.0): level shifters drive its 24 channels, so they are inputs
+  only - the firmware refuses outputs, pulls, PWM, pulses, the pattern generator, the transmitters
+  and the ADC on them, and the board reports none of these functions. Its self-test checks that the
+  shifters are supplied (the VREF switch on *ext* without a voltage switches them off, and the
+  channels read nothing). A board that runs it is always updated with its own image. The image of
+  a bare Pico or Pico 2 warns in its self-test when it looks like such a board (GP0/GP1 pulled to
+  GND by the board's trigger chain, or every channel driven from outside).
 
 ## [0.1.0b1] - 2026-10-06
 

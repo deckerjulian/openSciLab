@@ -53,6 +53,13 @@ def no_unanswered_message_boxes(monkeypatch):
 
     monkeypatch.setattr(messages, "_exec", unexpected)
 
+    from openscilab.ui.dialogs import board_warning_dialog
+
+    def unexpected_warning(dialog):
+        raise AssertionError(f"Unexpected board warning: {dialog.finding.message}")
+
+    monkeypatch.setattr(board_warning_dialog, "_exec", unexpected_warning)
+
 
 @pytest.fixture(autouse=True)
 def empty_clipboard():

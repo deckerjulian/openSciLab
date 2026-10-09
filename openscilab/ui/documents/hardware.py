@@ -16,6 +16,7 @@ way (any image, any board).
 
 from __future__ import annotations
 
+import dataclasses
 import logging
 from typing import Callable, Optional
 
@@ -33,7 +34,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from ...core import firmware
+from ...core import board_check, firmware
 from ...core.hub import EVENT_ADDED, EVENT_REMOVED, Hub
 from .. import messages
 from ..devices import hardware
@@ -67,6 +68,8 @@ STATES = {
     "update": ("update available", "device.busy"),
     "unknown": ("board not recognised", "device.disconnected"),
     "none": ("no openSciLab firmware", "device.busy"),
+    # a Pico on a board with level shifters that runs the image of a bare board (core/board_check.py)
+    "board": ("wrong firmware for this board", "device.error"),
 }
 
 
@@ -89,11 +92,11 @@ class _VersionWorker(QThread):
 
     def run(self) -> None:  # noqa: D401 - QThread entry point
         try:
-            version, _details = self.query(self.port)
+            version, details = self.query(self.port)
         except Exception:  # noqa: BLE001 - shown as "could not be read"
-            log.debug("version, _details = self.query(self.port) failed: shown as 'could not be read'", exc_info=True)
-            version = None
-        self.found.emit(self.port, version)
+            log.debug("version, details = self.query(self.port) failed: shown as 'could not be read'", exc_info=True)
+            version, details = None, {}
+        self.found.emit(self.port, (version, details or {}))
 
 
 class HardwareDocument(DocumentWidget):
@@ -118,6 +121,10 @@ class HardwareDocument(DocumentWidget):
         self._query = query or query_analyzer
         self._images = images or (lambda: hardware._safe(firmware.find_images))
         self.versions: dict[str, Optional[str]] = {}
+        #: the ``INFO`` details of the analyzers that are not open (by port): what they measured about their board
+        self.details: dict[str, dict] = {}
+        #: the port of a board just written whose board is checked once its details are read
+        self._check_port: Optional[str] = None
         self._workers: dict[str, _VersionWorker] = {}
         self.entries: list[HardwareEntry] = []
         #: the table shows ``entries`` (False until the first scan, and while rows must be rebuilt)
@@ -207,6 +214,7 @@ class HardwareDocument(DocumentWidget):
         present = {entry.port for entry in entries if entry.port}
         for port in [port for port in self.versions if port not in present]:
             del self.versions[port]  # unplugged: read again when it is back
+            self.details.pop(port, None)
         for entry in entries:
             if entry.kind == hardware.ANALYZER and entry.instrument is None and entry.port \
                     and entry.port not in self.versions and entry.port not in self._workers:
@@ -214,6 +222,7 @@ class HardwareDocument(DocumentWidget):
                 worker.found.connect(self._version_found)
                 self._workers[entry.port] = worker
                 worker.start()
+        self._apply_board_check(entries, images)
         if self._filled and [entry.key for entry in entries] == [entry.key for entry in self.entries] and \
                 [(entry.firmware, entry.state) for entry in entries] == \
                 [(entry.firmware, entry.state) for entry in self.entries]:
@@ -223,10 +232,48 @@ class HardwareDocument(DocumentWidget):
         self._filled = True
         self._fill()
 
-    def _version_found(self, port: str, version) -> None:
+    def _version_found(self, port: str, found) -> None:
         self._workers.pop(port, None)
+        version, details = found if isinstance(found, tuple) else (found, {})
         self.versions[port] = version
+        self.details[port] = dict(details or {})
         self.refresh()
+        if port == self._check_port:
+            self._check_port = None
+            self._check_written(port)
+
+    # ------------------------------------------------------------ board check
+    def finding_of(self, entry: HardwareEntry) -> Optional[board_check.BoardFinding]:
+        """What the firmware of ``entry`` measured about its board (``None``: nothing known)."""
+        if entry.instrument is not None:
+            driver = entry.instrument.capture.driver if entry.instrument.capture is not None else None
+            if driver is None or not driver.supports_bootloader:
+                return None
+            try:
+                return board_check.examine(driver.device_version, driver.device_details())
+            except Exception:  # noqa: BLE001 - a device that does not answer: nothing known
+                log.debug("The board of %s could not be examined", entry.title, exc_info=True)
+                return None
+        if entry.port and entry.kind == hardware.ANALYZER:
+            return board_check.examine(self.versions.get(entry.port), self.details.get(entry.port))
+        return None
+
+    def _fitting_image(self, finding: board_check.BoardFinding,
+                       images: Optional[list] = None) -> Optional[firmware.Uf2Image]:
+        fitting = finding.fitting_board
+        return firmware.matching_image(images if images is not None else self._images(), fitting) if fitting else None
+
+    def _apply_board_check(self, entries: list[HardwareEntry], images: list) -> None:
+        """A board with level shifters that runs the image of a bare board: its state says so and its
+        image is the one for the board."""
+        for entry in entries:
+            finding = self.finding_of(entry)
+            if finding is None or not finding.mismatch:
+                continue
+            entry.state = "board"
+            entry.image = self._fitting_image(finding, images)
+            entry.notes.append("LogicAnalyzer board of gusmanb (level shifters)"
+                               + ("" if entry.image else ": no firmware image for it"))
 
     def _fill(self) -> None:
         self.table.setRowCount(len(self.entries))
@@ -287,11 +334,11 @@ class HardwareDocument(DocumentWidget):
             layout.addWidget(button)
         if entry.can_install:
             label = "Update firmware" if entry.state == "update" else (
-                "Install firmware" if entry.state in ("none", "unknown") else "Reinstall firmware")
+                "Install firmware" if entry.state in ("none", "unknown", "board") else "Reinstall firmware")
             button = QPushButton(label, widget)
             button.setObjectName(f"install-{entry.key}")
             set_icon(button, "chip")
-            if entry.state in ("update", "none"):
+            if entry.state in ("update", "none", "board"):
                 set_variant(button, "primary")
             button.setToolTip("Writes the firmware image of this openSciLab that fits the board: restarts the "
                               "board into its bootloader, writes the image, connects it again")
@@ -319,6 +366,11 @@ class HardwareDocument(DocumentWidget):
         """The image to install on ``entry``: the one for its board, else one for its chip (asked when
         there are several)."""
         images = self._images()
+        finding = self.finding_of(entry)
+        if finding is not None and finding.shifter_board:
+            image = self._fitting_image(finding, images)
+            if image is not None:
+                return image
         if entry.board is not None:
             image = firmware.matching_image(images, entry.board)
             if image is not None:
@@ -335,20 +387,39 @@ class HardwareDocument(DocumentWidget):
                                  "The bootloader cannot tell a Pico from a Pico W (or a Pico 2 from a Pico 2 W).")
         return None if choice is None else candidates[choice]
 
-    def install(self, entry: HardwareEntry, restart_open: Optional[Callable[[], bool]] = None) -> bool:
+    def install(self, entry: HardwareEntry, restart_open: Optional[Callable[[], bool]] = None,
+                image: Optional[firmware.Uf2Image] = None) -> bool:
         if self.installer.busy:
             return False
-        image = self.image_for(entry)
+        image = image or self.image_for(entry)
         if image is None:
             messages.warning(self, "Install firmware", "There is no firmware image for this board.",
                              "Build them with firmware/build_all.sh (the packaged application includes them), or "
                              "use Choose an image… for a .uf2 file.")
             return False
+        finding = self.finding_of(entry)
+        if finding is not None and finding.shifter_board and (image.board is None or
+                                                              image.board.name != board_check.SHIFTER_BOARD):
+            from ..dialogs import board_warning_dialog as warning
+
+            choice = warning.ask(self, finding, warning.FLASHING, image.file_name)
+            if choice == warning.INSTALL:
+                image = self._fitting_image(finding)
+                if image is None:
+                    return False
+            elif choice == warning.ACCEPT:
+                # the board runs this image afterwards: confirmed for it
+                board_check.accept(dataclasses.replace(finding, firmware_board=image.board.name if image.board else ""))
+            else:
+                return False
         version = f" {image.version}" if image.version else ""
+        found = (" A board with level shifters was found (the LogicAnalyzer board of gusmanb): this is its firmware."
+                 if finding is not None and finding.shifter_board and image.board is not None
+                 and image.board.name == board_check.SHIFTER_BOARD else "")
         if not messages.confirm(self, "Install firmware",
                                 f"Install firmware{version} for the {image.board.label if image.board else 'board'} "
                                 f"on {entry.connection}?", "Install",
-                                f"{image.file_name}. The firmware on the board is replaced; the board restarts."):
+                                f"{image.file_name}. The firmware on the board is replaced; the board restarts.{found}"):
             return False
         if entry.instrument is not None:
             driver = entry.instrument.capture.driver if entry.instrument.capture is not None else None
@@ -397,8 +468,44 @@ class HardwareDocument(DocumentWidget):
         if success and getattr(self, "_reopen", False) and self.installer.new_port:
             from ..devices import pico as pico_devices
 
+            # (opening it checks its board: a wrong firmware is refused there with the warning)
             self.open_requested.emit(pico_devices.serial_entry(self.installer.new_port))
+        elif success and self.installer.new_port:
+            # the board is checked once its details are read (refresh reads them)
+            self._check_port = self.installer.new_port
+            if self.installer.new_port in self.details:
+                self._check_port = None
+                self._check_written(self.installer.new_port)
         self._reopen = False
+
+    def _check_written(self, port: str) -> None:
+        """After writing a board: the warning when its firmware does not fit the board it sits on."""
+        from ..dialogs import board_warning_dialog as warning
+
+        finding = board_check.examine(self.versions.get(port), self.details.get(port))
+        if finding is None or not finding.mismatch or board_check.accepted(finding):
+            return
+        running = firmware.board_by_name(finding.firmware_board)
+        choice = warning.ask(self, finding, warning.FLASHED, running.label if running else finding.firmware_board)
+        if choice == warning.ACCEPT:
+            board_check.accept(finding)
+        elif choice == warning.INSTALL:
+            entry = next((entry for entry in self.entries if entry.port == port), None)
+            image = self._fitting_image(finding)
+            if entry is not None and image is not None:
+                self.install(entry, image=image)
+
+    def install_fitting(self, port: str, finding: board_check.BoardFinding) -> bool:
+        """Installs the firmware for the board of the analyzer on ``port`` (from the board warning)."""
+        self.refresh()
+        entry = next((entry for entry in self.entries if entry.port == port), None)
+        image = self._fitting_image(finding)
+        if entry is None or image is None:
+            messages.warning(self, "Install firmware", "The firmware for this board could not be installed.",
+                             "The board is not in the list, or there is no image for it.")
+            return False
+        self.details.setdefault(port, {})  # (what it measured is known: no warning when it was written)
+        return self.install(entry, image=image)
 
     def manual_install(self) -> None:
         """*Choose an image…*: the manual dialog. An open analyzer is released before its board

@@ -150,6 +150,7 @@ jobs:
           - BOARD_PICO_2_W_WIFI
           - BOARD_ZERO
           - BOARD_INTERCEPTOR
+          - BOARD_LOGICANALYZER_V2
     steps:
       - uses: actions/checkout@v5
 

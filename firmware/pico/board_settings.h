@@ -42,6 +42,11 @@
     
     //If defined, the board has no LED
     //#define NO_LED
+
+    //If defined, level shifters drive the channel inputs (LogicAnalyzer board V2 of gusmanb): the
+    //channel pins are inputs only - no outputs, pulls, PWM or ADC on them, the self-test does not
+    //check them with the pulls
+    //#define INPUT_LEVEL_SHIFTERS
     
     //Defines the used GPIO used for the GPIO and WS2812 led types
     //#define LED_IO 25
@@ -94,6 +99,32 @@
 
         #define BOARD_NAME "PICO_2"
         #define SUPPORTS_COMPLEX_TRIGGER
+        #define INPUT_PIN_BASE 2
+        #define COMPLEX_TRIGGER_OUT_PIN 0
+        #define COMPLEX_TRIGGER_IN_PIN 1
+        #define GPIO_LED
+        #define LED_IO 25
+        #define PIN_MAP {2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,26,27,28,COMPLEX_TRIGGER_IN_PIN}
+
+        #ifdef TURBO_MODE
+            #define MAX_FREQ 200000000
+            #define MAX_BLAST_FREQ 400000000
+        #else
+            #define MAX_FREQ 100000000
+            #define MAX_BLAST_FREQ 200000000
+        #endif
+        #define CAPTURE_BUFFER_SIZE (128 * 3 * 1024)
+        #define MAX_CHANNELS 24
+
+    #elif defined (BUILD_LOGICANALYZER_V2)
+
+        //The LogicAnalyzer board V2 of gusmanb (sold with his firmware 6.0) with a Pico 2: six
+        //TXU0104 translate the 24 inputs from VREF (switch 3.3 V / 5 V / ext) to 3.3 V and drive
+        //the GPIOs of the Pico 2 (same pin map); GP0 and GP1 are tied together on the board
+        //(trigger chain, 8.2 kOhm to GND, through a diode to the EXT trigger pin)
+        #define BOARD_NAME "LOGICANALYZER_V2"
+        #define SUPPORTS_COMPLEX_TRIGGER
+        #define INPUT_LEVEL_SHIFTERS
         #define INPUT_PIN_BASE 2
         #define COMPLEX_TRIGGER_OUT_PIN 0
         #define COMPLEX_TRIGGER_IN_PIN 1

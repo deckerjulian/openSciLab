@@ -17,12 +17,13 @@
 #include "hardware/clocks.h"
 #include "capture.h"
 #include "gpio_ctrl.h"
+#include "board_check.h"
 #include "self_test.h"
 
 extern const uint8_t pinMap[];
 
 //Time for a pull resistor to charge the pin capacitance
-#define SETTLE_MS 2
+#define SETTLE_MS BOARD_CHECK_SETTLE_MS
 //Samples recorded by the capture path tests
 #define PATTERN_SAMPLES 1000
 #define PATTERN_FREQUENCY 1000000
@@ -40,12 +41,8 @@ static void report(SELFTEST_REPORT out, void* context, const char* item, const c
     out(line, context);
 }
 
-//Back to the reset state of the pad: no function, pull-down enabled
-static void restore_pin(uint8_t pin)
-{
-    gpio_deinit(pin);
-    gpio_set_pulls(pin, false, true);
-}
+#define restore_pin board_check_restore_pin
+#define read_with_pulls board_check_read_with_pulls
 
 static void test_board(SELFTEST_REPORT out, void* context)
 {
@@ -135,19 +132,9 @@ static uint32_t test_channels(SELFTEST_REPORT out, void* context)
     for(uint8_t channel = 0; channel < MAX_CHANNELS; channel++)
     {
         uint8_t pin = pinMap[channel];
+        bool high, low;
 
-        gpio_init(pin);
-        gpio_set_dir(pin, GPIO_IN);
-
-        gpio_set_pulls(pin, true, false);
-        busy_wait_ms(SETTLE_MS);
-        bool high = gpio_get(pin);
-
-        gpio_set_pulls(pin, false, true);
-        busy_wait_ms(SETTLE_MS);
-        bool low = !gpio_get(pin);
-
-        restore_pin(pin);
+        read_with_pulls(pin, &high, &low);
 
         const char* status;
 
@@ -281,6 +268,76 @@ static void test_capture_path(SELFTEST_REPORT out, void* context, uint32_t usabl
         restore_pin(pinMap[channel]);
 }
 
+#ifdef INPUT_LEVEL_SHIFTERS
+
+//Level shifters drive the channels: the pulls cannot test the inputs, but they tell whether the
+//shifters are supplied (a channel that follows its pulls is not driven: no VREF). Returns the
+//channels that follow the pulls.
+static uint32_t test_level_shifters(SELFTEST_REPORT out, void* context)
+{
+    uint32_t following = 0;
+    uint32_t levels = 0;
+    char detail[160];
+
+    for(uint8_t channel = 0; channel < MAX_CHANNELS; channel++)
+    {
+        bool high, low;
+        read_with_pulls(pinMap[channel], &high, &low);
+
+        if(high && low)
+            following |= 1u << channel;
+        else if(high)
+            levels |= 1u << channel;
+    }
+
+    uint32_t all = MAX_CHANNELS >= 32 ? 0xFFFFFFFFu : (1u << MAX_CHANNELS) - 1;
+
+    if(following == 0)
+    {
+        snprintf(detail, sizeof(detail), "supplied, they drive all %d channels (levels 0x%06lX); not checked with the pulls",
+            MAX_CHANNELS, (unsigned long)levels);
+        report(out, context, "LEVEL_SHIFTERS", "OK", detail);
+    }
+    else if(following == all)
+        report(out, context, "LEVEL_SHIFTERS", "WARN",
+            "not supplied: no channel is driven - VREF switch on ext without a voltage at EXT VREF? The inputs read nothing");
+    else
+    {
+        snprintf(detail, sizeof(detail), "channels not driven (mask 0x%06lX): a level shifter without supply or a broken one",
+            (unsigned long)following);
+        report(out, context, "LEVEL_SHIFTERS", "FAIL", detail);
+    }
+
+    return following;
+}
+
+#else
+
+//A board with level shifters in front of the channels (the LogicAnalyzer board of gusmanb) runs
+//the firmware of a bare board: its pins must not be outputs. Its trigger chain ties GP0 and GP1 to
+//GND through 8.2 kOhm (the pull-up of GP1 does not lift it); its shifters drive every channel.
+static void test_board_type(SELFTEST_REPORT out, void* context, uint32_t followingChannels)
+{
+    BOARD_SIGNATURE signature;
+    board_check(&signature);
+
+    bool chainPulledDown = signature.chain == TRIGGER_CHAIN_PULLED_DOWN;
+    bool allDriven = followingChannels == 0;
+
+    if(!chainPulledDown && !allDriven)
+        return;
+
+    report(out, context, "BOARD_TYPE", "WARN",
+#if defined(CORE_TYPE_2)
+        "looks like the LogicAnalyzer board V2 of gusmanb (GP0/GP1 pulled down, channels driven): no outputs on the channels, install openSciLab-pico_BOARD_LOGICANALYZER_V2.uf2"
+#else
+        "looks like a board with level shifters (GP0/GP1 pulled down, channels driven): do not use the channels as outputs"
+#endif
+        );
+}
+
+#endif
+
 void RunSelfTest(SELFTEST_REPORT out, void* context)
 {
     test_board(out, context);
@@ -288,10 +345,28 @@ void RunSelfTest(SELFTEST_REPORT out, void* context)
     test_ram(out, context);
     test_trigger_link(out, context);
 
+#ifdef INPUT_LEVEL_SHIFTERS
+    //Supplied shifters leave nothing to compare a capture with; without supply the inputs follow
+    //the pulls as on a bare board
+    uint32_t usableChannels = test_level_shifters(out, context);
+
+    if(usableChannels & 1)
+    {
+        test_capture_path(out, context, usableChannels, false);
+        test_capture_path(out, context, usableChannels, true);
+    }
+    else
+    {
+        report(out, context, "CAPTURE", "SKIPPED", "the level shifters drive the channels (the stream test checks the capture path)");
+        report(out, context, "BLAST_CAPTURE", "SKIPPED", "the level shifters drive the channels");
+    }
+#else
     uint32_t usableChannels = test_channels(out, context);
+    test_board_type(out, context, usableChannels);
 
     test_capture_path(out, context, usableChannels, false);
     test_capture_path(out, context, usableChannels, true);
+#endif
 
     out("SELFTEST_END\n", context);
 }

@@ -444,6 +444,13 @@ class DeviceDocument(DocumentWidget):
         self.banner.setVisible(False)
         self.banner.button.clicked.connect(lambda: self.banner.setVisible(False))
         layout.addWidget(self.banner)
+        # a Pico on a board its firmware does not fit, used at the user's own risk: stays while it is open
+        self.risk_banner = Banner("error", self)
+        self.risk_banner.setObjectName("board-risk")
+        self.risk_banner.setVisible(False)
+        self.risk_banner.button.clicked.connect(lambda: self.firmware_requested.emit(self.instrument))
+        layout.addWidget(self.risk_banner)
+        self._show_board_risk()
 
     def start_capture(self) -> bool:
         """Capture with this device: in its data view (the settings and the start are there)."""
@@ -1246,6 +1253,24 @@ class DeviceDocument(DocumentWidget):
         if self.instrument.uri:
             remember_circuit(self.instrument.uri, **values)
         self.refresh()
+
+    def _show_board_risk(self) -> None:
+        """The banner of a board used with a firmware that does not fit it (``core/board_check.py``)."""
+        from ...core import board_check
+
+        driver = self.instrument.capture.driver if self.instrument.capture is not None else None
+        finding = None
+        if driver is not None and getattr(driver, "supports_bootloader", False):
+            try:
+                finding = board_check.examine(driver.device_version, driver.device_details())
+            except Exception:  # noqa: BLE001 - a device that does not answer: nothing to show
+                log.debug("The board of %s could not be examined", self.instrument.name, exc_info=True)
+        if finding is None or not finding.mismatch:
+            self.risk_banner.setVisible(False)
+            return
+        self.risk_banner.set_message(
+            "<b>Used at your own risk:</b> " + html.escape(finding.message),
+            "Install the firmware for this board" if finding.fitting_board is not None else None)
 
     def show_banner(self, text: str, kind: str = "error") -> None:
         """A message about the device above the tabs (``kind``: info, warning, error)."""

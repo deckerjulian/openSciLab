@@ -76,6 +76,27 @@ def test_longest_board_type_wins():
     assert firmware.board_from_text("blink.uf2") is None
 
 
+def test_the_board_with_level_shifters_keeps_its_own_image(tmp_path):
+    """The LogicAnalyzer board V2 (gusmanb) runs a Pico 2 behind level shifters: a board that runs its
+    firmware is offered its image, never the one of a bare Pico 2 (whose outputs would drive against
+    the shifters)."""
+    assert firmware.board_from_text("openSciLab-pico_BOARD_LOGICANALYZER_V2_Turbo.uf2").name == "LOGICANALYZER_V2"
+    identity = firmware.parse_device_version("OPENSCILAB_PICO_LOGICANALYZER_V2_V8_0")
+    assert (identity.board_name, identity.major, identity.minor) == ("LOGICANALYZER_V2", 8, 0)
+    assert identity.board.chip == "RP2350"
+    families = (firmware.FAMILY_RP2350_ARM_S,)
+    images = [firmware.read_uf2(str(make_uf2(tmp_path / name, families=families))) for name in (
+        "openSciLab-pico_BOARD_PICO_2.uf2", "openSciLab-pico_BOARD_LOGICANALYZER_V2.uf2",
+        "openSciLab-pico_BOARD_LOGICANALYZER_V2_Turbo.uf2")]
+    _state, image = firmware.firmware_state("OPENSCILAB_PICO_LOGICANALYZER_V2_V8_0", images)
+    assert image.file_name == "openSciLab-pico_BOARD_LOGICANALYZER_V2.uf2"
+    _state, image = firmware.firmware_state("OPENSCILAB_PICO_PICO_2_V8_0", images)
+    assert image.file_name == "openSciLab-pico_BOARD_PICO_2.uf2"
+    # a board in bootloader mode tells only its chip: the bare Pico 2 comes first
+    assert firmware.images_for(images, chip="RP2350")[0].file_name == "openSciLab-pico_BOARD_PICO_2.uf2"
+    assert "LogicAnalyzer board V2" in firmware.describe_firmware("OPENSCILAB_PICO_LOGICANALYZER_V2_V8_0")
+
+
 @pytest.mark.parametrize("content", [bytes(512), bytes(100), b""])
 def test_invalid_uf2_files_are_rejected(tmp_path, content):
     path = tmp_path / "broken.uf2"

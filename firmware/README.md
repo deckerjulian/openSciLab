@@ -5,7 +5,7 @@ tested and versioned with the application.
 
 | Firmware | Folder | Boards | Build | State |
 | --- | --- | --- | --- | --- |
-| Pico | [`pico/`](pico/) | Raspberry Pi Pico, Pico 2, Pico W, Pico 2 W, RP2040-Zero, Interceptor | Pico SDK 2.1.1, ARM GNU toolchain 14.2, CMake/Ninja | version 8 not yet tried on hardware (the 7.x firmware it extends is in use) |
+| Pico | [`pico/`](pico/) | Raspberry Pi Pico, Pico 2, Pico W, Pico 2 W, RP2040-Zero, Interceptor, LogicAnalyzer board V2 (gusmanb) | Pico SDK 2.1.1, ARM GNU toolchain 14.2, CMake/Ninja | version 8 not yet tried on hardware (the 7.x firmware it extends is in use) |
 | Arduino | [`arduino/`](arduino/) | Uno, Nano, Mega 2560, Uno R4 Minima, ESP32, ESP32-S3 | PlatformIO | built and host-tested, not yet tested on hardware |
 | Bridge app | [`bridge-android/`](bridge-android/) | Rigol DHO900 (Android) | Gradle, Android SDK, JDK 17 | built, not yet tested on the instrument |
 
@@ -145,6 +145,28 @@ bootloader first and then waits until the analyzer appears as a serial port.
 | `BOARD_PICO_2_W_WIFI` | Pico 2 W with WiFi | 24 | 384 KB | – |
 | `BOARD_ZERO` | RP2040-Zero | 24 | 128 KB | ✓ |
 | `BOARD_INTERCEPTOR` | LogicAnalyzer Interceptor | 28 | 128 KB | ✓ |
+| `BOARD_LOGICANALYZER_V2` | LogicAnalyzer board V2 of gusmanb with a Pico 2 (level shifters, see below) | 24 | 384 KB | ✓ |
+
+### LogicAnalyzer board V2 (gusmanb)
+
+The board of the original project for the Pico 2 (`Electronics/LogicAnalyzer/LogicAnalyzerV2` in
+its branch `version/v6_5`, sold with his firmware 6.0). Six TI TXU0104 translate the 24 inputs of
+the connector from VREF (switch: 3.3 V, 5 V or *ext*, the voltage at the EXT VREF pin) to 3.3 V and
+**drive** the GPIOs of the Pico 2; the pin map is that of the Pico 2. GP0 and GP1 are tied together
+on the board (trigger chain, 8.2 kΩ to GND, through a diode to the EXT trigger pin).
+
+`BOARD_LOGICANALYZER_V2` is the image for it: the channel pins are inputs only (pin table
+`DIN/CLOCK`; the firmware answers `ERR:PIN` to outputs, pulls, PWM, pulses, the pattern
+generator, the transmitters and the ADC on them), the board reports no `PWM`, `ANALOG`,
+`PATTERN_GEN`, `GEN_SQUARE` or `TX_*`, `INFO:INPUTS` says that the inputs are buffered, and the
+self-test checks that the shifters are supplied instead of testing the channels with the pull
+resistors. The image of a bare Pico 2 on this board would drive its outputs against the shifters;
+its self-test warns (`BOARD_TYPE`) when it finds the pulled-down trigger chain or channels driven
+from outside. A board in bootloader mode tells only its chip, so the application offers the bare
+Pico 2 image for it first: choose `openSciLab-pico_BOARD_LOGICANALYZER_V2.uf2` for this board.
+
+With the VREF switch on *ext* and no voltage at EXT VREF the shifters are not supplied: their
+outputs are off and the channels read nothing (`LEVEL_SHIFTERS:WARN` in the self-test).
 
 Turbo mode overclocks to 400 MHz with raised core voltage (200 Msps instead of 100 Msps). Unlike
 the original, `TURBO_MODE` is **off** by default and has to be enabled deliberately.
@@ -170,7 +192,7 @@ application only offers what they list.
 | --- | --- |
 | Command 8 (capabilities) | `CAPS:SELFTEST,SIMULATION,DEVICEINFO,STREAM=800000,EDGE_TRIGGER_OUT,PATTERN_GROUPS=0-20/21-23,TRIGGER_SEQUENCE=8,TRIGGER_CONDITIONS=pattern/edge/pulse/gap,SEQUENCE_MAX_RATE=<Hz>,STATE_MODE,STATE_MAX_CLOCK=<Hz>` (`EDGE_TRIGGER_OUT` and `PATTERN_GROUPS` on boards with pattern trigger; `STREAM=<bytes per second>` is the rate a stream capture can send; the last five: see [Trigger sequences and state mode](#trigger-sequences-and-state-mode)) |
 | Command 7 (self-test) | one line `SELFTEST:<test>:<status>:<details>` per test, finally `SELFTEST_END` |
-| Command 9 (device information) | lines `INFO:<key>:<value>`, finally `INFO_END`. Keys: `BOARD`, `FIRMWARE`, `BUILD_DATE`, `SDK`, `CHIP`, `CHIP_REVISION` and `ROM_VERSION` (RP2040 only), `UNIQUE_ID`, `FLASH_SIZE`, `CLOCK`, `TURBO`, `WIFI`, `PATTERN_TRIGGER` |
+| Command 9 (device information) | lines `INFO:<key>:<value>`, finally `INFO_END`. Keys: `BOARD`, `FIRMWARE`, `BUILD_DATE`, `SDK`, `CHIP`, `CHIP_REVISION` and `ROM_VERSION` (RP2040 only), `UNIQUE_ID`, `FLASH_SIZE`, `CLOCK`, `TURBO`, `WIFI`, `PATTERN_TRIGGER`; `INPUTS` on boards with level shifters; `TRIGGER_CHAIN` (`PULLED_DOWN`: the trigger chain of a board with level shifters, `FREE`, `UNKNOWN`) and `CHANNELS_DRIVEN` (`<driven>/<checked>`), measured with the pull resistors when asked (`board_check.h`) |
 | Capture request with `triggerType = 4` | simulated capture, pattern in `triggerValue`, `loopCount` must be 0 |
 | Capture request with `triggerType = 5` | edge trigger on channel `trigger` (falling edge with `inverted`) that also drives the trigger output, like the pattern triggers: the board that triggers a multi device set |
 | Capture request with `triggerType = 6` | stream capture over USB, see [Stream capture](#stream-capture); `triggerValue = 1` streams a test counter instead of the inputs |
@@ -200,7 +222,9 @@ checked with the internal pull-up and pull-down resistors.
 | `BOARD` | board, firmware version, channels, buffer size, system clock | `INFO` |
 | `RAM` | write the capture buffer with two bit patterns and read it back | `OK` / `FAIL` |
 | `TRIGGER_LINK` | trigger output drives trigger input (Pico: GPIO 0 → GPIO 1), against the opposite pull | `OK` / `FAIL` / `SKIPPED` |
-| `CH1` … `CHn` | input follows pull-up and pull-down | `OK`, `STUCK_HIGH`, `STUCK_LOW`, `INVERTED` |
+| `CH1` … `CHn` | input follows pull-up and pull-down (not on boards with level shifters) | `OK`, `STUCK_HIGH`, `STUCK_LOW`, `INVERTED` |
+| `LEVEL_SHIFTERS` | boards with level shifters: the shifters drive every channel (a channel that follows the pulls is not driven: no VREF) | `OK` / `WARN` (none driven) / `FAIL` (some) |
+| `BOARD_TYPE` | other boards: the trigger chain pulled down (GP1 low with its pull-up) or every channel driven from outside, as on a board with level shifters; only reported then | `WARN` |
 | `SEQUENCE` | speed of the trigger sequence evaluation measured at start-up, `SEQUENCE_MAX_RATE` and `STATE_MAX_CLOCK` | `INFO` |
 | `CAPTURE` | capture the pull pattern (odd channel numbers high, even low) through PIO and DMA, 1000 samples at 1 MHz, channel 1 as trigger (its pull-up comes on after the start: a rising edge) | `OK` / `FAIL` / `SKIPPED` |
 | `BLAST_CAPTURE` | the same in blast mode at maximum frequency | `OK` / `FAIL` / `SKIPPED` |
@@ -214,7 +238,9 @@ The capture tests only compare channels that follow the pull resistors.
   the pin down with the buffer disabled and enables it again to read; a pin that is driven high
   later and released floats high again.
 * Boards with input buffers or level shifters report their channels as `STUCK_*`, because the
-  buffer drives the input.
+  buffer drives the input - unless their image knows the buffers (`BOARD_LOGICANALYZER_V2`).
+  The capture tests then need a supply-less shifter (inputs that follow the pulls) and are
+  skipped otherwise; the stream test checks the capture path.
 
 ### Stream capture
 

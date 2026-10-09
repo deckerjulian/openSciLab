@@ -90,11 +90,17 @@ def _open_board(connection_string: str) -> AnalyzerDriverBase:
     from ..driver.pico.analyzer import PicoDriver
 
     try:
-        return PicoDriver(connection_string)
+        driver = PicoDriver(connection_string)
     except DeviceConnectionError:
         raise
     except (OSError, ValueError) as error:
         raise DeviceConnectionError(f"{connection_string} could not be opened: {error}") from error
+    try:
+        driver.check_board()  # a board with level shifters and the image of a bare board is refused
+    except Exception:
+        driver.dispose()
+        raise
+    return driver
 
 
 kinds.register("pico", open_pico, title="openSciLab Pico", detect=detect, process=True, simulation="pico")

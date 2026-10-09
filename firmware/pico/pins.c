@@ -12,8 +12,14 @@
 #include <stdio.h>
 #include <string.h>
 
-#define REASON_TRIGGER_OUT "trigger output of a multi-board set"
-#define REASON_TRIGGER_IN "trigger input of a multi-board set"
+#ifdef BUILD_LOGICANALYZER_V2
+    //Tied together on the board: the trigger chain of its connectors and the EXT trigger pin
+    #define REASON_TRIGGER_OUT "trigger output (tied to GP1 and the EXT trigger on the board)"
+    #define REASON_TRIGGER_IN "trigger input (tied to GP0 and the EXT trigger on the board)"
+#else
+    #define REASON_TRIGGER_OUT "trigger output of a multi-board set"
+    #define REASON_TRIGGER_IN "trigger input of a multi-board set"
+#endif
 
 static PIN_INFO table[PIN_GPIO_COUNT];
 static bool built = false;
@@ -48,6 +54,11 @@ static void build(void)
 
         table[gpio].channel = channel;
 
+        #ifdef INPUT_LEVEL_SHIFTERS
+            //A level shifter drives the pin: it is an input only
+            table[gpio].caps = PIN_CAN_DIN;
+        #endif
+
         //The state mode waits for the clock with WAIT PIN, relative to the first sampled GPIO
         //(as int: with INPUT_PIN_BASE 0 an unsigned comparison would always be true)
         int offset = (int)gpio - (int)INPUT_PIN_BASE;
@@ -67,7 +78,7 @@ static void build(void)
         reserve(24, PIN_CAN_DIN | PIN_CAN_DOUT, "data of the WiFi chip");
         reserve(25, PIN_CAN_DOUT, "chip select of the WiFi chip");
         reserve(29, PIN_CAN_DOUT, "clock of the WiFi chip");
-    #elif defined (BUILD_PICO) || defined (BUILD_PICO_2)
+    #elif defined (BUILD_PICO) || defined (BUILD_PICO_2) || defined (BUILD_LOGICANALYZER_V2)
         reserve(23, PIN_CAN_DOUT, "power save mode of the supply");
         reserve(24, PIN_CAN_DIN, "VBUS sense");
         reserve(LED_IO, PIN_CAN_DOUT, "on-board LED");
@@ -78,10 +89,16 @@ static void build(void)
         reserve(LED_IO, PIN_CAN_DOUT, "on-board LED");
     #endif
 
-    //ADC inputs
+    //ADC inputs (not behind a level shifter: it drives them to 0 or 3.3 V)
     for(uint8_t gpio = PIN_ADC_BASE; gpio < PIN_ADC_BASE + PIN_ADC_COUNT && gpio < PIN_GPIO_COUNT; gpio++)
+    {
+        #ifdef INPUT_LEVEL_SHIFTERS
+            if(table[gpio].channel != PIN_NO_CHANNEL)
+                continue;
+        #endif
         if(table[gpio].reserved == NULL)
             table[gpio].caps |= PIN_CAN_ADC;
+    }
 
     built = true;
 }

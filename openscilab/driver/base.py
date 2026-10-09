@@ -46,6 +46,19 @@ class FirmwareOutdatedError(DeviceConnectionError):
         self.location = location
 
 
+class BoardMismatchError(DeviceConnectionError):
+    """The device sits on a board its firmware is not made for (a Pico with the image of a bare board
+    on a board with level shifters, ``core/board_check.py``): it is opened only once someone confirms
+    it for this board."""
+
+    def __init__(self, message: str, device: str = "", location: str = "", finding: object = None) -> None:
+        super().__init__(message)
+        self.device = device
+        self.location = location
+        #: the ``core.board_check.BoardFinding`` behind the refusal
+        self.finding = finding
+
+
 class UnsupportedFeatureError(Exception):
     """Raised when the device (or its firmware) lacks an optional function."""
 

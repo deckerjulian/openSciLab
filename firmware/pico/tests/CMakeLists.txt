@@ -33,7 +33,7 @@ endif()
 add_test(NAME protocol COMMAND test_protocol)
 
 # The pin table, once per board (board_settings.h selects the board by its BUILD_ define)
-set(BOARDS PICO PICO_2 PICO_W PICO_W_WIFI PICO_2_W PICO_2_W_WIFI ZERO INTERCEPTOR)
+set(BOARDS PICO PICO_2 PICO_W PICO_W_WIFI PICO_2_W PICO_2_W_WIFI ZERO INTERCEPTOR LOGICANALYZER_V2)
 foreach(board ${BOARDS})
     add_executable(test_pins_${board} test_pins.c ${FIRMWARE}/pins.c)
     target_include_directories(test_pins_${board} PRIVATE ${CMAKE_CURRENT_LIST_DIR}/stub ${FIRMWARE})

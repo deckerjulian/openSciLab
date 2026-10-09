@@ -47,7 +47,7 @@ view* of the lab. Windows, macOS and Linux; GPL-3.0.
 
 | Device | Connection | What openSciLab does with it | State |
 | --- | --- | --- | --- |
-| Raspberry Pi Pico, Pico 2, Pico W, Pico 2 W, RP2040-Zero, LogicAnalyzer Interceptor | USB, WiFi; openSciLab Pico firmware | 24 channel logic analyzer (100 MHz, 200 MHz with *Turbo*), streams, trigger sequences, state mode, 2–5 boards as one analyzer; GPIO, PWM, pulses, ADC, monitor, pattern generator, UART/SPI/I²C | version 8 not yet tried on hardware (the 7.x capture firmware it extends is in use) |
+| Raspberry Pi Pico, Pico 2, Pico W, Pico 2 W, RP2040-Zero, LogicAnalyzer Interceptor, LogicAnalyzer board V2 of gusmanb (inputs only, behind level shifters) | USB, WiFi; openSciLab Pico firmware | 24 channel logic analyzer (100 MHz, 200 MHz with *Turbo*), streams, trigger sequences, state mode, 2–5 boards as one analyzer; GPIO, PWM, pulses, ADC, monitor, pattern generator, UART/SPI/I²C | version 8 not yet tried on hardware (the 7.x capture firmware it extends is in use) |
 | Arduino Uno, Nano, Mega 2560, Uno R4 Minima, ESP32, ESP32-S3 | USB; openSciLab Arduino firmware | logic analyzer of its pins (buffer, stream, state), analog inputs, GPIO, PWM, monitor, pattern/square/arbitrary generator, UART/SPI/I²C | not yet tested on hardware |
 | DreamSourceLab DSLogic Plus, U2Pro16, U3Pro16, U3Pro32 | USB; DSView firmware | logic analyzer up to 1 GHz, streams, record to disk | experimental, tested on a U2Pro16 |
 | Rigol DHO900 (DHO924S ...) | network: SCPI, or the bridge app on the instrument | 4 analog and 16 logic channels, large captures arriving progressively, generator | not yet tested on the instrument |

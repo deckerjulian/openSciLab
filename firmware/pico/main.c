@@ -23,6 +23,7 @@
 #include "structs.h"
 #include "capture.h"
 #include "self_test.h"
+#include "board_check.h"
 #include "sequence.h"
 #include "capabilities.h"
 #include "proto.h"
@@ -301,6 +302,18 @@ static void sendDeviceInfo(bool toWiFi)
     char uniqueId[2 * PICO_UNIQUE_BOARD_ID_SIZE_BYTES + 1];
 
     sendResponse("INFO:BOARD:"BOARD_NAME"\n", toWiFi);
+    #ifdef INPUT_LEVEL_SHIFTERS
+        sendResponse("INFO:INPUTS:level shifters (VREF 3.3 V / 5 V / ext), inputs only\n", toWiFi);
+    #endif
+
+    //The board around the Pico: the application warns when a board with level shifters runs the
+    //image of a bare board (board_check.h)
+    BOARD_SIGNATURE signature;
+    board_check(&signature);
+    snprintf(line, sizeof(line), "INFO:TRIGGER_CHAIN:%s\n", board_check_chain_name(signature.chain));
+    sendResponse(line, toWiFi);
+    snprintf(line, sizeof(line), "INFO:CHANNELS_DRIVEN:%u/%u\n", (unsigned)signature.channelsDriven, (unsigned)signature.channelsChecked);
+    sendResponse(line, toWiFi);
     sendResponse("INFO:FIRMWARE:"FIRMWARE_VERSION"\n", toWiFi);
     sendResponse("INFO:BUILD_DATE:"__DATE__" "__TIME__"\n", toWiFi);
     sendResponse("INFO:SDK:"PICO_SDK_VERSION_STRING"\n", toWiFi);
@@ -793,10 +806,16 @@ static void processFrame(const uint8_t* payload, uint16_t length, bool fromWiFi)
 
             //Protocol 8: pins, monitor, analog channels, generator, transmitters, live state
             capsLength = strlen(capsLine);
-            snprintf(capsLine + capsLength, sizeof(capsLine) - capsLength,
-                "," CAP_STREAM_STATE "," CAP_GPIO "," CAP_PWM "," CAP_MONITOR "," CAP_ANALOG "%u,"
-                CAP_PATTERN_GEN "%lu,%u," CAP_GEN_SQUARE "," CAP_TX_UART "," CAP_TX_SPI "," CAP_TX_I2C "\n",
-                (unsigned)pins_adc_count(), (unsigned long)pattern_max_rate(), (unsigned)PATTERN_MAX_PINS);
+            #ifdef INPUT_LEVEL_SHIFTERS
+                //Level shifters drive every channel pin: they are read only, nothing drives a pin
+                snprintf(capsLine + capsLength, sizeof(capsLine) - capsLength,
+                    "," CAP_STREAM_STATE "," CAP_GPIO "," CAP_MONITOR "\n");
+            #else
+                snprintf(capsLine + capsLength, sizeof(capsLine) - capsLength,
+                    "," CAP_STREAM_STATE "," CAP_GPIO "," CAP_PWM "," CAP_MONITOR "," CAP_ANALOG "%u,"
+                    CAP_PATTERN_GEN "%lu,%u," CAP_GEN_SQUARE "," CAP_TX_UART "," CAP_TX_SPI "," CAP_TX_I2C "\n",
+                    (unsigned)pins_adc_count(), (unsigned long)pattern_max_rate(), (unsigned)PATTERN_MAX_PINS);
+            #endif
             sendResponse(capsLine, fromWiFi);
             break;
         }

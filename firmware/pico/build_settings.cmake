@@ -1,6 +1,7 @@
 # This file controls the build settings, set your board version
 # Current versions: "BOARD_PICO", "BOARD_PICO_W", "BOARD_PICO_W_WIFI", "BOARD_PICO_2",
-# "BOARD_PICO_2_W", "BOARD_PICO_2_W_WIFI", "BOARD_ZERO", "BOARD_INTERCEPTOR"
+# "BOARD_PICO_2_W", "BOARD_PICO_2_W_WIFI", "BOARD_ZERO", "BOARD_INTERCEPTOR",
+# "BOARD_LOGICANALYZER_V2" (the LogicAnalyzer board V2 of gusmanb with a Pico 2: level shifters)
 set(BOARD_TYPE "BOARD_PICO_2")
 
 # Set to 1 to enable 200Mhz mode (warning! extreme overclock and overvoltage!)

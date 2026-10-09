@@ -48,6 +48,9 @@ BOARDS = (
     BoardModel("2_WIFI", "BOARD_PICO_2_W_WIFI", "Raspberry Pi Pico 2 W (WiFi)", "RP2350", wifi=True),
     BoardModel("ZERO", "BOARD_ZERO", "RP2040-Zero", "RP2040"),
     BoardModel("INTERCEPTOR", "BOARD_INTERCEPTOR", "LogicAnalyzer Interceptor", "RP2040"),
+    # gusmanb's board with level shifters in front of the channels (sold with his firmware 6.0)
+    BoardModel("LOGICANALYZER_V2", "BOARD_LOGICANALYZER_V2", "LogicAnalyzer board V2 (gusmanb, Pico 2, level shifters)",
+               "RP2350"),
 )
 
 
