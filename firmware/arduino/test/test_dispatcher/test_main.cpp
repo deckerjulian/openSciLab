@@ -118,7 +118,7 @@ void test_hello_answers_key_value_text() {
     ok(got);
     TEST_ASSERT_EQUAL_STRING(
         "board=native;version=" FIRMWARE_VERSION ";protocol=1;rate=1000000;clock=16000000;buffer=600;adc_bits=10;"
-        "dac_bits=12;vref_mv=5000",
+        "dac_bits=12;vref_mv=5000;stream_rate=50000;gen_runs=16;arb_rate=100000;arb_points=64",
         got.text().c_str());
 }
 
@@ -138,6 +138,9 @@ void test_pins_answers_one_line_per_index_then_nothing() {
                              request(CMD_PINS, Data().u8(3)).text().c_str());
     TEST_ASSERT_EQUAL_STRING("PIN:A0,DIN/DOUT/PULLUP/ADC/DAC,12,5000,0",
                              request(CMD_PINS, Data().u8(14)).text().c_str());
+    // the pins with a timer of their own for the square wave say so
+    TEST_ASSERT_EQUAL_STRING("PIN:D9,DIN/DOUT/PULLUP/PWM/CLOCK_SW/SQUARE,7,5000,-",
+                             request(CMD_PINS, Data().u8(9)).text().c_str());
     Got end = request(CMD_PINS, Data().u8(20));
     ok(end);
     TEST_ASSERT_EQUAL_size_t(1, end.payload.size());
@@ -459,6 +462,95 @@ void test_buffer_capture_waiting_for_its_trigger_locks_gpio_and_aborts() {
     ok(request(CMD_WRITE, Data().u32(bit(8)).u32(0)));
 }
 
+// a pulse or a level the test sets between two turns of the main loop
+static uint32_t between_turns = 0;
+static uint32_t (*clocked_input)() = nullptr;
+static uint32_t input_between_turns() { return between_turns | (clocked_input ? clocked_input() : 0); }
+
+static uint32_t sample_now() { return fake::cycle_counter / 16000; }  // 1 kHz on the 16 MHz clock
+
+void test_buffer_trigger_sees_an_edge_between_two_turns() {
+    // each turn of the wait starts where the last one ended: the levels before the main loop ran
+    // count for the edge
+    between_turns = 0;
+    clocked_input = nullptr;
+    fake::input_source = input_between_turns;
+    ok(request(CMD_CAPTURE_SETUP, setup_data(MODE_BUFFER, 1000, bit(3), 0, 30, 0, TRIGGER_RISING, bit(3), 0)));
+    ok(request(CMD_CAPTURE_START));
+    TEST_ASSERT_EQUAL_size_t(0, events(poll(), EVENT_DATA).size());  // one turn, no edge
+    between_turns = bit(3);  // rises while the main loop runs
+    std::vector<Got> all = until_done();
+    std::vector<uint32_t> levels = samples_of(all);
+    TEST_ASSERT_EQUAL_size_t(30, levels.size());
+    TEST_ASSERT_EQUAL_HEX32(bit(3), levels[0]);
+    TEST_ASSERT_EQUAL_UINT8(DONE_COMPLETE, events(all, EVENT_DONE)[0].payload[1]);
+}
+
+static uint32_t pulse_at_520() {
+    uint32_t sample = sample_now();
+    return sample >= 520 && sample < 525 ? bit(3) : 0;
+}
+
+void test_buffer_trigger_catches_a_pulse_in_a_later_turn() {
+    // 200 pre-trigger samples: a turn used to start with them anew and miss an edge among them
+    fake::input_source = pulse_at_520;
+    ok(request(CMD_CAPTURE_SETUP,
+               setup_data(MODE_BUFFER, 1000, bit(2) | bit(3), 0, 300, 200, TRIGGER_RISING, bit(3), 0)));
+    ok(request(CMD_CAPTURE_START));
+    std::vector<Got> all = until_done(100);
+    std::vector<uint32_t> levels = samples_of(all);
+    TEST_ASSERT_EQUAL_size_t(1, events(all, EVENT_DONE).size());
+    TEST_ASSERT_EQUAL_size_t(300, levels.size());
+    for (size_t i = 0; i < 200; i++) TEST_ASSERT_EQUAL_HEX32(0, levels[i]);
+    for (size_t i = 200; i < 205; i++) TEST_ASSERT_EQUAL_HEX32(bit(3), levels[i]);
+    TEST_ASSERT_EQUAL_HEX32(0, levels[205]);
+}
+
+void test_buffer_turns_at_a_slow_rate_return_at_once() {
+    // 10 Hz: a turn takes the sample that is due and leaves the main loop free (answers, abort)
+    between_turns = 0;
+    clocked_input = nullptr;
+    fake::input_source = input_between_turns;
+    ok(request(CMD_CAPTURE_SETUP, setup_data(MODE_BUFFER, 10, bit(3), 0, 10, 5, TRIGGER_RISING, bit(3), 0)));
+    ok(request(CMD_CAPTURE_START));
+    for (int i = 0; i < 6; i++) {
+        uint32_t before = fake::cycle_counter;
+        TEST_ASSERT_EQUAL_size_t(0, poll().size());
+        TEST_ASSERT_TRUE(fake::cycle_counter - before < 16000000u / 50);  // less than 20 ms
+        ok(request(CMD_HEARTBEAT));
+        fake::cycle_counter += 1600000;  // a sample period passes
+    }
+    between_turns = bit(3);
+    std::vector<Got> all = until_done();
+    std::vector<uint32_t> levels = samples_of(all);
+    TEST_ASSERT_EQUAL_size_t(10, levels.size());
+    for (size_t i = 0; i < 5; i++) TEST_ASSERT_EQUAL_HEX32(0, levels[i]);
+    TEST_ASSERT_EQUAL_HEX32(bit(3), levels[5]);
+}
+
+static uint32_t toggling() { return (sample_now() & 1) ? bit(2) : 0; }
+
+void test_buffer_samples_the_main_loop_missed_hold_the_levels() {
+    between_turns = 0;
+    clocked_input = toggling;
+    fake::input_source = input_between_turns;
+    ok(request(CMD_CAPTURE_SETUP,
+               setup_data(MODE_BUFFER, 1000, bit(2) | bit(3), 0, 30, 20, TRIGGER_RISING, bit(3), 0)));
+    ok(request(CMD_CAPTURE_START));
+    poll();                           // a turn: 20 samples
+    fake::cycle_counter += 5 * 16000; // the main loop took 5 ms
+    fake::now_us += 5000;
+    between_turns = bit(3);
+    std::vector<uint32_t> levels = samples_of(until_done());
+    TEST_ASSERT_EQUAL_size_t(30, levels.size());
+    // the last 16 samples of the turn toggle, the 4 missed hold the last level, then the trigger
+    for (size_t i = 1; i < 16; i++) TEST_ASSERT_NOT_EQUAL(levels[i - 1], levels[i]);
+    for (size_t i = 16; i < 20; i++) TEST_ASSERT_EQUAL_HEX32(levels[15], levels[i]);
+    for (size_t i = 0; i < 20; i++) TEST_ASSERT_FALSE(levels[i] & bit(3));
+    TEST_ASSERT_TRUE(levels[20] & bit(3));
+    clocked_input = nullptr;
+}
+
 // ------------------------------------------------------------------------- generator
 
 static Data runs_data(uint16_t offset, std::vector<std::pair<uint16_t, uint32_t>> runs) {
@@ -515,6 +607,19 @@ void test_pattern_generator_limits() {
     TEST_ASSERT_NULL(fake::timer_handler[hal::TIMER_OUTPUT]);
 }
 
+void test_a_generator_that_cannot_start_leaves_no_outputs() {
+    // the timer belongs to another user: the pins go back to inputs (SAFE would not know them)
+    fake::timer_refuses[hal::TIMER_OUTPUT] = true;
+    ok(request(CMD_GEN_LOAD, runs_data(0, {{1, bit(4)}, {1, bit(5)}})));
+    error(ERR_BUSY, request(CMD_GEN_START, Data().f32(1000.0f).u32(bit(4) | bit(5)).u16(0).u8(0)));
+    TEST_ASSERT_EQUAL_HEX32(0, fake::output_mask & (bit(4) | bit(5)));
+    ok(request(CMD_ARB_LOAD, Data().u16(0).u16(100).u16(200)));
+    error(ERR_BUSY, request(CMD_ARB_START, Data().f32(100.0f).u16(2).u8(0)));
+    TEST_ASSERT_EQUAL_HEX32(0, fake::dac_pins);
+    fake::timer_refuses[hal::TIMER_OUTPUT] = false;
+    ok(request(CMD_WRITE, Data().u32(bit(4)).u32(0)));  // free again
+}
+
 void test_square_and_arbitrary_waveform() {
     Got square = request(CMD_SQUARE, Data().u8(9).f32(12345.0f));
     ok(square);
@@ -560,6 +665,15 @@ void test_tx_uart_sends_start_data_stop_bits() {
     TEST_ASSERT_EQUAL_INT_ARRAY(expected, bits.data(), 10);
     TEST_ASSERT_TRUE(fake::output_levels & bit(6));
     TEST_ASSERT_FALSE(fake::clock_busy);
+}
+
+void test_tx_uart_keeps_interrupts_at_slow_rates() {
+    // whole bytes with interrupts off only where a byte is short (above 20 kBd)
+    uint32_t before = fake::irq_saves;
+    ok(request(CMD_TX_UART, Data().u8(6).u32(9600).u8(0x55).u8(0xAA)));
+    TEST_ASSERT_EQUAL_UINT32(before, fake::irq_saves);
+    ok(request(CMD_TX_UART, Data().u8(6).u32(115200).u8(0x55).u8(0xAA)));
+    TEST_ASSERT_EQUAL_UINT32(before + 2, fake::irq_saves);
 }
 
 void test_tx_spi_answers_the_bytes_read() {
@@ -609,10 +723,16 @@ int main() {
     RUN_TEST(test_state_capture_takes_a_frame_per_clock_edge_and_counts_losses);
     RUN_TEST(test_buffer_capture_with_pre_trigger);
     RUN_TEST(test_buffer_capture_waiting_for_its_trigger_locks_gpio_and_aborts);
+    RUN_TEST(test_buffer_trigger_sees_an_edge_between_two_turns);
+    RUN_TEST(test_buffer_trigger_catches_a_pulse_in_a_later_turn);
+    RUN_TEST(test_buffer_turns_at_a_slow_rate_return_at_once);
+    RUN_TEST(test_buffer_samples_the_main_loop_missed_hold_the_levels);
     RUN_TEST(test_pattern_generator_plays_runs);
     RUN_TEST(test_pattern_generator_limits);
+    RUN_TEST(test_a_generator_that_cannot_start_leaves_no_outputs);
     RUN_TEST(test_square_and_arbitrary_waveform);
     RUN_TEST(test_tx_uart_sends_start_data_stop_bits);
+    RUN_TEST(test_tx_uart_keeps_interrupts_at_slow_rates);
     RUN_TEST(test_tx_spi_answers_the_bytes_read);
     RUN_TEST(test_tx_i2c_without_a_device_is_not_acknowledged);
     return UNITY_END();

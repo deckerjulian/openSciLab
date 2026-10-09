@@ -139,6 +139,17 @@ class ArduinoShell:
         if busy:
             raise _Refused(protocol.ERR_BUSY, f"{', '.join(sorted(busy))} belongs to the capture")
 
+    # the limits of the firmware (docs/protocols.md, HELLO)
+    def _stream_rate(self) -> int:
+        return int(self.profile.get("stream_max_rate") or self.profile["max_rate"])
+
+    def _gen_runs(self) -> int:
+        return int(self.profile.get("gen_runs", 32))
+
+    def _dac_output(self) -> Optional[dict]:
+        return next((output for output in self.profile.get("outputs", []) if output.get("kind") == "analog"
+                     and "AFG" in self.profile.get("capabilities", [])), None)
+
     def _capabilities(self) -> list[str]:
         items = list(self.profile.get("capabilities", []))
         if self.analog_names:
@@ -150,11 +161,15 @@ class ArduinoShell:
     def _answer(self, command: int, data: bytes) -> bytes:
         gpio = self.instrument.gpio
         if command == protocol.HELLO:
-            # (as the firmware: the capture buffer in bytes, one byte a sample of up to 8 channels)
+            # (as the firmware: the capture buffer in bytes, one byte a sample of the pins 0-7)
             text = (f"board={self.profile['name']};version=1.0.0;protocol={protocol.PROTOCOL};"
                     f"rate={int(self.profile['max_rate'])};clock={int(self.profile.get('clock_hz', 16_000_000))};"
                     f"buffer={int(self.profile['memory_depth'])};adc_bits={int(self.profile.get('adc_bits', 10))};"
-                    f"dac_bits={int(self.profile.get('dac_bits', 0))};vref_mv={int(self._vref() * 1000)}")
+                    f"dac_bits={int(self.profile.get('dac_bits', 0))};vref_mv={int(self._vref() * 1000)};"
+                    f"stream_rate={self._stream_rate()};gen_runs={self._gen_runs()}")
+            dac = self._dac_output()
+            if dac is not None:
+                text += f";arb_rate={int(dac.get('max_rate', 0))};arb_points={int(dac.get('max_points', 0))}"
             return text.encode()
         if command == protocol.PINS:
             index = data[0]
@@ -292,8 +307,21 @@ class ArduinoShell:
             raise _Refused(protocol.ERR_ARGUMENTS, "the pins are no capture channels")
         if mode != protocol.MODE_STATE and not 1 <= rate <= int(self.profile["max_rate"]):
             raise _Refused(protocol.ERR_ARGUMENTS, "rate")
-        if mode == protocol.MODE_BUFFER and adc_mask and self.profile.get("buffer_analog") is False:
-            raise _Refused(protocol.ERR_UNSUPPORTED, "buffer captures read the pins only")
+        if mode != protocol.MODE_BUFFER and pre:
+            raise _Refused(protocol.ERR_UNSUPPORTED, "pre-trigger samples in buffer captures only")
+        if mode == protocol.MODE_STREAM and rate > self._stream_rate():
+            raise _Refused(protocol.ERR_ARGUMENTS, "above the rate of a stream")
+        if mode == protocol.MODE_BUFFER:
+            if adc_mask and self.profile.get("buffer_analog") is False:
+                raise _Refused(protocol.ERR_UNSUPPORTED, "buffer captures read the pins only")
+            # (as the firmware: 1 to 4 bytes a sample by the highest pin of the mask)
+            width = 1 if mask <= 0xFF else 2 if mask <= 0xFFFF else 3 if mask <= 0xFFFFFF else 4
+            if not samples or pre >= samples:
+                raise _Refused(protocol.ERR_ARGUMENTS, "samples")
+            if samples > int(self.profile["memory_depth"]) // width:
+                raise _Refused(protocol.ERR_OVERFLOW, "more samples than the buffer holds")
+            if self.profile.get("max_post_seconds") and samples - pre > float(self.profile["max_post_seconds"]) * rate:
+                raise _Refused(protocol.ERR_ARGUMENTS, "longer after the trigger than the board records")
         self._setup = values
         return struct.pack("<I", rate)
 
@@ -433,8 +461,13 @@ class ArduinoShell:
             raise _Refused(protocol.ERR_UNSUPPORTED, "no generator")
         if command == protocol.GEN_LOAD:
             (offset,) = struct.unpack("<H", data[:2])
+            runs = protocol.unpack_runs(data[2:])
+            if offset > len(self._pattern):
+                raise _Refused(protocol.ERR_ARGUMENTS, "a gap in the runs")
+            if offset + len(runs) > self._gen_runs():
+                raise _Refused(protocol.ERR_OVERFLOW, "more runs than the board holds")
             del self._pattern[offset:]
-            self._pattern += protocol.unpack_runs(data[2:])
+            self._pattern += runs
             return struct.pack("<H", len(self._pattern))
         if command == protocol.GEN_START:
             rate, mask, passes, _flags = struct.unpack("<fIHB", data[:11])
@@ -471,17 +504,32 @@ class ArduinoShell:
                 generator.start(square.name, waves.standard("square", frequency, amplitude=level / 2,
                                                             offset=level / 2))
             elif self.instrument.gpio is not None:
+                if "PWM" not in self.pins[index].capabilities:
+                    raise _Refused(protocol.ERR_UNSUPPORTED, f"{name} has neither the square timer nor PWM")
                 self.instrument.gpio.pwm(name, frequency, 0.5)
             else:
                 raise _Refused(protocol.ERR_UNSUPPORTED, "no square wave output")
             return struct.pack("<f", frequency)
         if command == protocol.ARB_LOAD:
             (offset,) = struct.unpack("<H", data[:2])
+            values = list(struct.unpack(f"<{(len(data) - 2) // 2}H", data[2:2 + (len(data) - 2) // 2 * 2]))
+            dac = self._dac_output()
+            if dac is None:
+                raise _Refused(protocol.ERR_UNSUPPORTED, "no DAC")
+            if offset > len(self._arbitrary):
+                raise _Refused(protocol.ERR_ARGUMENTS, "a gap in the points")
+            if offset + len(values) > int(dac.get("max_points", 0)):
+                raise _Refused(protocol.ERR_OVERFLOW, "more points than the board holds")
             del self._arbitrary[offset:]
-            self._arbitrary += list(struct.unpack(f"<{(len(data) - 2) // 2}H", data[2:2 + (len(data) - 2) // 2 * 2]))
+            self._arbitrary += values
             return struct.pack("<H", len(self._arbitrary))
         if command == protocol.ARB_START:
             rate, points, passes = struct.unpack("<fHB", data[:7])
+            dac = self._dac_output()
+            if dac is None:
+                raise _Refused(protocol.ERR_UNSUPPORTED, "no DAC")
+            if not 0 < rate <= float(dac.get("max_rate", 0)) or not 0 < points <= len(self._arbitrary):
+                raise _Refused(protocol.ERR_ARGUMENTS, "rate or points")
             bits = int(self.profile.get("dac_bits", 12))
             volts = np.asarray(self._arbitrary[:points], dtype=np.float64) / ((1 << bits) - 1) * self._vref()
             try:

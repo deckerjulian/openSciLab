@@ -92,6 +92,8 @@ bool edge_falling;
 void (*edge_handler)();
 void (*timer_handler[2])();
 float timer_rates[2];
+bool timer_refuses[2];
+uint32_t irq_saves;
 
 void record_write(uint32_t mask, uint32_t levels) {
     (void)mask;
@@ -121,6 +123,8 @@ void reset() {
     edge_handler = nullptr;
     timer_handler[0] = timer_handler[1] = nullptr;
     timer_rates[0] = timer_rates[1] = 0;
+    timer_refuses[0] = timer_refuses[1] = false;
+    irq_saves = 0;
 }
 
 void tick(uint8_t slot, uint32_t n) {
@@ -190,7 +194,7 @@ uint16_t adc_read(uint8_t channel) { return fake::adc_values[channel]; }
 float timer_rate(float rate) { return rate; }
 
 uint8_t timer_start(uint8_t slot, float rate, void (*tick)(), float *actual) {
-    if (fake::timer_handler[slot]) return proto::ERR_BUSY;
+    if (fake::timer_handler[slot] || fake::timer_refuses[slot]) return proto::ERR_BUSY;
     fake::timer_handler[slot] = tick;
     fake::timer_rates[slot] = rate;
     *actual = rate;
@@ -229,7 +233,10 @@ uint8_t clock_begin(float, uint32_t *ticks_per_second) {
 void clock_end() { fake::clock_busy = false; }
 void quiet_begin() {}
 void quiet_end(uint32_t elapsed_us) { fake::now_us += elapsed_us; }
-uint32_t irq_save() { return 0; }
+uint32_t irq_save() {
+    fake::irq_saves++;
+    return 0;
+}
 void irq_restore(uint32_t) {}
 
 }  // namespace hal

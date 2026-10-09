@@ -62,13 +62,22 @@ need its BOOT button held while the upload starts.
   for the ADC. `ADC_READ` converts at once.
 * Stream: one timer interrupt per sample; digital levels go out as runs, a level that holds is sent
   every 50 ms for the live view. A full ring ends the capture with DONE status 1 (overflow).
-* Buffer: digital only, 1–4 bytes per sample (by the highest pin of the mask), at most two seconds
-  behind the trigger. While it waits for the trigger the board keeps answering (on AVR the GPIO
-  commands answer busy); a sample taken late ends with DONE status 1.
+* Buffer: digital only, 1–4 bytes per sample (by the highest pin of the mask: on the Uno D8 and up
+  take 2, on the Mega A8–A15 take 4), at most two seconds behind the trigger. While it waits for
+  the trigger it samples in turns of about 20 ms and the board answers between them (on AVR the
+  GPIO commands answer busy); the trigger and the pre-trigger ring carry on across the turns, the
+  samples of the main loop's time hold the levels before it. A sample taken late while it records
+  ends with DONE status 1.
 * State: a frame per clock edge (`CLOCK`: external interrupt pins, `CLOCK_SW`: pin change or
   other interrupt pins); a full ring loses the edge and counts it in DONE.
 * AVR timers: Timer2 serves either the stream sampling or the pattern generator (the other answers
   busy, PWM on D3/D11 stops meanwhile); Timer1 serves either the square wave (D9/D10, Mega D11/D12)
   or the counted clock of buffer captures and UART sending. PWM uses the core's fixed frequencies
   (490/980 Hz); the actual frequency is in the answer.
-* SQUARE on a pin without the square timer uses its PWM at 50 %.
+* SQUARE runs on the pins whose `PIN:` line has `SQUARE` (a timer of their own: Uno/Nano D9/D10,
+  Mega D11/D12, R4 D9/D10, ESP32 GPIO18); on another pin it uses its PWM at 50 %.
+* HELLO says the limits of the modes: `stream_rate`, `gen_runs` and, with the arbitrary waveform,
+  `arb_rate` and `arb_points`.
+* A generator whose timer cannot start leaves its pins inputs. UART sending keeps interrupts on
+  below 20 kBd (an interrupt's few µs on an edge, instead of the millis clock and the serial line
+  stopping for a whole byte).

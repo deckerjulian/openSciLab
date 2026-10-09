@@ -4,8 +4,8 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// TX_UART, TX_SPI, TX_I2C bit-banged on any free pins. UART bits are timed by the counted clock
-// with interrupts off for each byte; SPI and I2C (which carry their clock) by delays.
+// TX_UART, TX_SPI, TX_I2C bit-banged on any free pins. UART bits are timed by the counted clock,
+// with interrupts off for each byte above 20 kBd; SPI and I2C (which carry their clock) by delays.
 
 #include "tx.h"
 
@@ -18,6 +18,7 @@ using namespace proto;
 namespace tx {
 
 static const hal::cycle_t HALF = (hal::cycle_t)(((hal::cycle_t)~(hal::cycle_t)0) / 2 + 1);
+static const uint32_t SLOW_BAUD = 20000;  // and below: UART bytes with interrupts on
 
 static uint8_t check_pin(uint8_t pin, uint16_t caps) {
     if (pin >= board::PIN_COUNT) return ERR_ARGUMENTS;
@@ -44,9 +45,13 @@ uint8_t uart(const uint8_t *d, uint8_t n) {
     hal::pin_output(pin, true);
     app::driving(mask);
     if (!idle) hal::delay_us(10000000u / baud + 1);  // a frame of idle line first
+    // Interrupts off for a byte keep its edges exact; at a slow rate that would stop the millis
+    // clock and the serial line for long (33 ms a byte at 300 Bd), and an interrupt's few µs on
+    // an edge are under a tenth of a bit there.
+    bool quiet = baud > SLOW_BAUD;
     for (uint8_t i = 5; i < n; i++) {
         uint16_t frame = (uint16_t)((uint16_t)d[i] << 1 | 0x200);  // start bit, 8 data bits, stop bit
-        uint32_t state = hal::irq_save();
+        uint32_t state = quiet ? hal::irq_save() : 0;
         hal::cycle_t next = hal::cycles();
         for (uint8_t b = 0; b < 10; b++) {
             hal::write_levels(mask, (frame & 1) ? mask : 0);
@@ -55,7 +60,7 @@ uint8_t uart(const uint8_t *d, uint8_t n) {
             while ((hal::cycle_t)(hal::cycles() - next) >= HALF) {
             }
         }
-        hal::irq_restore(state);
+        if (quiet) hal::irq_restore(state);
     }
     hal::clock_end();
     return 0;

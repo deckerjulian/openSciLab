@@ -46,6 +46,7 @@ from ...core.instrument import (
     PIN_PULLDOWN,
     PIN_PULLUP,
     PIN_PWM,
+    PIN_SQUARE,
     AnalogInFacet,
     AnalogOutFacet,
     GeneratorFacet,
@@ -66,6 +67,20 @@ log = logging.getLogger("openscilab.driver")
 RUNS_PER_FRAME = 40
 #: DAC values per ARB_LOAD frame
 POINTS_PER_FRAME = 120
+#: pattern runs and DAC points the board holds, its DAC points per second, when HELLO does not
+#: say (firmware before these keys): the smallest board's
+DEFAULT_GEN_RUNS = 32
+DEFAULT_ARB_POINTS = 2048
+DEFAULT_ARB_RATE = 100_000
+#: DAC points of one period of the arbitrary waveform: at most (the time to load them), at least
+ARB_POINTS = 1000
+MIN_ARB_POINTS = 16
+
+
+def transfer_timeout(bits: int, rate: float) -> float:
+    """Seconds to wait for a transmission of ``bits`` at ``rate`` bits per second: the board
+    answers when it is sent (the bit-banged lines of the slower kinds take their time)."""
+    return 3.0 + 2.0 * bits / max(float(rate), 1.0)
 
 
 class _ArduinoFacet:
@@ -270,6 +285,11 @@ class ArduinoGenerator(_ArduinoFacet, GeneratorFacet):
     def _capabilities(self) -> frozenset[str]:
         return self.driver.capabilities()
 
+    @property
+    def gen_runs(self) -> int:
+        """Runs of the pattern generator the board holds."""
+        return self.driver._info_int("gen_runs", DEFAULT_GEN_RUNS) or DEFAULT_GEN_RUNS
+
     def outputs(self) -> list[OutputInfo]:
         result = []
         level = max((pin.logic_level for pin in self.driver.pins), default=5.0)
@@ -278,19 +298,30 @@ class ArduinoGenerator(_ArduinoFacet, GeneratorFacet):
             rate, _, count = value.partition(",")
             pins = tuple(pin.name for pin in self.driver.pins if PIN_DOUT in pin.capabilities and pin.reserved is None
                          and pin.channel is not None)[:int(count or 8)]
+            # (as many samples as its runs hold at the most; what fits depends on how often the levels change)
             result.append(OutputInfo("PATTERN", "pattern", (0.0, level), resolution=len(pins), max_rate=float(rate),
-                                     max_points=max(self.driver.buffer_size // 6, 1) * 0xFFFF, pins=pins))
+                                     max_points=self.gen_runs * 0xFFFF, pins=pins))
         if CAPABILITY_GEN_SQUARE in self._capabilities():
-            pins = tuple(pin.name for pin in self.driver.pins if PIN_PWM in pin.capabilities and pin.reserved is None)
+            # the pins with a timer of their own for it (PIN lines); another PWM pin would give
+            # the core's fixed PWM frequency
+            pins = tuple(pin.name for pin in self.driver.pins if PIN_SQUARE in pin.capabilities
+                         and pin.reserved is None)
             if pins:
-                result.append(OutputInfo("SQUARE", "square", (0.0, level), max_frequency=4e6, pins=pins[-1:]))
+                result.append(OutputInfo("SQUARE", "square", (0.0, level), max_frequency=4e6, pins=pins[:1]))
         dac = [pin for pin in self.driver.pins if PIN_DAC in pin.capabilities and pin.reserved is None]
         if CAPABILITY_AFG in self._capabilities() and dac:
             high = self.driver._info_int("vref_mv", 3300) / 1000.0
+            rate = self._arb_rate()
             result.append(OutputInfo("DAC", "analog", (0.0, high), resolution=self.driver._info_int("dac_bits", 12),
-                                     max_rate=50_000, max_points=max(self.driver.buffer_size // 2, 1),
-                                     max_frequency=5_000, pins=(dac[0].name,)))
+                                     max_rate=float(rate), max_points=self._arb_points(),
+                                     max_frequency=float(min(5_000, rate // MIN_ARB_POINTS)), pins=(dac[0].name,)))
         return result
+
+    def _arb_rate(self) -> int:
+        return self.driver._info_int("arb_rate", DEFAULT_ARB_RATE) or DEFAULT_ARB_RATE
+
+    def _arb_points(self) -> int:
+        return self.driver._info_int("arb_points", DEFAULT_ARB_POINTS) or DEFAULT_ARB_POINTS
 
     def start(self, output: str, waveform: Any) -> float:
         from ...core import waveform as waves
@@ -321,6 +352,9 @@ class ArduinoGenerator(_ArduinoFacet, GeneratorFacet):
                 padded[len(track):] = track[-1]
             levels |= (padded & 1) << np.uint32(bit)
         runs = protocol.runs(levels.tolist())
+        if len(runs) > self.gen_runs:
+            raise InstrumentError(f"the pattern has {len(runs):,} runs of equal levels; the board holds "
+                                  f"{self.gen_runs:,}")
         for start in range(0, len(runs), RUNS_PER_FRAME):
             self._request(protocol.GEN_LOAD, struct.pack("<H", start) + protocol.pack_runs(runs[start:start + RUNS_PER_FRAME]))
         answer = self._request(protocol.GEN_START, struct.pack("<fIHB", float(waveform.rate), mask,
@@ -329,7 +363,10 @@ class ArduinoGenerator(_ArduinoFacet, GeneratorFacet):
         return struct.unpack("<f", answer[:4])[0] if len(answer) >= 4 else waveform.rate
 
     def _start_arbitrary(self, output: str, info: OutputInfo, waveform) -> float:
-        points = min(info.max_points, 1000)
+        # as many points as the board plays at this frequency (its DAC points per second)
+        points = min(info.max_points, ARB_POINTS, int(info.max_rate // max(waveform.frequency, 1e-9)))
+        if points < 2:
+            raise InstrumentError(f"{waveform.frequency:g} Hz is too fast for the DAC of the board")
         times = np.arange(points) / points / waveform.frequency
         volts = np.asarray(waveform.analog(times), dtype=np.float64)
         high = info.voltage_range[1]
@@ -382,24 +419,33 @@ class ArduinoGenerator(_ArduinoFacet, GeneratorFacet):
 
         size = protocol.MAX_PAYLOAD - 16
         if name == "uart":
-            header = struct.pack("<BI", pin("tx"), int(settings.get("baud", 115200)))
+            baud = int(settings.get("baud", 115200))
+            header = struct.pack("<BI", pin("tx"), baud)
             for start in range(0, len(data), size):
-                self._request(protocol.TX_UART, header + data[start:start + size], timeout=10.0)
+                chunk = data[start:start + size]
+                # 10 bits a byte and a frame of idle line first
+                self._request(protocol.TX_UART, header + chunk, timeout=transfer_timeout(10 * (len(chunk) + 1), baud))
             return b""
         if name == "spi":
-            header = struct.pack("<BBBBI", pin("sck"), pin("mosi"), pin("miso", True), pin("cs", True),
-                                 int(settings.get("frequency", 1_000_000)))
+            frequency = int(settings.get("frequency", 1_000_000))
+            header = struct.pack("<BBBBI", pin("sck"), pin("mosi"), pin("miso", True), pin("cs", True), frequency)
             received = b""
             for start in range(0, max(len(data), 1), size):
-                received += self._request(protocol.TX_SPI, header + data[start:start + size], timeout=10.0)
+                chunk = data[start:start + size]
+                received += self._request(protocol.TX_SPI, header + chunk,
+                                          timeout=transfer_timeout(8 * (len(chunk) + 1), frequency))
             return received
         if len(data) > size:
             raise InstrumentError(f"an I²C transaction sends at most {size} bytes")
         address = int(settings.get("address", 0)) & 0x7F
-        header = struct.pack("<BBBIB", pin("sda"), pin("scl"), address, int(settings.get("frequency", 100_000)),
-                             int(settings.get("read", 0)))
+        frequency = int(settings.get("frequency", 100_000))
+        read = int(settings.get("read", 0))
+        header = struct.pack("<BBBIB", pin("sda"), pin("scl"), address, frequency, read)
+        # 9 clocks a byte (with the acknowledge), the address twice, starts and stop
+        bits = 9 * (len(data) + read + 2) + 4
         try:
-            return self.driver.connection.request(protocol.TX_I2C, header + data, timeout=10.0)
+            return self.driver.connection.request(protocol.TX_I2C, header + data,
+                                                  timeout=transfer_timeout(bits, frequency))
         except ArduinoError as error:
             if error.code == protocol.ERR_NACK:
                 raise InstrumentError(f"no I²C device acknowledges address 0x{address:02X}") from error

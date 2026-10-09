@@ -54,14 +54,17 @@ def comports() -> list:
 
 
 #: USB identifiers of Arduino boards and the USB serial chips on their clones:
-#: (vendor, product or None for every product, what it usually is, baud rate)
+#: (vendor, product or None for every product, what it usually is, baud rates to try in turn).
+#: The CH340 sits on Uno and Nano clones (115200 baud) and on many ESP32 boards (2 Mbaud), the
+#: CH9102 mostly on ESP32 boards: both are tried at either rate.
 ARDUINO_USB_IDS = (
     (0x2341, None, "Arduino", None),
     (0x2A03, None, "Arduino", None),
-    (0x1A86, 0x7523, "CH340 (Nano, Uno clone)", 115200),
-    (0x10C4, 0xEA60, "CP210x (ESP32)", 2_000_000),
-    (0x0403, None, "FTDI (Nano, older boards)", 115200),
-    (0x303A, None, "Espressif (ESP32-S3)", 2_000_000),
+    (0x1A86, 0x7523, "CH340 (Nano, Uno clone, ESP32)", (115200, 2_000_000)),
+    (0x1A86, 0x55D4, "CH9102 (ESP32)", (2_000_000, 115200)),
+    (0x10C4, 0xEA60, "CP210x (ESP32)", (2_000_000,)),
+    (0x0403, None, "FTDI (Nano, older boards)", (115200,)),
+    (0x303A, None, "Espressif (ESP32-S3)", (2_000_000,)),
 )
 #: Arduino products with native USB (the baud rate does not matter) or an AVR behind a USB chip
 ARDUINO_AVR_BAUD = 115200
@@ -78,6 +81,12 @@ class ArduinoPort:
     description: str
     baud: int
     serial_number: Optional[str] = None
+    #: the baud rates to try, ``baud`` first (a USB serial chip on boards of either rate)
+    bauds: tuple[int, ...] = ()
+
+    def __post_init__(self) -> None:
+        if not self.bauds:
+            self.bauds = (self.baud,)
 
     @property
     def label(self) -> str:
@@ -85,26 +94,34 @@ class ArduinoPort:
         return f"{self.port_name} ({', '.join(extras)})"
 
 
-def arduino_baud(vid: Optional[int], pid: Optional[int]) -> Optional[int]:
-    """Baud rate of the openSciLab firmware behind a port with these USB identifiers, ``None``
-    when they are no Arduino's."""
-    for known_vid, known_pid, _name, baud in ARDUINO_USB_IDS:
+def arduino_bauds(vid: Optional[int], pid: Optional[int]) -> tuple[int, ...]:
+    """Baud rates the openSciLab firmware may run at behind a port with these USB identifiers,
+    the likeliest first; empty when they are no Arduino's."""
+    for known_vid, known_pid, _name, bauds in ARDUINO_USB_IDS:
         if vid == known_vid and (known_pid is None or pid == known_pid):
-            if baud is not None:
-                return baud
-            return ARDUINO_FAST_BAUD if pid in _ARDUINO_NATIVE else ARDUINO_AVR_BAUD
-    return None
+            if bauds is not None:
+                return tuple(bauds)
+            return (ARDUINO_FAST_BAUD,) if pid in _ARDUINO_NATIVE else (ARDUINO_AVR_BAUD,)
+    return ()
+
+
+def arduino_baud(vid: Optional[int], pid: Optional[int]) -> Optional[int]:
+    """The likeliest baud rate of the openSciLab firmware behind a port with these USB
+    identifiers, ``None`` when they are no Arduino's."""
+    bauds = arduino_bauds(vid, pid)
+    return bauds[0] if bauds else None
 
 
 def detect_arduinos() -> list[ArduinoPort]:
     """Ports with the USB identifiers of an Arduino board (nothing is opened: that resets it)."""
     found = []
     for port in comports():
-        baud = arduino_baud(port.vid, port.pid)
-        if baud is None:
+        bauds = arduino_bauds(port.vid, port.pid)
+        if not bauds:
             continue
         name = next(text for vid, pid, text, _ in ARDUINO_USB_IDS
                     if port.vid == vid and (pid is None or port.pid == pid))
         description = port.product if port.product and port.vid in (0x2341, 0x2A03) else name
-        found.append(ArduinoPort(port.device, port.vid, port.pid or 0, description, baud, port.serial_number))
+        found.append(ArduinoPort(port.device, port.vid, port.pid or 0, description, bauds[0], port.serial_number,
+                                 bauds))
     return sorted(found, key=lambda item: item.port_name)

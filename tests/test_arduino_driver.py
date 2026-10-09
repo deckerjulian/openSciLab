@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import struct
 import threading
 import time
 
@@ -12,8 +13,9 @@ import pytest
 from openscilab.core import waveform as waves
 from openscilab.core.instrument import AnalogInFacet, AnalogOutFacet, Instrument, InstrumentError
 from openscilab.driver import discovery, ports
+from openscilab.driver.arduino import driver as arduino_driver
 from openscilab.driver.arduino import protocol
-from openscilab.driver.arduino.link import Connection, LinkError, pipe
+from openscilab.driver.arduino.link import ArduinoError, Connection, LinkError, pipe
 from openscilab.driver.base import ACQUISITION_STREAM, CaptureError, DeviceConnectionError
 from openscilab.driver.models import AnalogChannel, AnalyzerChannel, CaptureSession, EdgeKind, TriggerType
 from openscilab.driver.simulated.arduino_shell import open_shell
@@ -22,6 +24,14 @@ from openscilab.driver.simulated.arduino_shell import open_shell
 @pytest.fixture
 def uno():
     driver = open_shell("uno")
+    instrument = Instrument.from_driver(driver, uri=driver.address)
+    yield instrument
+    instrument.close()
+
+
+@pytest.fixture
+def uno_r4():
+    driver = open_shell("uno_r4")
     instrument = Instrument.from_driver(driver, uri=driver.address)
     yield instrument
     instrument.close()
@@ -87,6 +97,36 @@ def test_arduino_ports_are_known_by_their_usb_ids(monkeypatch):
     assert set(arduinos) == {"/dev/a", "/dev/b", "/dev/c", "/dev/e"}
     assert arduinos["/dev/a"].baud == 115200 and arduinos["/dev/c"].baud == 2_000_000
     assert arduinos["/dev/e"].baud == 2_000_000 and arduinos["/dev/a"].description == "Arduino Uno"
+
+
+def test_usb_serial_chips_of_either_rate_are_tried_at_both(monkeypatch):
+    # the CH340 is on Uno/Nano clones (115200) and ESP32 boards (2 Mbaud), the CH9102 on ESP32 boards
+    class Port:
+        def __init__(self, device, vid, pid):
+            self.device, self.vid, self.pid, self.product, self.serial_number = device, vid, pid, None, None
+
+    monkeypatch.setattr(ports, "comports", lambda: [Port("/dev/ch340", 0x1A86, 0x7523),
+                                                    Port("/dev/ch9102", 0x1A86, 0x55D4)])
+    arduinos = {port.port_name: port for port in ports.detect_arduinos()}
+    assert arduinos["/dev/ch340"].bauds == (115200, 2_000_000) and arduinos["/dev/ch340"].baud == 115200
+    assert arduinos["/dev/ch9102"].bauds == (2_000_000, 115200)
+
+    opened = []
+
+    class Link:
+        def __init__(self, port, baud):
+            opened.append(baud)
+            self.baud = baud
+
+    def board(link, address="", name=""):
+        if link.baud != 2_000_000:
+            raise DeviceConnectionError("no openSciLab Arduino firmware answers")
+        return ("driver", link.baud)
+
+    monkeypatch.setattr(arduino_driver, "SerialLink", Link)
+    monkeypatch.setattr(arduino_driver, "ArduinoDriver", board)
+    assert arduino_driver.open_serial("/dev/ch340") == ("driver", 2_000_000)  # an ESP32 behind a CH340
+    assert opened == [115200, 2_000_000]
 
 
 # ---------------------------------------------------------------------- GPIO
@@ -204,15 +244,119 @@ def test_more_samples_than_the_board_holds_are_refused(uno):
     assert driver.start_capture(session_of([40])) == CaptureError.BAD_PARAMS
 
 
+def test_the_buffer_depth_follows_the_highest_pin(uno):
+    # the firmware stores 1 to 4 bytes a sample by the highest pin of the mask: D2-D7 (pins 2-7)
+    # fit one byte, D8 (pin 8, channel 6) needs two
+    driver = uno.capture.driver
+    assert [arduino_driver.buffer_width(mask) for mask in (0xFF, 1 << 8, 1 << 23, 1 << 31)] == [1, 2, 3, 4]
+    assert driver.get_limits([0, 5]).max_post_samples == 448
+    assert driver.get_limits([0, 6]).max_post_samples == 224
+    assert driver.start_capture(session_of([6], post=300)) == CaptureError.BAD_PARAMS
+    result = capture(driver, session_of([6], post=224))
+    assert result.success and len(result.session.capture_channels[0].samples) == 224
+    # the simulated board refuses it as the firmware does
+    setup = struct.pack("<BIIHIIBIIBB", protocol.MODE_BUFFER, 1000, 1 << 8, 0, 300, 0, 0, 0, 0, 0xFF, 0)
+    with pytest.raises(ArduinoError) as refused:
+        driver.connection.request(protocol.CAPTURE_SETUP, setup)
+    assert refused.value.code == protocol.ERR_OVERFLOW
+    # buffer captures read no analog inputs
+    session = session_of([0], post=100)
+    session.analog_channels = [AnalogChannel(channel_number=0)]
+    assert driver.start_capture(session) == CaptureError.UNSUPPORTED
+
+
+def test_an_immediate_buffer_capture_has_no_pre_trigger_samples(uno):
+    driver = uno.capture.driver
+    session = session_of([0], rate=100_000, pre=40, post=400)
+    result = capture(driver, session)
+    assert result.success and len(session.capture_channels[0].samples) == 440
+    assert session.pre_trigger_samples == 0 and session.post_trigger_samples == 440
+
+
+def test_streams_stay_below_the_rate_of_the_firmware(uno_r4):
+    # the R4's line carries 500 kB/s, its sampling interrupt runs at 100 kHz at most
+    driver = uno_r4.capture.driver
+    assert driver.info["stream_rate"] == "100000"
+    assert driver.max_frequency_for([0], ACQUISITION_STREAM) == 100_000
+    session = session_of([0], rate=200_000, post=1000)
+    session.acquisition_mode = ACQUISITION_STREAM
+    assert driver.start_capture(session) == CaptureError.BAD_PARAMS
+    del driver.info["stream_rate"]  # firmware that does not say
+    assert driver.max_frequency_for([0], ACQUISITION_STREAM) == arduino_driver.DEFAULT_STREAM_RATE
+
+
+def _drop_data_frames(shell, which):
+    """The simulated board's DATA events ``which`` (counted from 0) get lost on the line."""
+    sent = shell._event
+    count = [0]
+
+    def event(code, data=b""):
+        if code == protocol.EVENT_DATA:
+            count[0] += 1
+            if count[0] - 1 in which:
+                return
+        sent(code, data)
+
+    shell._event = event
+    return count
+
+
+def test_a_lost_data_frame_fails_the_capture(uno):
+    driver = uno.capture.driver
+    uno.gpio.pwm("D9", 20_000.0, 0.5)  # a change every 2-3 samples: three DATA frames of runs
+    count = _drop_data_frames(driver.shell, {1})
+    result = capture(driver, session_of([7], rate=100_000, post=224))
+    assert count[0] >= 3  # (the next frame starts after the gap)
+    assert not result.success and "lost" in result.error
+    # the last frames: only DONE says how many samples there were
+    _drop_data_frames(driver.shell, set(range(1, 100)))
+    result = capture(driver, session_of([7], rate=100_000, post=224))
+    assert not result.success and "lost" in result.error
+    driver.shell._event = type(driver.shell)._event.__get__(driver.shell)
+    result = capture(driver, session_of([7], rate=100_000, post=224))
+    assert result.success and len(result.session.capture_channels[0].samples) == 224
+
+
+def test_a_capture_whose_abort_was_not_answered_is_aborted_again(uno, monkeypatch):
+    # the board did not answer CAPTURE_ABORT in time: the driver forgot the capture, the board
+    # still ran it and answered the next CAPTURE_SETUP busy
+    monkeypatch.setattr(arduino_driver, "ABORT_TIMEOUT_S", 0.3)
+    driver = uno.capture.driver
+    shell = driver.shell
+    handle = shell._handle
+    dropped = []
+
+    def deaf_to_one_abort(frame):
+        if frame.command == protocol.CAPTURE_ABORT and not dropped:
+            dropped.append(frame)
+            return
+        handle(frame)
+
+    shell._handle = deaf_to_one_abort
+    assert driver.start_capture(session_of([0], rate=100, post=200), lambda args: None) == CaptureError.NONE
+    assert driver.stop_capture() and dropped and not driver.is_capturing
+    result = capture(driver, session_of([1], post=400))
+    assert result.success and len(result.session.capture_channels[0].samples) == 400
+
+
 # ------------------------------------------------------------------ generator
 def test_pattern_square_and_transmit(uno):
     generator = uno.generator
     outputs = {output.name: output for output in generator.outputs()}
     assert outputs["PATTERN"].max_rate == 50_000 and "D2" in outputs["PATTERN"].pins
-    generator.start("PATTERN", waves.pattern({"D7": [0, 1] * 50}, rate=10_000))
+    # the Uno holds 32 runs (HELLO gen_runs)
+    assert outputs["PATTERN"].max_points == 32 * 0xFFFF
+    with pytest.raises(InstrumentError, match="32"):
+        generator.start("PATTERN", waves.pattern({"D7": [0, 1] * 50}, rate=10_000))
+    generator.start("PATTERN", waves.pattern({"D7": [0, 1] * 16}, rate=10_000))
     assert generator.running("PATTERN")
     generator.stop("PATTERN")
+    # the square wave goes to the pin with a timer of its own (PIN capability SQUARE), not to the
+    # last PWM pin (D11: the core's fixed 490 Hz)
+    assert outputs["SQUARE"].pins == ("D9",)
+    assert uno.gpio.pin("D9").capabilities >= {"PWM", "SQUARE"} and "SQUARE" not in uno.gpio.pin("D11").capabilities
     generator.start("SQUARE", waves.standard("square", 1000.0, amplitude=2.5, offset=2.5))
+    assert uno.capture.driver.shell.instrument.generator.running("SQUARE")
     generator.stop("SQUARE")
     assert generator.transmits("uart") and generator.transmits("i2c")
     generator.transmit("uart", b"hello", {"tx": "D4"}, baud=9600)
@@ -226,12 +370,52 @@ def test_the_dac_of_the_uno_r4():
     instrument = Instrument.from_driver(driver, uri=driver.address)
     try:
         instrument.facet(AnalogOutFacet).set_voltage("A0", 1.5)
-        outputs = {output.name for output in instrument.generator.outputs()}
+        outputs = {output.name: output for output in instrument.generator.outputs()}
         assert "DAC" in outputs
         instrument.generator.start("DAC", waves.standard("sine", 100.0, amplitude=1.0, offset=2.0))
         assert instrument.generator.running("DAC")
     finally:
         instrument.close()
+
+
+def test_the_arbitrary_waveform_takes_as_many_points_as_the_dac_plays(uno_r4):
+    # 100 000 DAC points a second (HELLO arb_rate): 1 kHz is a period of 100 points, not 1000
+    driver = uno_r4.capture.driver
+    output = uno_r4.generator.output("DAC")
+    assert output.max_rate == 100_000 and output.max_points == 2048 and output.max_frequency == 5_000
+    started = []
+    request = driver.connection.request
+
+    def watch(command, data=b"", timeout=3.0):
+        if command == protocol.ARB_START:
+            started.append(struct.unpack("<fHB", data))
+        return request(command, data, timeout=timeout)
+
+    driver.connection.request = watch
+    uno_r4.generator.start("DAC", waves.standard("sine", 1000.0, amplitude=1.0, offset=2.0))
+    assert uno_r4.generator.running("DAC")
+    assert started[-1][:2] == (pytest.approx(100_000), 100)
+    uno_r4.generator.stop("DAC")
+    uno_r4.generator.start("DAC", waves.standard("sine", 10.0, amplitude=1.0, offset=2.0))
+    assert started[-1][1] == 1000  # slow ones keep 1000 points
+
+
+def test_slow_transmissions_wait_long_enough(uno, monkeypatch):
+    # the board answers TX_UART when the bytes are out: 234 bytes at 110 baud take 21 s
+    driver = uno.capture.driver
+    timeouts = []
+
+    def request(command, data=b"", timeout=3.0):
+        timeouts.append((command, timeout))
+        return b""
+
+    monkeypatch.setattr(driver.connection, "request", request)
+    uno.generator.transmit("uart", bytes(234), {"tx": "D4"}, baud=110)
+    assert timeouts[-1][0] == protocol.TX_UART and timeouts[-1][1] > 234 * 10 / 110
+    uno.generator.transmit("spi", bytes(234), {"sck": "D4", "mosi": "D5"}, frequency=100)
+    assert timeouts[-1][0] == protocol.TX_SPI and timeouts[-1][1] > 234 * 8 / 100
+    uno.generator.transmit("uart", b"hi", {"tx": "D4"}, baud=115200)
+    assert timeouts[-1][1] < 4
 
 
 # --------------------------------------------------------------------- faults

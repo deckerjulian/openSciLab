@@ -58,8 +58,10 @@ PIN_DAC = "DAC"
 PIN_CLOCK = "CLOCK"
 #: Can clock a state capture in software (interrupt), slower
 PIN_CLOCK_SW = "CLOCK_SW"
+#: The square wave output has a timer of its own on it (Arduino ``SQUARE``)
+PIN_SQUARE = "SQUARE"
 PIN_CAPABILITIES = (PIN_DIN, PIN_DOUT, PIN_PULLUP, PIN_PULLDOWN, PIN_PWM, PIN_ADC, PIN_DAC,
-                    PIN_CLOCK, PIN_CLOCK_SW)
+                    PIN_CLOCK, PIN_CLOCK_SW, PIN_SQUARE)
 
 #: Pin modes of :meth:`GpioFacet.set_mode`
 MODE_INPUT = "input"

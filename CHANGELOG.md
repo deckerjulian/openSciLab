@@ -201,6 +201,32 @@ again from 0.1.
     still connecting ends instead of making a second connection.
   - A sync output whose `write` fails (or a planned output that raises) is logged and the device
     goes on (before, its schedule ended: later outputs never ran).
+- Arduino (found in a review; not yet tried on hardware):
+  - A buffer capture no longer misses its trigger: an edge between two turns of the wait or among
+    the pre-trigger samples of a later turn triggers (a pulse at 1 kHz with 200 pre-trigger samples
+    was missed about 4 times in 10). The wait answers at least every 20 ms or so, also at 10 Hz
+    (before: 6.4 s, so CAPTURE_ABORT timed out), and the next capture aborts one whose abort was
+    not answered instead of finding the board busy.
+  - The depth of a buffer capture follows the firmware: a sample takes 1 to 4 bytes by the highest
+    pin (Uno: from D8 on 2, Mega: A8–A15 4), not by the number of channels; analog inputs in a
+    buffer capture are refused at once.
+  - Streams are offered up to the board's sampling rate (HELLO `stream_rate`, 20 kHz on the Uno,
+    100 kHz elsewhere), not up to what the line carries (500 kHz on the R4).
+  - The square wave goes to the pin with a timer of its own (new pin capability `SQUARE`: Uno D9,
+    Mega D11, R4 D9, ESP32 GPIO18) instead of the last PWM pin (D11 at a fixed 490 Hz on the Uno,
+    the strapping pin GPIO0 on the ESP32).
+  - The arbitrary waveform plays a period in as many points as the DAC's rate allows (100 at
+    1 kHz; before always 1000, refused above 100 Hz); a pattern with more runs than the board
+    holds (HELLO `gen_runs`: Uno 32, Mega 256, R4 512, ESP32 2048) is refused with that number.
+  - A lost DATA frame fails the capture with a message instead of shortening it unnoticed.
+  - A CH340 is tried at 115200 and 2 Mbaud (Uno clones and ESP32 boards), the CH9102 of ESP32
+    boards is found.
+  - Firmware: a pattern or arbitrary waveform whose timer cannot start leaves no outputs behind;
+    the latest analog value is written atomically on the AVR boards; a state capture clocked by
+    INT0/INT1 takes no frame for an edge from before it started; UART sending below 20 kBd keeps
+    interrupts on and the host waits as long as slow transmissions take; the ESP32 refuses PWM
+    below 0.5 Hz and the R4 timers below 1 Hz instead of misbehaving; an immediate buffer capture
+    has no pre-trigger samples (the trigger mark sat in the wrong place).
 
 ### Firmware
 

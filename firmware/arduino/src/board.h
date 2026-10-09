@@ -28,7 +28,7 @@ const uint16_t PC_ADC = 1 << 5;
 const uint16_t PC_DAC = 1 << 6;
 const uint16_t PC_CLOCK = 1 << 7;
 const uint16_t PC_CLOCK_SW = 1 << 8;
-const uint16_t PC_SQUARE = 1 << 9;  // the square wave output can use the pin (not reported as such)
+const uint16_t PC_SQUARE = 1 << 9;  // the square wave output has a timer of its own on the pin
 
 // why a pin is reserved
 const uint8_t RES_FREE = 0;

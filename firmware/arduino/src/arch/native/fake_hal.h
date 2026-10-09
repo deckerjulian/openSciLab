@@ -39,6 +39,8 @@ extern bool edge_falling;
 extern void (*edge_handler)();
 extern void (*timer_handler[2])();
 extern float timer_rates[2];
+extern bool timer_refuses[2];               // timer_start answers busy (another user of the timer)
+extern uint32_t irq_saves;                  // calls of irq_save (interrupts off)
 
 void reset();
 // runs the timer of a slot n times (and advances the time by its period)

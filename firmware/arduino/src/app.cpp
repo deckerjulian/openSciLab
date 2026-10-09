@@ -110,9 +110,16 @@ void safe() {
 
 static uint16_t adc_in_use() { return monitor.adc | capture::adc_mask(); }
 
+// the sampling interrupts read the value: a 16 bit store takes two on the AVR boards
+static void set_adc_latest(uint8_t channel, uint16_t value) {
+    uint32_t state = hal::irq_save();
+    adc_latest[channel] = value;
+    hal::irq_restore(state);
+}
+
 static void refresh_adc_all(uint16_t mask) {
     for (uint8_t channel = 0; channel < FW_ADC_CHANNELS; channel++)
-        if (mask & (1u << channel)) adc_latest[channel] = hal::adc_read(channel);
+        if (mask & (1u << channel)) set_adc_latest(channel, hal::adc_read(channel));
 }
 
 static uint8_t check_adc_mask(uint16_t mask) {
@@ -140,6 +147,17 @@ static void hello() {
     out.decimal(board::INFO.dac_bits);
     out.text_flash(FW_STR(";vref_mv="));
     out.decimal(board::INFO.vref_mv);
+    // the limits of the modes (rate above is the highest of all)
+    out.text_flash(FW_STR(";stream_rate="));
+    out.decimal(board::INFO.stream_max_rate);
+    out.text_flash(FW_STR(";gen_runs="));
+    out.decimal(FW_GEN_RUNS);
+    if (FW_ARB_POINTS && board::INFO.arb_max_rate && board::dac_pin() != board::NO_CHANNEL) {
+        out.text_flash(FW_STR(";arb_rate="));
+        out.decimal(board::INFO.arb_max_rate);
+        out.text_flash(FW_STR(";arb_points="));
+        out.decimal(FW_ARB_POINTS);
+    }
 }
 
 static void caps() {
@@ -175,10 +193,10 @@ static void pin_line(uint8_t index) {
     out.text_flash(FW_STR("PIN:"));
     out.text(def.name);
     out.u8(',');
-    static const char names[] FW_FLASH = "DIN\0DOUT\0PULLUP\0PULLDOWN\0PWM\0ADC\0DAC\0CLOCK\0CLOCK_SW\0";
+    static const char names[] FW_FLASH = "DIN\0DOUT\0PULLUP\0PULLDOWN\0PWM\0ADC\0DAC\0CLOCK\0CLOCK_SW\0SQUARE\0";
     const char *name = names;
     bool first = true;
-    for (uint8_t i = 0; i < 9; i++) {
+    for (uint8_t i = 0; i < 10; i++) {
         if (def.caps & (1u << i)) {
             if (!first) out.u8('/');
             out.text_flash(name);
@@ -478,7 +496,7 @@ static void poll_adc() {
     for (uint8_t i = 0; i < FW_ADC_CHANNELS; i++) {
         adc_turn = (uint8_t)((adc_turn + 1) % FW_ADC_CHANNELS);
         if (mask & (1u << adc_turn)) {
-            adc_latest[adc_turn] = hal::adc_read(adc_turn);
+            set_adc_latest(adc_turn, hal::adc_read(adc_turn));
             return;
         }
     }

@@ -306,6 +306,16 @@ ISR(PCINT1_vect) { pin_change(); }
 ISR(PCINT2_vect) { pin_change(); }
 #endif
 
+// the flag of an external interrupt in EIFR (the Mega numbers them in another order)
+static uint8_t eifr_bit(int interrupt) {
+#if defined(__AVR_ATmega2560__) || defined(__AVR_ATmega1280__)
+    static const uint8_t bits[] = {INTF4, INTF5, INTF0, INTF1, INTF2, INTF3, INTF6, INTF7};
+    return interrupt >= 0 && interrupt < 8 ? bits[interrupt] : 0xFF;
+#else
+    return interrupt >= 0 && interrupt < 2 ? (uint8_t)interrupt : 0xFF;
+#endif
+}
+
 uint8_t edge_attach(uint8_t pin, bool falling, void (*edge)()) {
     edge_detach();
     uint8_t g = gpio(pin);
@@ -315,7 +325,14 @@ uint8_t edge_attach(uint8_t pin, bool falling, void (*edge)()) {
     int interrupt = digitalPinToInterrupt(g);
     if (interrupt != NOT_AN_INTERRUPT) {
         edge_interrupt = (int8_t)interrupt;
+        // an edge seen before (or the new sense setting itself) left the flag set: it would call
+        // the handler at once, a frame without a clock edge
+        uint8_t sreg = SREG;
+        cli();
         attachInterrupt(interrupt, edge, falling ? FALLING : RISING);
+        uint8_t flag = eifr_bit(interrupt);
+        if (flag != 0xFF) EIFR = _BV(flag);
+        SREG = sreg;
         return 0;
     }
     if (digitalPinToPCICR(g) == nullptr) return proto::ERR_UNSUPPORTED;
@@ -323,6 +340,7 @@ uint8_t edge_attach(uint8_t pin, bool falling, void (*edge)()) {
     edge_bit = digitalPinToBitMask(g);
     edge_last = (*edge_input & edge_bit) != 0;
     *digitalPinToPCMSK(g) |= _BV(digitalPinToPCMSKbit(g));
+    PCIFR = _BV(digitalPinToPCICRbit(g));  // (pin_change compares the level anyway)
     *digitalPinToPCICR(g) |= _BV(digitalPinToPCICRbit(g));
     return 0;
 }

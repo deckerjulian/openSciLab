@@ -117,7 +117,10 @@ uint8_t start(const uint8_t *d, uint8_t n, float *actual) {
     playing = PATTERN;
     error = hal::timer_start(hal::TIMER_OUTPUT, rate, pattern_tick, actual);
     if (error) {
+        // nobody would release the pins (neither SAFE nor the watchdog know them): inputs again
         playing = NOTHING;
+        for (uint8_t i = 0; i < board::PIN_COUNT; i++)
+            if (mask & app::pin_bit(i)) hal::pin_input(i, hal::PULL_NONE);
         return error;
     }
     return 0;
@@ -220,6 +223,7 @@ uint8_t arb_start(const uint8_t *d, uint8_t n, float *actual) {
     error = hal::timer_start(hal::TIMER_OUTPUT, rate, wave_tick, actual);
     if (error) {
         playing = NOTHING;
+        hal::dac_stop(dac);  // its first point would stay on the pin
         return error;
     }
     return 0;

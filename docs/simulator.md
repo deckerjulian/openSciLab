@@ -103,13 +103,14 @@ give it a name of its own.
 | `firmware` | `arduino`: the board runs the openSciLab Arduino firmware, so it is also offered as `arduino-sim:<name>` (the simulated board behind its real protocol) |
 | `digital` | names of the logic channels, in channel order |
 | `analog` | names of the analog inputs |
-| `pins` | `{name, caps, reserved?, analog_channel?, level?}`: pin capabilities `DIN DOUT PULLUP PULLDOWN PWM ADC DAC CLOCK CLOCK_SW`; a pin with `reserved` cannot be used and shows why |
+| `pins` | `{name, caps, reserved?, analog_channel?, level?}`: pin capabilities `DIN DOUT PULLUP PULLDOWN PWM ADC DAC CLOCK CLOCK_SW SQUARE`; a pin with `reserved` cannot be used and shows why |
 | `max_rate` | highest sample rate (Hz) |
 | `memory_depth` | samples per channel of a buffer capture; `memory_depth_digital` / `memory_depth_analog`: depth by the number of channels in use (`{"8": 131072, "16": 65536}`) |
 | `stream_bandwidth` | bytes per second of a stream (a digital sample: 1 byte per 8 channels, an analog one 2 bytes); more is refused, a host that reads too late overflows. 0: the device does not stream |
 | `stream_max_rate` | highest rate of a stream, whatever the bandwidth (the firmware's) |
 | `buffer_analog` | `false`: buffer captures read the pins only (analog inputs only in streams) |
 | `max_post_seconds` | buffer captures record at most this long after the trigger |
+| `gen_runs` | runs of equal levels the pattern generator of a simulated Arduino holds (`arduino-sim:`; its DAC points and rate are those of its `analog` output) |
 | `analog_aggregate_rate` | samples per second of all analog inputs together (one multiplexed ADC) |
 | `clock_hz` | the clock the board reports |
 | `latency`, `gpio_latency` | seconds until a capture starts / a pin changes |

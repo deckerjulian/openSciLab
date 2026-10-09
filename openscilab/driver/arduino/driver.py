@@ -52,6 +52,24 @@ log = logging.getLogger("openscilab.driver")
 PROGRESS_INTERVAL_S = 0.1
 #: seconds between two heartbeats (the watchdog runs out after 1 s)
 HEARTBEAT_INTERVAL_S = 0.3
+#: seconds CAPTURE_ABORT waits for its answer (a buffer capture records up to 2 s without one)
+ABORT_TIMEOUT_S = 3.0
+#: seconds a capture the board still ran (its abort was not answered) may take to end
+SETTLE_TIMEOUT_S = 2.5
+#: stream rate of firmware that does not say (HELLO without ``stream_rate``)
+DEFAULT_STREAM_RATE = 100_000
+
+
+def buffer_width(mask: int) -> int:
+    """Bytes per sample of a buffer capture of the pins in ``mask``: the firmware stores 1 to 4
+    bytes by the highest pin of the mask (``src/capture_buffer.cpp``), not by how many pins."""
+    if mask <= 0xFF:
+        return 1
+    if mask <= 0xFFFF:
+        return 2
+    if mask <= 0xFFFFFF:
+        return 3
+    return 4
 
 
 class _Samples:
@@ -89,6 +107,8 @@ class _Capture:
         self.reported = 0.0
         self.stopped = False
         self.rate = session.frequency
+        #: samples that did not arrive (a DATA frame lost on the line)
+        self.missing = 0
 
 
 class ArduinoDriver(AnalyzerDriverBase):
@@ -119,6 +139,9 @@ class ArduinoDriver(AnalyzerDriverBase):
             raise
         self._channels = sorted((pin.channel, index) for index, pin in enumerate(self.pins) if pin.channel is not None)
         self._capture: Optional[_Capture] = None
+        #: a capture may still run on the board: its CAPTURE_ABORT was not answered
+        self._unsettled = False
+        self._settled = threading.Event()
         self._lock = threading.Lock()
         self._facets: Optional[list] = None
         self._keepalive = None
@@ -232,19 +255,35 @@ class ArduinoDriver(AnalyzerDriverBase):
     def _bytes_per_sample(self, digital: int, analog: int = 0) -> int:
         return max((digital + 7) // 8, 1) + 2 * analog
 
+    @property
+    def stream_max_rate(self) -> int:
+        """The highest rate of a stream (the sampling interrupt), whatever the link carries."""
+        return min(self._info_int("stream_rate", DEFAULT_STREAM_RATE) or DEFAULT_STREAM_RATE, self.max_frequency)
+
     def max_frequency_for(self, channels: Sequence[int], acquisition_mode: Optional[str] = None) -> int:
         if acquisition_mode == ACQUISITION_STREAM and self.stream_bandwidth:
-            return max(min(self.stream_bandwidth // self._bytes_per_sample(len(list(channels))), self.max_frequency), 1)
+            return max(min(self.stream_bandwidth // self._bytes_per_sample(len(list(channels))),
+                           self.stream_max_rate), 1)
         return self.max_frequency
 
+    def _pin_mask(self, channels: Sequence[int]) -> int:
+        pins = dict(self._channels)
+        return sum(1 << pins[number] for number in set(channels) if number in pins)
+
+    def buffer_depth(self, channels: Sequence[int]) -> int:
+        """Samples a buffer capture of ``channels`` holds (by the highest pin among them)."""
+        return self.buffer_size // buffer_width(self._pin_mask(channels))
+
     def memory_depth(self, digital: int, analog: int) -> Optional[int]:
-        return self.buffer_size // self._bytes_per_sample(digital, analog)
+        # at best (the lowest pins); get_limits knows the pins. Buffer captures read no analog
+        # inputs, so they take no room.
+        return self.buffer_size // max((digital + 7) // 8, 1)
 
     def get_limits(self, channels, acquisition_mode=None, *, to_disk=False, continuous=False) -> CaptureLimits:
         if acquisition_mode == ACQUISITION_STREAM:
             total = max(stream_sample_bytes(to_disk, continuous) // max(len(list(channels)), 1), 1)
             return CaptureLimits(0, 0, 1, total)
-        depth = self.memory_depth(len(list(channels)), 0) or 1
+        depth = self.buffer_depth(list(channels)) or 1
         return CaptureLimits(min_pre_samples=0, max_pre_samples=depth // 2, min_post_samples=1,
                              max_post_samples=depth)
 
@@ -289,7 +328,7 @@ class ArduinoDriver(AnalyzerDriverBase):
             capture = _Capture(session, completed_handler, mode, {n: channel_pins[n] for n in numbers}, adc,
                                stream or state)
             try:
-                rate = struct.unpack("<I", self.connection.request(protocol.CAPTURE_SETUP, setup)[:4])[0]
+                rate = struct.unpack("<I", self._capture_setup(setup)[:4])[0]
                 capture.rate = rate or session.frequency
                 self._capture = capture
                 self.connection.request(protocol.CAPTURE_START)
@@ -304,7 +343,26 @@ class ArduinoDriver(AnalyzerDriverBase):
                 return CaptureError.HARDWARE_ERROR
             if not state:
                 session.frequency = int(capture.rate)
+            if mode == protocol.MODE_BUFFER and session.trigger_type == TriggerType.IMMEDIATE:
+                # the board records every sample from the start: none of them is before a trigger
+                session.post_trigger_samples += session.pre_trigger_samples
+                session.pre_trigger_samples = 0
             return CaptureError.NONE
+
+    def _capture_setup(self, setup: bytes) -> bytes:
+        """CAPTURE_SETUP; a capture the board still runs after an abort that was not answered is
+        aborted again and waited for, so it does not keep the board busy."""
+        try:
+            return self.connection.request(protocol.CAPTURE_SETUP, setup)
+        except ArduinoError as error:
+            if error.code != protocol.ERR_BUSY or not self._unsettled:
+                raise
+        log.debug("The board still runs the capture it was asked to abort: aborting it again")
+        self._settled.clear()
+        self.connection.request(protocol.CAPTURE_ABORT, timeout=ABORT_TIMEOUT_S)
+        self._settled.wait(SETTLE_TIMEOUT_S)
+        self._unsettled = False
+        return self.connection.request(protocol.CAPTURE_SETUP, setup)
 
     def _setup(self, session: CaptureSession, channel_pins: dict[int, int], adc: list[int],
                stream: bool, state: bool) -> bytes:
@@ -327,9 +385,11 @@ class ArduinoDriver(AnalyzerDriverBase):
         else:
             if not 1 <= session.frequency <= self.max_frequency or session.loop_count:
                 raise ValueError("rate or bursts")
+            if adc:
+                raise _Unsupported()  # the counted loop of a buffer capture reads the pins only
             pre = session.pre_trigger_samples
             samples = pre + session.post_trigger_samples
-            if samples > (self.memory_depth(len(session.channel_numbers), len(adc)) or 0):
+            if samples > self.buffer_depth(session.channel_numbers):
                 raise ValueError("more samples than the board holds")
             kind = session.trigger_type
             if kind == TriggerType.IMMEDIATE:
@@ -363,7 +423,15 @@ class ArduinoDriver(AnalyzerDriverBase):
         if capture is None or len(frame.data) < 5:
             return
         kind = frame.data[0]
+        index = struct.unpack_from("<I", frame.data, 1)[0]
         body = frame.data[5:]  # after the kind and the index of the first sample
+        # the index of a frame follows what arrived before; a lost frame leaves a gap
+        arrived = {protocol.DATA_DIGITAL: capture.levels.size, protocol.DATA_STATE: capture.times.size,
+                   protocol.DATA_ANALOG: capture.analog.size // max(len(capture.adc), 1)}.get(kind)
+        if arrived is not None and index != arrived:
+            log.warning("Arduino capture: %s samples were lost on the line (a frame starts at %s)",
+                        index - arrived, index)
+            capture.missing += max(index - arrived, 1)
         if kind == protocol.DATA_DIGITAL:
             runs = np.frombuffer(body[:len(body) - len(body) % 6], dtype=np.dtype([("count", "<u2"), ("levels", "<u4")]))
             capture.levels.append(np.repeat(runs["levels"], runs["count"].astype(np.int64)))
@@ -399,9 +467,16 @@ class ArduinoDriver(AnalyzerDriverBase):
     def _on_done(self, frame: protocol.Frame) -> None:
         capture = self._capture
         if capture is None:
+            # (the end of a capture whose abort was not answered: the board is free again)
+            self._unsettled = False
+            self._settled.set()
             return
         status = frame.data[0] if frame.data else protocol.DONE_COMPLETE
         lost = struct.unpack_from("<I", frame.data, 5)[0] if len(frame.data) >= 9 else 0
+        if len(frame.data) >= 5:  # the samples the board sent: the last frames may be the lost ones
+            sent = struct.unpack_from("<I", frame.data, 1)[0]
+            arrived = capture.times.size if capture.mode == protocol.MODE_STATE else capture.levels.size
+            capture.missing = max(capture.missing, sent - arrived)
         self._capture = None
         if capture.stopped and not capture.stream:
             return  # a stopped buffer capture reports nothing (as the other drivers)
@@ -427,12 +502,17 @@ class ArduinoDriver(AnalyzerDriverBase):
             session.pre_trigger_samples = 0
             session.post_trigger_samples = count
             session.loop_count = 0
+        success = count > 0
+        if capture.missing and error is None:
+            success = False
+            error = (f"{capture.missing:,} samples were lost on the way from the board (a damaged frame), "
+                     "so the capture is incomplete. Check the USB cable and capture again.")
         if status == protocol.DONE_OVERFLOW and error is None:
             error = ("The board could not send the samples as fast as it took them, so the capture "
                      "stopped early. Lower the rate or capture fewer channels.")
         elif lost and error is None:
             error = f"{lost:,} clock edges came too fast and were lost."
-        self._raise_capture_completed(CaptureCompletedArgs(success=count > 0, session=session, error=error),
+        self._raise_capture_completed(CaptureCompletedArgs(success=success, session=session, error=error),
                                       capture.handler)
 
     def _on_lost(self, _frame: protocol.Frame) -> None:
@@ -446,11 +526,13 @@ class ArduinoDriver(AnalyzerDriverBase):
             return False
         capture.stopped = True
         try:
-            self.connection.request(protocol.CAPTURE_ABORT)
+            self.connection.request(protocol.CAPTURE_ABORT, timeout=ABORT_TIMEOUT_S)
         except (LinkError, ArduinoError) as error:
             log.debug("Stopping the Arduino capture failed: %s", error)
             if self._capture is capture:
                 self._capture = None
+                # the board may still run it: the next capture aborts it again first
+                self._unsettled = True
                 if capture.stream:
                     self._finish(capture, protocol.DONE_STOPPED)
         return True
@@ -498,14 +580,27 @@ class _Unsupported(Exception):
 
 
 def open_serial(port: str, baud: Optional[int] = None) -> ArduinoDriver:
-    """The Arduino on ``port`` (baud rate from its USB identifiers when not given)."""
+    """The Arduino on ``port`` (baud rate from its USB identifiers when not given; a USB serial
+    chip found on boards of either rate is tried at both)."""
     from .. import ports
 
-    if baud is None:
+    if baud is not None:
+        bauds: tuple[int, ...] = (baud,)
+    else:
         details = next((item for item in ports.detect_arduinos() if item.port_name == port), None)
-        baud = details.baud if details is not None else ports.ARDUINO_AVR_BAUD
-    try:
-        link = SerialLink(port, baud)
-    except LinkError as error:
-        raise DeviceConnectionError(str(error)) from error
-    return ArduinoDriver(link, address=f"arduino:{port}", name=f"Arduino on {port}")
+        bauds = details.bauds if details is not None else (ports.ARDUINO_AVR_BAUD,)
+    first: Optional[DeviceConnectionError] = None
+    for rate in bauds:
+        try:
+            link = SerialLink(port, rate)
+        except LinkError as error:
+            raise DeviceConnectionError(str(error)) from error
+        try:
+            return ArduinoDriver(link, address=f"arduino:{port}", name=f"Arduino on {port}")
+        except FirmwareOutdatedError:
+            raise
+        except DeviceConnectionError as error:  # no answer at this rate
+            log.debug("No openSciLab Arduino firmware answers on %s at %s baud: %s", port, rate, error)
+            first = first or error
+    assert first is not None
+    raise first

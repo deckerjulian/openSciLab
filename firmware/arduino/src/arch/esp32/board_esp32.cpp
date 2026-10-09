@@ -24,7 +24,8 @@ using namespace board;
 
 namespace board {
 
-#define IO (PC_DIN | PC_DOUT | PC_PULLUP | PC_PULLDOWN | PC_PWM | PC_SQUARE | PC_CLOCK_SW)
+// LEDC makes the square wave on any pin; GPIO18 is the one offered for it (no strapping pin)
+#define IO (PC_DIN | PC_DOUT | PC_PULLUP | PC_PULLDOWN | PC_PWM | PC_CLOCK_SW)
 #define IN (PC_DIN | PC_CLOCK_SW)
 
 #if defined(FW_BOARD_ESP32S3)
@@ -38,7 +39,7 @@ const PinDef PIN_TABLE[] = {
     {"GPIO11", 11, IO, NO_CHANNEL, RES_FREE}, {"GPIO12", 12, IO, NO_CHANNEL, RES_FREE},
     {"GPIO13", 13, IO, NO_CHANNEL, RES_FREE}, {"GPIO14", 14, IO, NO_CHANNEL, RES_FREE},
     {"GPIO15", 15, IO, NO_CHANNEL, RES_FREE}, {"GPIO16", 16, IO, NO_CHANNEL, RES_FREE},
-    {"GPIO17", 17, IO, NO_CHANNEL, RES_FREE}, {"GPIO18", 18, IO, NO_CHANNEL, RES_FREE},
+    {"GPIO17", 17, IO, NO_CHANNEL, RES_FREE}, {"GPIO18", 18, IO | PC_SQUARE, NO_CHANNEL, RES_FREE},
     {"GPIO19", 19, PC_DIN, NO_CHANNEL, RES_USB_DM}, {"GPIO20", 20, PC_DIN, NO_CHANNEL, RES_USB_DP},
     {"GPIO21", 21, IO, NO_CHANNEL, RES_FREE}, {"GPIO38", 38, IO, NO_CHANNEL, RES_FREE},
     {"GPIO39", 39, IO, NO_CHANNEL, RES_FREE}, {"GPIO40", 40, IO, NO_CHANNEL, RES_FREE},
@@ -77,7 +78,7 @@ const PinDef PIN_TABLE[] = {
     {"GPIO5", 5, IO, NO_CHANNEL, RES_FREE},   {"GPIO12", 12, IO, NO_CHANNEL, RES_FREE},
     {"GPIO13", 13, IO, NO_CHANNEL, RES_FREE}, {"GPIO14", 14, IO, NO_CHANNEL, RES_FREE},
     {"GPIO15", 15, IO, NO_CHANNEL, RES_FREE}, {"GPIO16", 16, IO, NO_CHANNEL, RES_FREE},
-    {"GPIO17", 17, IO, NO_CHANNEL, RES_FREE}, {"GPIO18", 18, IO, NO_CHANNEL, RES_FREE},
+    {"GPIO17", 17, IO, NO_CHANNEL, RES_FREE}, {"GPIO18", 18, IO | PC_SQUARE, NO_CHANNEL, RES_FREE},
     {"GPIO19", 19, IO, NO_CHANNEL, RES_FREE}, {"GPIO21", 21, IO, NO_CHANNEL, RES_FREE},
     {"GPIO22", 22, IO, NO_CHANNEL, RES_FREE}, {"GPIO23", 23, IO, NO_CHANNEL, RES_FREE},
     {"GPIO25", 25, IO | PC_DAC, NO_CHANNEL, RES_FREE}, {"GPIO26", 26, IO | PC_DAC, NO_CHANNEL, RES_FREE},
@@ -185,11 +186,14 @@ static int8_t ledc_channel(uint8_t pin) {
 }
 
 uint8_t pwm_start(uint8_t pin, float frequency, uint16_t duty, float *actual) {
+    // LEDC takes whole hertz: below 0.5 Hz it would be asked for 0
+    uint32_t hz = (uint32_t)(frequency + 0.5f);
+    if (!hz) return proto::ERR_ARGUMENTS;
     int8_t channel = ledc_channel(pin);
     if (channel < 0) return proto::ERR_BUSY;
     uint8_t bits = 1;
     while (bits < 14 && frequency * (float)(1u << (bits + 1)) <= 80000000.0f) bits++;
-    uint32_t got = ledcSetup((uint8_t)channel, (uint32_t)(frequency + 0.5f), bits);
+    uint32_t got = ledcSetup((uint8_t)channel, hz, bits);
     if (!got) {
         ledc_of[pin] = -1;
         return proto::ERR_ARGUMENTS;

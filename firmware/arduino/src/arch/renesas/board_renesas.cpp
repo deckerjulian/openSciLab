@@ -7,7 +7,7 @@
 // Arduino Uno R4 Minima (RA4M1, 48 MHz): pin table and hal.
 //
 // USB is native, so D0/D1 are free. Two FspTimers (allocated once) are the periodic interrupts,
-// PwmOut drives PWM and the square wave (any PWM pin), the 12 bit DAC sits on A0, the ADC reads
+// PwmOut drives PWM and the square wave (any PWM pin; D9 and D10 are reported for it), the 12 bit DAC sits on A0, the ADC reads
 // 14 bit. Clock edges use attachInterrupt on the pins with an IRQ line.
 
 #if defined(ARDUINO_ARCH_RENESAS)
@@ -26,7 +26,9 @@ using namespace board;
 namespace board {
 
 #define IO (PC_DIN | PC_DOUT | PC_PULLUP)
-#define PW (PC_PWM | PC_SQUARE)
+// PwmOut makes the square wave on any PWM pin; D9 and D10 are the ones offered for it (as on
+// the Uno)
+#define PW PC_PWM
 
 const PinDef PIN_TABLE[] = {
     {"D0", 0, IO | PC_CLOCK_SW, NO_CHANNEL, RES_FREE},
@@ -38,8 +40,8 @@ const PinDef PIN_TABLE[] = {
     {"D6", 6, IO | PW, NO_CHANNEL, RES_FREE},
     {"D7", 7, IO, NO_CHANNEL, RES_FREE},
     {"D8", 8, IO | PC_CLOCK_SW, NO_CHANNEL, RES_FREE},
-    {"D9", 9, IO | PW, NO_CHANNEL, RES_FREE},
-    {"D10", 10, IO | PW, NO_CHANNEL, RES_FREE},
+    {"D9", 9, IO | PW | PC_SQUARE, NO_CHANNEL, RES_FREE},
+    {"D10", 10, IO | PW | PC_SQUARE, NO_CHANNEL, RES_FREE},
     {"D11", 11, IO | PW, NO_CHANNEL, RES_FREE},
     {"D12", 12, IO | PC_CLOCK_SW, NO_CHANNEL, RES_FREE},
     {"D13", 13, IO | PC_CLOCK_SW, NO_CHANNEL, RES_FREE},
@@ -193,6 +195,9 @@ float timer_rate(float rate) { return rate; }
 
 uint8_t timer_start(uint8_t slot, float rate, void (*tick)(), float *actual) {
     if (ticks[slot]) return proto::ERR_BUSY;
+    // set_frequency picks the divider anew, but a period a 16 bit GPT channel cannot count
+    // (below 0.7 Hz) keeps the old one without saying so (core 1.6.0)
+    if (!(rate >= 1.0f)) return proto::ERR_ARGUMENTS;
     FspTimer &timer = timers[slot];
     if (!timer_ready[slot]) {
         uint8_t type = GPT_TIMER;

@@ -120,7 +120,8 @@
         "DOUT",
         "PULLUP",
         "PWM",
-        "CLOCK_SW"
+        "CLOCK_SW",
+        "SQUARE"
       ]
     },
     {
@@ -130,7 +131,8 @@
         "DOUT",
         "PULLUP",
         "PWM",
-        "CLOCK_SW"
+        "CLOCK_SW",
+        "SQUARE"
       ]
     },
     {
@@ -355,6 +357,7 @@
     "16": 6144
   },
   "stream_max_rate": 100000,
+  "gen_runs": 512,
   "buffer_analog": false,
   "max_post_seconds": 2,
   "clock_hz": 48000000
