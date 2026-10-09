@@ -630,7 +630,15 @@ def test_running_an_update_tool(application, monkeypatch):
     shown = []
     monkeypatch.setattr(messages, "info", lambda parent, title, text, details=None: shown.append(details))
     monkeypatch.setattr(messages, "warning", lambda parent, title, text, details=None: shown.append(text))
-    assert run_update_tool(None, "esptool", "/dev/ttyUSB0", image="fw.bin") is None  # not installed
+    # (not installed - also where this computer has it: in its PATH or as the Python package)
+    import importlib.util
+    import shutil
+
+    monkeypatch.setattr(shutil, "which", lambda name, *args, **kwargs: None)
+    real_find_spec = importlib.util.find_spec
+    monkeypatch.setattr(importlib.util, "find_spec",
+                        lambda name, *args: None if name == "esptool" else real_find_spec(name, *args))
+    assert run_update_tool(None, "esptool", "/dev/ttyUSB0", image="fw.bin") is None
     assert "esptool is not installed" in shown[-1]
     fake_tool("bossac")
     assert run_update_tool(None, "bossac", "/dev/ttyACM0", image="fw.bin") == "/dev/ttyACM0"
