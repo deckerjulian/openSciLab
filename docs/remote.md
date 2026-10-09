@@ -80,6 +80,15 @@ while True:
 Outputs (`dev.output`): `scalar`, `bool` (also a pin for `gpio.write`), `text`. Values sent while
 the connection is down are kept (up to `buffer` messages) and follow with their original times.
 Blocks of `analog`/`digital` inputs are only sent while a flow listens to them.
+
+**When the connection breaks.** openSciLab pings the device every second. A device that hears
+nothing for `silence` seconds (5 by default: openSciLab's computer went away without a word) gives
+the connection up and connects again; one whose greeting does not come within `handshake_timeout`
+seconds (10) too. `dev.stop()` ends a connection in its handshake as well and waits for the threads
+of the device to end. A `server` that is no address (`"host:abc"`) raises at once in `Device(...)`
+(set later, it ends the connection thread with `last_error`); a beacon port taken by another program
+is said in `last_error` and tried again. An exception of a sync output's `write` or of a planned
+output is logged; the device goes on.
 `examples/remote/raspberry_pi.py` is a template for a Raspberry Pi, `examples/remote/ni_daq.py` for
 a NI DAQ.
 
@@ -102,9 +111,15 @@ All of it: [docs/timing.md](timing.md).
 | `remote.call` | calls a command, `result` is the answer |
 | `remote.sync` | aligns the device's clock with a sync signal recorded by another instrument (or the edges of `timing.sync`) |
 
-`gpio.write`, `gpio.read` and `device.monitor` work with the `bool` and `scalar` channels too.
-The inspector offers the inputs, outputs, commands and sync signals the device describes. Remote
-devices run in real time (not with *Fast (virtual time)*).
+`gpio.write`, `gpio.read` and `device.monitor` work with the `bool` and `scalar` channels too
+(`device.monitor` reads the latest values; the device card has no *Monitor* box, as the device sends
+its values by itself). `gpio.pulse` sends both edges at once with their times, so the device times
+the width, not the round trip. The inspector offers the inputs, outputs, commands and sync signals
+the device describes. Remote devices run in real time (not with *Fast (virtual time)*).
+
+A device that connects again after a network drop is the same instrument: `remote.receive` and
+`remote.sync` go on with the values and edges of the new connection, which subscribes again to the
+blocks and sync signals they listen to.
 
 ## Synchronisation
 
@@ -177,6 +192,10 @@ reference; devices in other languages (MicroPython, C++) can speak it.
 | openSciLab → device | `call` | `id`, `name`, `args` |
 | device → openSciLab | `result` | `id`, `value` or `error` |
 | both | `bye` | |
+
+A message openSciLab cannot use (a `pong` without its times, a block whose payload is no whole
+number of samples, a time that is no number, sync edges that are not `[time, level]`) is logged and
+dropped; the connection stays.
 
 The description: `{name, description, inputs: [{name, kind, unit, rate, range, description, sync, clock}],
 outputs: [{name, kind, unit, range, default, description}], commands: [{name, description}],

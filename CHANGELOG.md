@@ -176,6 +176,31 @@ again from 0.1.
 - Pico: the answer to a command sent as a capture ends comes after the capture data; it reaches its
   command even when the completion starts the next capture at once (a flow) - before, the new
   capture dropped it or took it for its own answer and failed.
+- Remote devices (found in a review):
+  - A device that connects again after a network drop delivers to the same listeners:
+    `remote.receive` and `remote.sync` go on with the new connection, which subscribes again to the
+    blocks and sync signals they listen to (before, the new connection had no listeners: a
+    `remote.receive` without a duration waited for ever, blocks and the sync output stopped).
+  - The card of a remote device offers no *Monitor* box (the device sends its values by itself; its
+    *Monitor* box showed an error, and unticking it raised another); `device.monitor` reads the
+    latest values as before.
+  - `openscilab_device` gives a connection up when openSciLab has been silent for 5 s (it pings
+    every second) and connects again - before, a host gone without a word left the device
+    *connected* for about two hours, and what it sent was lost; a server that accepts but never
+    greets is given up after 10 s, and `stop()` ends that wait at once.
+  - A `server` that is no address (`"host:abc"`) is refused by `Device(...)`; a beacon port taken by
+    another program is said in `last_error` and tried again (both ended the connection thread for
+    good, with an empty `last_error`).
+  - `gpio.pulse` on a remote device sends both edges at once with their times: the device times the
+    width (before, the second edge was sent after the answer to the first, so a short pulse lasted
+    at least a round trip).
+  - A message of a device openSciLab cannot use (a `pong` without its times, a block of half a
+    sample, a time that is no number) and a sync listener that fails are logged; the connection
+    stays (before, it was closed).
+  - `stop()` waits for the device's threads to end, and a thread of an earlier `start()` that is
+    still connecting ends instead of making a second connection.
+  - A sync output whose `write` fails (or a planned output that raises) is logged and the device
+    goes on (before, its schedule ended: later outputs never ran).
 
 ### Firmware
 

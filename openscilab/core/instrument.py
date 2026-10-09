@@ -300,6 +300,9 @@ class MonitorFacet(Facet):
     """Periodic reports of the inputs: a slow capture that runs alongside everything else."""
 
     title = "Monitor"
+    #: :meth:`start` makes periodic reports (False: the monitor is only read with ``sample`` - the
+    #: device card offers no *Monitor* box for it)
+    periodic = True
 
     def __init__(self) -> None:
         super().__init__()

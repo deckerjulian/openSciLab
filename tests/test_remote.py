@@ -387,4 +387,4 @@ def test_the_package_needs_only_the_standard_library():
                     if isinstance(node, ast.ImportFrom) and node.module and node.level == 0}
         assert imports <= {"argparse", "hashlib", "hmac", "json", "socket", "struct", "threading", "time", "uuid",
                            "heapq", "itertools", "random", "math", "collections", "typing", "__future__",
-                           "numpy", "os", "dataclasses"}, (name, imports)
+                           "numpy", "os", "dataclasses", "logging"}, (name, imports)

@@ -13,13 +13,17 @@ other facets let the nodes that already exist use it: a ``bool`` output is a pin
 (``device.monitor``) and :class:`RemoteAnalogIn` (``gpio.read`` with ``analog``).
 
 The facets look the connection up by the device's name every time: a device that connects again
-(after a network drop) is the same instrument.
+(after a network drop) is the same instrument. Who listens to its inputs and sync signals listens
+to the device, not to one connection: the next connection delivers to them and subscribes to what
+they want (:meth:`RemoteServer.listen`).
 """
 
 from __future__ import annotations
 
+import logging
 import math
 import time
+from concurrent.futures import Future
 from typing import Any, Callable, Optional
 
 from ...core.instrument import (
@@ -39,6 +43,8 @@ from ...core.instrument import (
 )
 from .clock import ClockState
 from .server import Received, RemoteConnection, RemoteError, RemoteServer, syncs_of
+
+log = logging.getLogger(__name__)
 
 
 class RemoteFacet(Facet):
@@ -90,21 +96,35 @@ class RemoteFacet(Facet):
         return syncs_of(self.description)
 
     def listen(self, channel: str, listener: Callable[[Received], None]) -> Callable[[], None]:
-        try:
-            return self.connection.listen(channel, listener)
-        except RemoteError as error:
-            raise InstrumentError(str(error)) from None
+        """``listener`` gets every value of the input ``channel`` - also after the device connected
+        again; returns the function that stops it."""
+        if channel not in self.inputs():
+            raise InstrumentError(f"{self.device_name} has no input {channel!r}")
+        return self.server.listen(self.device_name, channel, listener)
 
     def listen_sync(self, name: str, listener: Callable[[list], None]) -> Callable[[], None]:
-        try:
-            return self.connection.listen_sync(name, listener)
-        except RemoteError as error:
-            raise InstrumentError(str(error)) from None
+        """``listener`` gets the edges of the sync signal ``name`` (also after the device connected again)."""
+        if name not in self.syncs():
+            raise InstrumentError(f"{self.device_name} has no sync signal {name!r}")
+        return self.server.listen_sync(self.device_name, name, listener)
 
     def set(self, channel: str, value: Any, at: Optional[float] = None, timeout: float = 5.0) -> float:
         """Set an output at the local time ``at`` (``None``: at once); the local time it happened."""
         try:
             return self.connection.set(channel, value, at, timeout)
+        except RemoteError as error:
+            raise InstrumentError(str(error)) from None
+
+    def set_later(self, channel: str, value: Any, at: float) -> Future:
+        """Send a value for the time ``at`` without waiting (:meth:`RemoteConnection.set_later`)."""
+        try:
+            return self.connection.set_later(channel, value, at)
+        except RemoteError as error:
+            raise InstrumentError(str(error)) from None
+
+    def applied(self, future: Future, timeout: float = 5.0) -> float:
+        try:
+            return self.connection.applied(future, timeout)
         except RemoteError as error:
             raise InstrumentError(str(error)) from None
 
@@ -173,12 +193,30 @@ class RemoteGpio(GpioFacet):
         return 1 if latest.value else 0
 
     def pulse(self, pin: str, width: float, level: int = 1, count: int = 1, period: float = 0.0) -> None:
-        """Pulses timed by the device: the edges are sent with the times they should happen at."""
+        """Pulses timed by the device: every edge is sent at once with the time it should happen at
+        (a little ahead, what the network needs), and the device applies it then - the width does not
+        depend on the round trip. Returns when the device applied the first edge (a refusal raises);
+        the answers of the others are only checked."""
+        if pin not in self.remote.outputs():
+            raise InstrumentError(f"{pin} is no output of {self.remote.device_name}")
         start = time.monotonic() + 2 * self.remote.typical_delay() + 0.01
+        futures = []
         for index in range(int(count)):
             begin = start + index * float(period)
-            self.remote.set(pin, bool(level), at=begin)
-            self.remote.set(pin, not bool(level), at=begin + float(width))
+            futures.append(self.remote.set_later(pin, bool(level), begin))
+            futures.append(self.remote.set_later(pin, not bool(level), begin + float(width)))
+        for future in futures[1:]:
+            future.add_done_callback(self._check_edge)
+        self.remote.applied(futures[0], 5.0 + max(start - time.monotonic(), 0.0))
+
+    def _check_edge(self, future: Future) -> None:
+        try:
+            answer = future.result()
+        except Exception as error:  # noqa: BLE001 - the device went away meanwhile
+            log.warning("a pulse edge of %s: %s", self.remote.device_name, error)
+            return
+        if answer.get("error"):
+            log.warning("a pulse edge of %s: %s", self.remote.device_name, answer["error"])
 
     def pwm(self, pin: str, frequency: float, duty: float) -> Optional[float]:
         raise InstrumentError(f"{self.remote.device_name} makes no PWM")
@@ -194,7 +232,11 @@ class RemoteGpio(GpioFacet):
 
 
 class RemoteMonitor(MonitorFacet):
-    """The latest values of the slow inputs (``device.monitor`` reads them at its rate)."""
+    """The latest values of the slow inputs (``device.monitor`` reads them at its rate). It does not
+    run by itself - the device sends its values without being asked - so the device card offers no
+    *Monitor* box for it (``periodic``)."""
+
+    periodic = False
 
     def __init__(self, remote: RemoteFacet) -> None:
         super().__init__()
@@ -214,6 +256,9 @@ class RemoteMonitor(MonitorFacet):
 
     def start(self, rate: float, pins: list[str], analog: tuple[str, ...] = ()) -> None:
         raise InstrumentError("the remote device sends its values by itself: use remote.receive")
+
+    def stop(self) -> None:
+        """Nothing runs (see :meth:`start`)."""
 
 
 class RemoteAnalogIn(AnalogInFacet):

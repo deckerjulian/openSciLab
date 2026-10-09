@@ -51,6 +51,14 @@ PENDING = 10_000
 _NUMPY = {"f4": "<f4", "f8": "<f8", "u1": "u1", "i2": "<i2", "i4": "<i4"}
 
 
+def _finite(value: Any, name: str) -> float:
+    """``value`` of a message as a number (``ValueError``: none, or not finite)."""
+    number = float(value)
+    if not math.isfinite(number):
+        raise ValueError(f"{name} is {number}")
+    return number
+
+
 class RemoteError(Exception):
     """A remote device refused something, did not answer or is not connected."""
 
@@ -75,6 +83,37 @@ class Received:
     method: str = ""
     #: the number of the first sample of a block since the device started the acquisition
     index: Optional[int] = None
+
+
+class Listeners:
+    """Who listens to the inputs and sync signals of one device. The server keeps them under the
+    device's name (:meth:`RemoteServer.listeners`): a connection of the device takes them on, so they
+    stay when it connects again after a network drop and the new connection subscribes to them."""
+
+    def __init__(self) -> None:
+        self.lock = threading.Lock()
+        #: input -> listeners of its values and blocks; sync signal -> listeners of its edges
+        self.values: dict[str, list[Callable[[Received], None]]] = {}
+        self.syncs: dict[str, list[Callable[[list], None]]] = {}
+
+    def add(self, table: dict, key: str, listener: Callable) -> None:
+        with self.lock:
+            table.setdefault(key, []).append(listener)
+
+    def remove(self, table: dict, key: str, listener: Callable) -> None:
+        with self.lock:
+            if listener in table.get(key, []):
+                table[key].remove(listener)
+
+    def of(self, table: dict, key: str) -> list[Callable]:
+        with self.lock:
+            return list(table.get(key, []))
+
+    def wanted(self) -> set[str]:
+        """The inputs and sync signals someone listens to."""
+        with self.lock:
+            return ({name for name, listeners in self.values.items() if listeners}
+                    | {name for name, listeners in self.syncs.items() if listeners})
 
 
 class RemoteConnection:
@@ -105,8 +144,8 @@ class RemoteConnection:
         self._ids = itertools.count(1)
         self._pings: dict[int, float] = {}
         self._requests: dict[int, Future] = {}
-        self._listeners: dict[str, list[Callable[[Received], None]]] = {}
-        self._sync_listeners: dict[str, list[Callable[[list], None]]] = {}
+        #: those of the device's name once it said who it is (:meth:`RemoteServer.listeners`)
+        self.listeners = Listeners()
         self._close_listeners: list[Callable[[], None]] = []
         self._pending: list[tuple[dict, bytes]] = []
         self._subscribed: frozenset = frozenset()
@@ -191,7 +230,11 @@ class RemoteConnection:
             while not self.closed.is_set():
                 header, payload = protocol.receive(self.socket)
                 self.last_heard = time.monotonic()
-                self._handle(header, payload)
+                try:
+                    self._handle(header, payload)
+                except Exception:  # noqa: BLE001 - one message the device got wrong, not the connection
+                    log.warning("remote device %s: a %r message was dropped", self.name, header.get("t"),
+                                exc_info=True)
         except (OSError, protocol.ProtocolError) as error:
             if not self.closed.is_set():
                 log.info("remote device %s: %s", self.name, error)
@@ -256,8 +299,13 @@ class RemoteConnection:
             with self._lock:
                 sent = self._pings.pop(header.get("id"), None)
             if sent is not None:
+                try:
+                    t1, t2 = _finite(header["t1"], "t1"), _finite(header["t2"], "t2")
+                except (KeyError, TypeError, ValueError) as error:
+                    log.warning("remote device %s: a pong was dropped (%s)", self.name, error)
+                    return
                 first = not self.clock.ready
-                self.clock.add(sent, float(header["t1"]), float(header["t2"]), arrived)
+                self.clock.add(sent, t1, t2, arrived)
                 if first:
                     with self._lock:
                         pending, self._pending = self._pending, []
@@ -276,9 +324,13 @@ class RemoteConnection:
             if future is not None and not future.done():
                 future.set_result(header)
         elif kind == "sync":
-            edges = [(float(at), int(level)) for at, level in header.get("edges") or []]
-            for listener in list(self._sync_listeners.get(str(header.get("name")), [])):
-                listener(edges)
+            try:
+                edges = [(_finite(at, "an edge"), int(level)) for at, level in header.get("edges") or []]
+            except (TypeError, ValueError) as error:
+                log.warning("remote device %s: sync edges that are not [time, level] were dropped (%s)",
+                            self.name, error)
+                return
+            self._tell_sync(str(header.get("name")), edges)
         elif kind == "bye":
             self.close()
 
@@ -287,29 +339,51 @@ class RemoteConnection:
         spec = self.inputs().get(channel)
         if spec is None:
             return
-        if header["t"] == "value":
-            remote = float(header.get("at", 0.0))
-            item = Received(channel, spec["kind"], self.clock.to_local(remote), remote, value=header.get("v"))
-        else:
-            dtype = _NUMPY.get(str(header.get("dtype")), "<f4")
-            samples = np.frombuffer(payload, dtype=dtype).copy()
-            remote = float(header.get("t0", 0.0))
-            uncertainty = header.get("u")
-            item = Received(channel, spec["kind"], self.clock.to_local(remote), remote, samples=samples,
-                            rate=float(header.get("rate") or spec.get("rate") or 1.0),
-                            uncertainty=float(uncertainty) if uncertainty is not None else None,
-                            method=str(header.get("m") or ""),
-                            index=int(header["i"]) if header.get("i") is not None else None)
+        try:
+            item = self._received(channel, spec, header, payload)
+        except (KeyError, TypeError, ValueError, IndexError, OverflowError) as error:
+            log.warning("remote device %s: a %s of %s was dropped (%s)", self.name, header.get("t"), channel, error)
+            return
+        if item.samples is not None:
             if header.get("ta") is not None and item.index is not None:
                 self._arrived(channel, spec, header, item)
             if spec.get("sync"):
                 self._sync_block(item)
         self.latest[channel] = item
-        for listener in list(self._listeners.get(channel, [])):
+        for listener in self.listeners.of(self.listeners.values, channel):
             try:
                 listener(item)
             except Exception:  # a listener must not stop the others
                 log.exception("listener of %s.%s", self.name, channel)
+
+    def _received(self, channel: str, spec: dict, header: dict, payload: bytes) -> Received:
+        """A value or block as it arrived, checked (raises ``ValueError`` for what does not fit)."""
+        block = spec["kind"] in protocol.BLOCK_KINDS
+        if (header["t"] == "block") != block:
+            raise ValueError(f"a {header['t']} for a {spec['kind']} input")
+        if not block:
+            remote = _finite(header.get("at", 0.0), "at")
+            return Received(channel, spec["kind"], self.clock.to_local(remote), remote, value=header.get("v"))
+        dtype = _NUMPY.get(str(header.get("dtype")), "<f4")
+        if len(payload) % np.dtype(dtype).itemsize:
+            raise ValueError(f"{len(payload)} bytes are no whole number of {header.get('dtype')} samples")
+        samples = np.frombuffer(payload, dtype=dtype).copy()
+        remote = _finite(header.get("t0", 0.0), "t0")
+        rate = _finite(header.get("rate") or spec.get("rate") or 1.0, "rate")
+        if rate <= 0:
+            raise ValueError(f"the rate {rate:g} is not positive")
+        uncertainty = header.get("u")
+        if header.get("ta") is not None:  # (what _arrived places the samples with)
+            _finite(header["ta"], "ta")
+            if header.get("ts") is not None:
+                _finite(header["ts"], "ts")
+            if header.get("l"):
+                _finite(header["l"][0], "the latency")
+                _finite(header["l"][1], "the latency")
+        return Received(channel, spec["kind"], self.clock.to_local(remote), remote, samples=samples, rate=rate,
+                        uncertainty=float(uncertainty) if uncertainty is not None else None,
+                        method=str(header.get("m") or ""),
+                        index=int(header["i"]) if header.get("i") is not None else None)
 
     def _arrived(self, channel: str, spec: dict, header: dict, item: Received) -> None:
         with self._lock:
@@ -357,15 +431,20 @@ class RemoteConnection:
         start = previous if previous is not None else int(levels[0])
         steps = np.concatenate(([start], levels))
         index = np.nonzero(steps[1:] != steps[:-1])[0]
-        listeners = list(self._sync_listeners.get(item.channel, []))
-        if not len(index) or not listeners:
+        if not len(index) or not self.listeners.of(self.listeners.syncs, item.channel):
             return
         rate = float(item.rate or 1.0)
         first = item.index
         edges = [(item.remote_time + float(position) / rate, int(levels[position]))
                  + ((first + int(position),) if first is not None else ()) for position in index]
-        for listener in listeners:
-            listener(edges)
+        self._tell_sync(item.channel, edges)
+
+    def _tell_sync(self, name: str, edges: list) -> None:
+        for listener in self.listeners.of(self.listeners.syncs, name):
+            try:
+                listener(edges)
+            except Exception:  # a listener must not stop the others (nor the connection)
+                log.exception("sync listener of %s.%s", self.name, name)
 
     def _sync_span(self, channel: str, samples: np.ndarray) -> tuple[float, float]:
         low, high = self._sync_spans.get(channel, (math.inf, -math.inf))
@@ -375,20 +454,11 @@ class RemoteConnection:
 
     # ----------------------------------------------------------- listening
     def listen(self, channel: str, listener: Callable[[Received], None]) -> Callable[[], None]:
-        """``listener`` gets every value of the input ``channel``; returns the function that stops it."""
+        """``listener`` gets every value of the input ``channel``; returns the function that stops it.
+        It goes on listening when the device connects again (:meth:`RemoteServer.listen`)."""
         if channel not in self.inputs():
             raise RemoteError(f"{self.name} has no input {channel!r}")
-        with self._lock:
-            self._listeners.setdefault(channel, []).append(listener)
-        self._update_subscription()
-
-        def stop() -> None:
-            with self._lock:
-                if listener in self._listeners.get(channel, []):
-                    self._listeners[channel].remove(listener)
-            self._update_subscription()
-
-        return stop
+        return self.server.listen(self.name, channel, listener)
 
     def listen_sync(self, name: str, listener: Callable[[list], None]) -> Callable[[], None]:
         """``listener`` gets the edges ``[(device time, level)]`` of the sync signal ``name`` (of an input
@@ -396,17 +466,7 @@ class RemoteConnection:
         drives a sync output only while someone listens."""
         if name not in self.syncs():
             raise RemoteError(f"{self.name} has no sync signal {name!r}")
-        with self._lock:
-            self._sync_listeners.setdefault(name, []).append(listener)
-        self._update_subscription()
-
-        def stop() -> None:
-            with self._lock:
-                if listener in self._sync_listeners.get(name, []):
-                    self._sync_listeners[name].remove(listener)
-            self._update_subscription()
-
-        return stop
+        return self.server.listen_sync(self.name, name, listener)
 
     def on_close(self, listener: Callable[[], None]) -> None:
         with self._lock:
@@ -414,12 +474,13 @@ class RemoteConnection:
 
     def _update_subscription(self) -> None:
         """Slow inputs always come (their latest value is shown); blocks and sync signals only while
-        someone listens."""
+        someone listens (also those who listened to the device's last connection)."""
+        if self.closed.is_set():
+            return
         with self._lock:
+            known = set(self.inputs()) | set(self.syncs())
             wanted = {name for name, spec in self.inputs().items() if spec["kind"] not in protocol.BLOCK_KINDS}
-            wanted |= {name for name, listeners in self._listeners.items() if listeners}
-            wanted |= {name for name, listeners in self._sync_listeners.items() if listeners}
-            wanted = frozenset(wanted)
+            wanted = frozenset(wanted | (self.listeners.wanted() & known))
             if wanted == self._subscribed:
                 return
             self._subscribed = wanted
@@ -433,36 +494,60 @@ class RemoteConnection:
         self.close()
 
     # ------------------------------------------------------------ commands
-    def _request(self, header: dict, timeout: float) -> dict:
+    def _submit(self, header: dict) -> Future:
+        """Send a request; its future gets the answer (``done``, ``result``)."""
         if self.closed.is_set():
             raise RemoteError(f"{self.name} is not connected")
         request_id = next(self._ids)
         future: Future = Future()
+        future.request_id = request_id  # type: ignore[attr-defined]
         with self._lock:
             self._requests[request_id] = future
         try:
             self._write({**header, "id": request_id})
+        except OSError as error:
+            with self._lock:
+                self._requests.pop(request_id, None)
+            raise RemoteError(f"{self.name}: {error}") from None
+        return future
+
+    def _answer(self, future: Future, timeout: float) -> dict:
+        try:
             answer = future.result(timeout)
         except FutureTimeout:
             raise RemoteError(f"{self.name} did not answer within {timeout:g} s") from None
-        except OSError as error:
-            raise RemoteError(f"{self.name}: {error}") from None
         finally:
             with self._lock:
-                self._requests.pop(request_id, None)
+                self._requests.pop(future.request_id, None)  # type: ignore[attr-defined]
         if answer.get("error"):
             raise RemoteError(f"{self.name}: {answer['error']}")
         return answer
 
+    def _request(self, header: dict, timeout: float) -> dict:
+        return self._answer(self._submit(header), timeout)
+
+    def _set_header(self, channel: str, value: Any, at: Optional[float]) -> dict:
+        if channel not in self.outputs():
+            raise RemoteError(f"{self.name} has no output {channel!r}")
+        return {"t": "set", "ch": channel, "v": value, "at": self.clock.to_remote(at) if at is not None else None}
+
     def set(self, channel: str, value: Any, at: Optional[float] = None, timeout: float = 5.0) -> float:
         """Set the output ``channel`` to ``value`` at the local time ``at`` (``None``: at once); returns
         the local time the device did it."""
-        if channel not in self.outputs():
-            raise RemoteError(f"{self.name} has no output {channel!r}")
-        header = {"t": "set", "ch": channel, "v": value, "at": self.clock.to_remote(at) if at is not None else None}
+        header = self._set_header(channel, value, at)
         wait = max((at - time.monotonic()) if at is not None else 0.0, 0.0)
         answer = self._request(header, timeout + wait)
         return self.clock.to_local(float(answer.get("at", 0.0)))
+
+    def set_later(self, channel: str, value: Any, at: float) -> Future:
+        """Send ``value`` for the output ``channel`` at the local time ``at`` without waiting for the
+        answer: values sent one after the other are timed by the device, not by their round trips.
+        :meth:`applied` waits for the answer."""
+        return self._submit(self._set_header(channel, value, at))
+
+    def applied(self, future: Future, timeout: float) -> float:
+        """The local time the device applied a value of :meth:`set_later` (raises :class:`RemoteError`)."""
+        return self.clock.to_local(float(self._answer(future, timeout).get("at", 0.0)))
 
     def call(self, name: str, args: Optional[dict] = None, timeout: float = 10.0) -> Any:
         if name not in self.commands():
@@ -517,6 +602,8 @@ class RemoteServer:
         self._devices: dict[str, RemoteConnection] = {}
         self._changed = threading.Condition(self._lock)
         self._listeners: list[Callable[[str, RemoteConnection], None]] = []
+        #: who listens to which device (by its name): kept across its connections
+        self._device_listeners: dict[str, Listeners] = {}
 
     @property
     def running(self) -> bool:
@@ -568,6 +655,7 @@ class RemoteServer:
             log.info("remote device at %s: %s", address, error)
             client.close()
             return
+        connection.listeners = self.listeners(connection.name)  # (run() subscribes to what they want)
         with self._lock:
             old = self._devices.get(connection.name)
             self._devices[connection.name] = connection
@@ -613,6 +701,39 @@ class RemoteServer:
                                       f"(port {self.port})")
                 self._changed.wait(remaining)
             return self._devices[name]
+
+    def listeners(self, name: str) -> Listeners:
+        """Who listens to the device ``name``, whether it is connected or not."""
+        with self._lock:
+            return self._device_listeners.setdefault(name, Listeners())
+
+    def listen(self, name: str, channel: str, listener: Callable[[Received], None]) -> Callable[[], None]:
+        """``listener`` gets every value of the input ``channel`` of the device ``name`` - of this
+        connection and of every one after it (the device connects again after a network drop);
+        returns the function that stops it."""
+        listeners = self.listeners(name)
+        return self._listen(name, listeners, listeners.values, channel, listener)
+
+    def listen_sync(self, name: str, signal: str, listener: Callable[[list], None]) -> Callable[[], None]:
+        """``listener`` gets the edges of the sync signal ``signal`` of the device ``name`` (see
+        :meth:`RemoteConnection.listen_sync`), across its connections."""
+        listeners = self.listeners(name)
+        return self._listen(name, listeners, listeners.syncs, signal, listener)
+
+    def _listen(self, name: str, listeners: Listeners, table: dict, key: str, listener: Callable) -> Callable[[], None]:
+        listeners.add(table, key, listener)
+        self._resubscribe(name)
+
+        def stop() -> None:
+            listeners.remove(table, key, listener)
+            self._resubscribe(name)
+
+        return stop
+
+    def _resubscribe(self, name: str) -> None:
+        connection = self.device(name)
+        if connection is not None:
+            connection._update_subscription()
 
     def subscribe(self, listener: Callable[[str, RemoteConnection], None]) -> Callable[[], None]:
         """``listener(event, connection)`` with ``"connected"``/``"disconnected"``."""

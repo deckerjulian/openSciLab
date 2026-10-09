@@ -1324,7 +1324,7 @@ class DeviceDocument(DocumentWidget):
         elif self.banner.isVisible() and "Reconnect" in self.banner.label.text():
             self.banner.setVisible(False)
         self._update_capture()
-        has_monitor = instrument.monitor is not None
+        has_monitor = self._has_monitor()
         self.monitor_box.setEnabled(connected and has_monitor)
         for widget in (self.record_button, self.monitor_box, self.monitor_rate):
             widget.setVisible(has_monitor)
@@ -1623,6 +1623,11 @@ class DeviceDocument(DocumentWidget):
                 self.pin_table.selectRow(row)
 
     # ------------------------------------------------------------ monitor
+    def _has_monitor(self) -> bool:
+        """A monitor that reports by itself once started (a remote device's is only read)."""
+        monitor = self.instrument.monitor
+        return monitor is not None and bool(getattr(monitor, "periodic", True))
+
     def sync_monitor(self) -> None:
         """The *Monitor* box shows whether the monitor runs (a recording starts and stops it too);
         while it runs the card listens to it."""
@@ -1650,7 +1655,7 @@ class DeviceDocument(DocumentWidget):
 
     def set_monitoring(self, enabled: bool) -> None:
         monitor = self.instrument.monitor
-        if monitor is None:
+        if monitor is None or not self._has_monitor():
             return
         if self._remove_handler is not None:
             self._remove_handler()

@@ -26,7 +26,9 @@
 Everything runs in background threads: connecting (and connecting again), answering the clock
 measurements of openSciLab, executing outputs at the time openSciLab asked for, sending. Values
 sent while there is no connection are kept (up to ``buffer`` messages) and follow with their
-original time stamps.
+original time stamps. openSciLab pings the device every second: a connection without a message
+for ``silence`` seconds (a host that went away without a word) is given up and made again, and one
+whose greeting does not come within ``handshake_timeout`` too.
 
 Blocks of samples (a DAQ behind USB) are stamped from when they arrive (:mod:`.timing`): the
 envelope of the arrivals, bounded by :meth:`Input.start` and less a latency measured with
@@ -40,6 +42,7 @@ from __future__ import annotations
 import heapq
 import itertools
 import json
+import logging
 import math
 import os
 import random
@@ -55,6 +58,8 @@ from . import protocol
 from .timing import TIMESCALES, ArrivalClock, Latency, Loopback
 
 __all__ = ["Command", "Device", "Input", "Output", "SyncInput", "SyncOutput"]
+
+log = logging.getLogger(__name__)
 
 
 class _Port:
@@ -332,6 +337,14 @@ class Device:
     found by its beacon in the local network); ``token``: the token openSciLab shows in its
     settings; ``clock``: the device's time in seconds (a monotonic clock)."""
 
+    #: seconds openSciLab may take to greet and accept the device
+    handshake_timeout = 10.0
+    #: seconds without a message from openSciLab (it pings every second) before the connection is
+    #: given up and made again
+    silence = 5.0
+    #: seconds :meth:`stop` waits for each thread of the device to end
+    stop_timeout = 10.0
+
     def __init__(self, name: str, server: Optional[str] = None, port: int = protocol.DEFAULT_PORT, token: str = "",
                  description: str = "", clock: Callable[[], float] = time.monotonic, buffer: int = 100_000,
                  reconnect: bool = True, connect: Optional[Callable[[str, int], socket.socket]] = None,
@@ -341,6 +354,8 @@ class Device:
         if timescale is not None and timescale not in TIMESCALES:
             raise ValueError(f"timescale is one of {', '.join(TIMESCALES)}")
         self.name, self.server, self.port, self.token = name, server, int(port), token
+        if server:
+            self._server_address()  # (an address that cannot work fails here, not in a thread)
         self.description_text = description
         self.now = clock
         self.timescale, self.timescale_accuracy = timescale, float(timescale_accuracy)
@@ -353,6 +368,12 @@ class Device:
         #: a new one for every start of the script: openSciLab knows whether the clock went on
         self.clock_id = uuid.uuid4().hex
         self._socket: Optional[socket.socket] = None
+        #: the socket of a connection still in its handshake (stop() closes it too)
+        self._connecting: Optional[socket.socket] = None
+        #: when openSciLab was last heard (this computer's monotonic clock)
+        self._heard = time.monotonic()
+        #: the connection given up for its silence
+        self._silenced: Optional[socket.socket] = None
         self._send_lock = threading.Lock()
         self._state_lock = threading.Lock()
         self._backlog: deque = deque(maxlen=buffer)
@@ -362,6 +383,8 @@ class Device:
         self._schedule_counter = itertools.count()
         self._schedule_event = threading.Event()
         self._sync_edges: dict[str, list] = {}
+        #: the stop event of the threads of the current start (each start has its own: a thread of an
+        #: earlier one that has not ended yet ends without touching the new connection)
         self._stop = threading.Event()
         self._connected = threading.Event()
         self._threads: list[threading.Thread] = []
@@ -435,9 +458,12 @@ class Device:
     def start(self) -> Device:
         """Connect in the background (and again after the connection was lost)."""
         protocol.check_description(self.describe())
-        self._stop.clear()
+        if not self._stop.is_set() and any(thread.is_alive() for thread in self._threads):
+            return self  # (running)
+        stop = self._stop = threading.Event()
+        self._threads = []
         for target, name in ((self._run, "connection"), (self._scheduler, "scheduler")):
-            thread = threading.Thread(target=target, name=f"openscilab-device-{name}", daemon=True)
+            thread = threading.Thread(target=target, args=(stop,), name=f"openscilab-device-{name}", daemon=True)
             thread.start()
             self._threads.append(thread)
         return self
@@ -446,22 +472,23 @@ class Device:
         return self._connected.wait(timeout)
 
     def stop(self) -> None:
+        """Disconnect and end the threads (waits for them, at most ``stop_timeout`` seconds each)."""
         self._stop.set()
         self._schedule_event.set()
-        sock = self._socket
+        with self._state_lock:
+            sock, connecting = self._socket, self._connecting
         if sock is not None:
             try:
                 self._send({"t": "bye"})
             except OSError:
                 pass
-            try:
-                sock.shutdown(socket.SHUT_RDWR)
-            except OSError:
-                pass
+        for open_socket in (sock, connecting):
+            if open_socket is not None:
+                _shutdown(open_socket)
         for thread in self._threads:
             if thread is not threading.current_thread():
-                thread.join(2.0)
-        self._threads.clear()
+                thread.join(self.stop_timeout)
+        self._threads = [thread for thread in self._threads if thread.is_alive()]
 
     def __enter__(self) -> Device:
         return self.start()
@@ -481,72 +508,131 @@ class Device:
             self.stop()
 
     # --------------------------------------------------------- connection
+    def _server_address(self) -> tuple[str, int]:
+        """``server`` as ``(host, port)`` (``ValueError``: not an address)."""
+        text = str(self.server).strip()
+        host, _, port = text.rpartition(":") if ":" in text else (text, "", "")
+        host = host.strip()
+        try:
+            number = int(port) if port else self.port
+        except ValueError:
+            raise ValueError(f"server {self.server!r}: the port {port!r} is not a number") from None
+        if not host or not 0 < number < 65536:
+            raise ValueError(f"server {self.server!r} is not an address (host or host:port)")
+        return host, number
+
     def _address(self) -> Optional[tuple[str, int]]:
         if self.server:
-            host, _, port = self.server.partition(":")
-            return host, int(port) if port else self.port
+            return self._server_address()
         from .discovery import find_server
 
         return find_server(timeout=3.0)
 
-    def _run(self) -> None:
+    def _run(self, stop: threading.Event) -> None:
         delay = 0.2
-        while not self._stop.is_set():
-            address = self._address()
-            if address is None:
-                self.last_error = "no openSciLab found in the network"
+        while not stop.is_set():
+            try:
+                address = self._address()
+            except ValueError as error:  # an address that cannot work: trying again does not help
+                self.last_error = str(error)
+                log.error("%s: %s", self.name, error)
+                return
+            except OSError as error:  # e.g. the beacon's port is taken
+                address = None
+                self.last_error = f"openSciLab cannot be searched for in the network: {error}"
             else:
+                if address is None:
+                    self.last_error = "no openSciLab found in the network"
+            if address is not None and not stop.is_set():
+                sock = None
                 try:
                     sock = self._connect(*address)
-                    sock.settimeout(None)
+                    with self._state_lock:
+                        self._connecting = sock
+                    if stop.is_set():
+                        raise OSError("stopped")
                     sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
                     sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
-                    self._session(sock)
+                    self._session(sock, stop)
                     delay = 0.2
                 except (OSError, protocol.ProtocolError) as error:
-                    self.last_error = str(error)
+                    if not stop.is_set():
+                        self.last_error = str(error) or type(error).__name__
                 finally:
-                    self._connected.clear()
-                    self._socket = None
-            if not self.reconnect or self._stop.is_set():
+                    with self._state_lock:
+                        if self._connecting is sock:
+                            self._connecting = None
+                        if sock is not None and self._socket is sock:  # (not a later start's connection)
+                            self._socket = None
+                            self._connected.clear()
+                    if sock is not None:
+                        try:
+                            sock.close()
+                        except OSError:
+                            pass
+            if not self.reconnect or stop.is_set():
                 return
-            self._stop.wait(delay)
+            stop.wait(delay)
             delay = min(delay * 2, 5.0)
 
-    def _session(self, sock: socket.socket) -> None:
-        header, _payload = protocol.receive(sock)
-        if header.get("t") != "challenge":
-            raise protocol.ProtocolError("openSciLab did not greet")
-        hello = {"t": "hello", "protocol": protocol.PROTOCOL, "description": self.describe(),
-                 "clock_id": self.clock_id, "package": "openscilab_device"}
-        if self.timescale:
-            hello["timescale"] = self.timescale
-            hello["timescale_accuracy"] = self.timescale_accuracy
-        if header.get("token"):
-            hello["proof"] = protocol.proof(self.token, str(header.get("nonce", "")))
-        sock.sendall(protocol.encode(hello))
-        header, _payload = protocol.receive(sock)
+    def _session(self, sock: socket.socket, stop: threading.Event) -> None:
+        sock.settimeout(self.handshake_timeout)  # (an openSciLab that accepts but does not greet)
+        try:
+            header, _payload = protocol.receive(sock)
+            if header.get("t") != "challenge":
+                raise protocol.ProtocolError("openSciLab did not greet")
+            hello = {"t": "hello", "protocol": protocol.PROTOCOL, "description": self.describe(),
+                     "clock_id": self.clock_id, "package": "openscilab_device"}
+            if self.timescale:
+                hello["timescale"] = self.timescale
+                hello["timescale_accuracy"] = self.timescale_accuracy
+            if header.get("token"):
+                hello["proof"] = protocol.proof(self.token, str(header.get("nonce", "")))
+            sock.sendall(protocol.encode(hello))
+            header, _payload = protocol.receive(sock)
+        except socket.timeout:
+            raise protocol.ProtocolError(f"openSciLab did not greet within {self.handshake_timeout:g} s") from None
         if header.get("t") == "refused":
             self.last_error = str(header.get("reason") or "refused")
-            self._stop.wait(2.0)
+            stop.wait(2.0)
             raise protocol.ProtocolError(self.last_error)
         if header.get("t") != "welcome":
             raise protocol.ProtocolError("openSciLab did not accept the device")
+        # no timeout from here: a large block may take long to send; the scheduler gives the
+        # connection up when openSciLab falls silent (_watch)
+        sock.settimeout(None)
         with self._state_lock:
+            if stop.is_set():
+                raise protocol.ProtocolError("stopped")
             self._socket = sock
+            self._connecting = None
             self._subscribed = set()
+            self._heard = time.monotonic()
         self.last_error = ""
         self._connected.set()  # (what was kept follows once openSciLab subscribed)
-        try:
-            while not self._stop.is_set():
-                header, payload = protocol.receive(sock)
-                if not self._handle(header, payload):
-                    break
-        finally:
+        while not stop.is_set():
             try:
-                sock.close()
-            except OSError:
-                pass
+                header, payload = protocol.receive(sock)
+            except (OSError, protocol.ProtocolError):
+                if self._silenced is sock:
+                    raise protocol.ProtocolError(f"openSciLab was silent for {self.silence:g} s") from None
+                raise
+            self._heard = time.monotonic()
+            if not self._handle(header, payload):
+                break
+
+    def _watch(self) -> None:
+        """Give the connection up when openSciLab has not been heard for ``silence`` seconds (the
+        connection thread waits for it in vain otherwise: a host gone without a word)."""
+        with self._state_lock:
+            sock = self._socket
+            silent = sock is not None and time.monotonic() - self._heard > self.silence
+            if silent:
+                self._heard = time.monotonic()  # (once per silence)
+                self._silenced = sock
+        if silent:
+            log.warning("%s: openSciLab was silent for %g s, connecting again", self.name, self.silence)
+            _shutdown(sock)
 
     def _send(self, header: dict, payload: bytes = b"") -> None:
         sock = self._socket
@@ -554,7 +640,11 @@ class Device:
             raise OSError("not connected")
         data = protocol.encode(header, payload)
         with self._send_lock:
-            sock.sendall(data)
+            try:
+                sock.sendall(data)
+            except OSError:
+                _shutdown(sock)  # (a frame may be cut off: the connection is made again)
+                raise
 
     def _send_input(self, port: _Port, header: dict, payload: bytes = b"") -> None:
         with self._state_lock:
@@ -641,10 +731,11 @@ class Device:
                                             action))
         self._schedule_event.set()
 
-    def _scheduler(self) -> None:
-        """Runs planned outputs at their time and drives the sync outputs."""
+    def _scheduler(self, stop: threading.Event) -> None:
+        """Runs planned outputs at their time, drives the sync outputs and watches the connection."""
         next_toggle: dict[str, float] = {}
-        while not self._stop.is_set():
+        while not stop.is_set():
+            self._watch()
             now = self.now()
             due = []
             with self._state_lock:
@@ -653,19 +744,28 @@ class Device:
                 wake = self._schedule[0][0] if self._schedule else now + 0.05
                 active = [name for name in self.syncs if name in self._subscribed]
             for action in due:
-                action()
+                try:
+                    action()
+                except Exception:  # noqa: BLE001 - one action must not end the schedule
+                    log.exception("%s: a planned action failed", self.name)
             for name in active:
                 port = self.syncs[name]
                 if isinstance(port, SyncOutput):
                     when = next_toggle.setdefault(name, now)
                     if now >= when:
-                        port.level ^= 1
-                        port.write(port.level)
-                        self._sync_edge(name, self.now(), port.level)
+                        try:
+                            port.write(port.level ^ 1)
+                        except Exception:  # noqa: BLE001 - no edge this time; the schedule goes on
+                            log.exception("%s: the sync output %s could not be switched", self.name, name)
+                        else:
+                            port.level ^= 1
+                            self._sync_edge(name, self.now(), port.level)
                         next_toggle[name] = self.now() + random.uniform(port.min_interval, port.max_interval)
                     wake = min(wake, next_toggle[name])
             self._send_sync_edges()
             remaining = wake - self.now()
+            if stop.is_set():
+                return
             if remaining > 0.003:
                 self._schedule_event.wait(min(remaining - 0.002, 0.05))
                 self._schedule_event.clear()
@@ -687,3 +787,11 @@ class Device:
                 self._send({"t": "sync", "name": name, "edges": edges})
             except OSError:
                 return
+
+
+def _shutdown(sock: socket.socket) -> None:
+    """End a connection from another thread (a thread waiting in ``recv`` returns)."""
+    try:
+        sock.shutdown(socket.SHUT_RDWR)
+    except OSError:
+        pass
