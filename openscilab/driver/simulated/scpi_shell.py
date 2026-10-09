@@ -27,6 +27,7 @@ import itertools
 import logging
 import re
 import socketserver
+import struct
 import threading
 import time
 from typing import Optional
@@ -500,16 +501,117 @@ class ScpiShell:
         self.instrument.close()
 
 
+class ShellTmcPort:
+    """The USB device port of the simulated DHO: the USBTMC transfers (``driver/usbtmc.py``) of what
+    :meth:`ScpiShell.handle` answers - messages with their headers, the requests for an answer,
+    INITIATE_CLEAR. ``chunk``: the bytes one bulk read hands over at most (libusb may split a
+    transfer)."""
+
+    def __init__(self, shell: ScpiShell, chunk: int = 0) -> None:
+        self.shell = shell
+        self.chunk = chunk
+        self._incoming = bytearray()
+        self._answers = bytearray()
+        self._request: Optional[tuple[int, int]] = None  # (tag, size) of REQUEST_DEV_DEP_MSG_IN
+        self._pending = bytearray()  # a transfer not handed over completely yet
+        self._padding = 0
+        self._ready = threading.Condition()
+        #: answers come this late after their command (s), to try timeouts
+        self.delay = 0.0
+        self._available_at = 0.0
+        self.cleared = 0
+
+    def write(self, data: bytes, timeout: float) -> None:
+        from .. import usbtmc
+
+        message, tag, _inverse, size, attributes = struct.unpack_from("<BBBxIB", data)
+        if message == usbtmc.REQUEST_DEV_DEP_MSG_IN:
+            with self._ready:
+                self._request = (tag, size)
+                self._ready.notify_all()
+            return
+        self._incoming += data[usbtmc.HEADER_SIZE:usbtmc.HEADER_SIZE + size]
+        if not attributes & usbtmc.EOM:
+            return
+        text, self._incoming = bytes(self._incoming).decode("ascii", "replace"), bytearray()
+        for line in text.splitlines():
+            if not line.strip():
+                continue
+            answer = self.shell.handle(line.strip())
+            if answer is not None:
+                with self._ready:
+                    self._answers += answer if isinstance(answer, bytes) else answer.encode() + b"\n"
+                    self._available_at = time.monotonic() + self.delay
+                    self._ready.notify_all()
+
+    def read(self, size: int, timeout: float) -> bytes:
+        from .. import usbtmc
+
+        if not self._pending:
+            deadline = time.monotonic() + timeout
+            with self._ready:
+                while self._request is None or not self._answers or time.monotonic() < self._available_at:
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        raise usbtmc.UsbTmcTimeout("no answer")
+                    self._ready.wait(min(remaining, 0.01))
+                tag, limit = self._request
+                self._request = None
+                data = bytes(self._answers[:limit])
+                del self._answers[:limit]
+                end = usbtmc.EOM if not self._answers else 0
+                self._pending += usbtmc.header(usbtmc.DEV_DEP_MSG_IN, tag, len(data), end) + data
+                self._padding = (-len(self._pending)) % 4
+        count = min(size, self.chunk or size, len(self._pending))
+        piece = bytes(self._pending[:count])
+        del self._pending[:count]
+        if not self._pending:
+            piece += b"\x00" * self._padding  # (the alignment bytes end the transfer, in its last packet)
+        return piece
+
+    def control_in(self, request: int, value: int, length: int, timeout: float) -> bytes:
+        from .. import usbtmc
+
+        if request == usbtmc.INITIATE_CLEAR:
+            with self._ready:
+                self._answers.clear()
+                self._incoming.clear()
+                self._pending.clear()
+                self._request = None
+            self.cleared += 1
+            return bytes([usbtmc.STATUS_SUCCESS])
+        if request == usbtmc.CHECK_CLEAR_STATUS:
+            return bytes([usbtmc.STATUS_SUCCESS, 0])
+        return bytes([0x80])  # (failed: not supported)
+
+    def clear_halt(self) -> None:
+        pass
+
+    def close(self) -> None:
+        pass
+
+
 def open_shell(mode: str = "bridge"):
     """A :class:`~openscilab.driver.rigoldho.driver.RigolDhoDriver` connected to a simulated DHO
-    (``mode``: ``bridge`` or ``direct``); disposing the driver ends the simulation."""
+    (``mode``: ``bridge`` or ``direct`` over the network, ``usb`` over its USBTMC port); disposing
+    the driver ends the simulation."""
     from ..rigoldho.driver import RigolDhoDriver
 
-    if mode not in ("bridge", "direct"):
-        raise ValueError(f"unknown simulated DHO {mode!r} (bridge, direct)")
+    if mode not in ("bridge", "direct", "usb"):
+        raise ValueError(f"unknown simulated DHO {mode!r} (bridge, direct, usb)")
     shell = ScpiShell(bridge=mode == "bridge")
     try:
-        driver = RigolDhoDriver("127.0.0.1", shell.port, address=f"rigol-sim:{mode}")
+        if mode == "usb":
+            from .. import usbtmc
+            from ..rigoldho import scpi
+
+            port = ShellTmcPort(shell)
+            link = usbtmc.UsbTmcLink(port, "Rigol DHO924S (simulated, USB)")
+            connection = scpi.ScpiConnection(timeout=5.0, transport=scpi.UsbTransport(link))
+            driver = RigolDhoDriver("simulated USB", address="rigol-sim:usb", connection=connection)
+            driver.usb_port = port
+        else:
+            driver = RigolDhoDriver("127.0.0.1", shell.port, address=f"rigol-sim:{mode}")
     except Exception:
         shell.close()
         raise

@@ -112,14 +112,18 @@ def same_timing(sources: list[tuple[str, dict[str, float]]]) -> tuple[int, int]:
 
 
 class RigolDhoDriver(AnalyzerDriverBase):
-    """A DHO900 over the network, directly or through the bridge app."""
+    """A DHO900 over the network, directly or through the bridge app, or over USB (USBTMC: give the
+    ``connection``, see :func:`open_usb`)."""
 
-    def __init__(self, host: str, port: Optional[int] = None, address: str = "") -> None:
+    def __init__(self, host: str, port: Optional[int] = None, address: str = "",
+                 connection: Optional[ScpiConnection] = None) -> None:
         super().__init__()
         self.host = host
         self._address = address or f"rigol:{host}"
         self.bridge_version: Optional[str] = None
-        self.connection = self._connect(host, port)
+        #: connected over USB (the instrument's USBTMC interface; no bridge app there)
+        self.over_usb = connection is not None and isinstance(connection._transport, scpi.UsbTransport)
+        self.connection = connection if connection is not None else self._connect(host, port)
         try:
             self.identity = self.connection.query(command("identify"))
         except ScpiError as error:
@@ -190,7 +194,7 @@ class RigolDhoDriver(AnalyzerDriverBase):
 
     @property
     def is_network(self) -> bool:
-        return True
+        return not self.over_usb
 
     @property
     def max_frequency(self) -> int:
@@ -237,8 +241,9 @@ class RigolDhoDriver(AnalyzerDriverBase):
 
     def describe(self) -> list[DeviceSection]:
         rows = [("Model", self.model), ("Serial number", self.serial or "-"), ("Firmware", self.firmware or "-"),
-                ("Address", self.host),
+                ("Connection", f"USB (USBTMC): {self.host}" if self.over_usb else self.host),
                 ("Transfer", f"bridge app {self.bridge_version}" if self.uses_bridge
+                 else "over USB, directly from the instrument" if self.over_usb
                  else "directly from the instrument (slower; install the bridge app)")]
         return [("Rigol oscilloscope", rows)]
 
@@ -513,4 +518,46 @@ def open_network(text: str) -> RigolDhoDriver:
     try:
         return RigolDhoDriver(host, int(port) if port else None, address=f"rigol:{text.strip()}")
     except ScpiError as error:
+        raise DeviceConnectionError(str(error)) from error
+
+
+#: USB vendor ID of Rigol
+RIGOL_VENDOR = 0x1AB1
+
+
+def usb_instruments() -> list:
+    """The Rigol instruments with a USBTMC interface on USB (``driver.usbtmc.UsbTmcInfo``)."""
+    from .. import usbtmc
+
+    return usbtmc.list_instruments(RIGOL_VENDOR)
+
+
+def usb_selector(info) -> str:
+    """What ``rigol:usb:<selector>`` names ``info`` by: its serial number, else its bus position."""
+    return info.serial_number or info.location
+
+
+def open_usb(selector: str = "", find=None, open_link=None) -> RigolDhoDriver:
+    """The oscilloscope on USB: ``""`` the first one, else by serial number or ``<bus>:<address>``."""
+    from .. import usbtmc
+
+    selector = selector.strip()
+    found = (find or usb_instruments)()
+    if selector:
+        found = [info for info in found if selector in (info.serial_number, info.location)]
+    if not found:
+        raise DeviceConnectionError(
+            "No Rigol oscilloscope found on USB" + (f" with {selector}" if selector else "") +
+            ". Connect its USB device port (on the back) to this computer; on Linux it needs the udev rule "
+            "packaging/linux/60-rigol.rules, on Windows the WinUSB driver (e.g. installed with Zadig).")
+    info = found[0]
+    try:
+        link = (open_link or usbtmc.open_link)(info)
+    except usbtmc.UsbTmcError as error:
+        raise DeviceConnectionError(str(error)) from error
+    connection = ScpiConnection(timeout=5.0, transport=scpi.UsbTransport(link))
+    try:
+        return RigolDhoDriver(info.label, address=f"rigol:usb:{usb_selector(info)}", connection=connection)
+    except ScpiError as error:
+        connection.close()
         raise DeviceConnectionError(str(error)) from error

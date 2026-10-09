@@ -227,6 +227,11 @@ again from 0.1.
     interrupts on and the host waits as long as slow transmissions take; the ESP32 refuses PWM
     below 0.5 Hz and the R4 timers below 1 Hz instead of misbehaving; an immediate buffer capture
     has no pre-trigger samples (the trigger mark sat in the wrong place).
+- **Rigol DHO900 over USB** (`rigol:usb`, or `rigol:usb:<serial number>` with several): the same SCPI
+  through the instrument's USBTMC interface (`driver/usbtmc.py`, with the libusb of the DSLogic),
+  found in the device list like the oscilloscopes on the network; after a timeout the instrument's
+  buffers are cleared, so a late answer is not taken for the next one. `rigol-sim:usb` simulates it.
+  On Linux it needs `packaging/linux/60-rigol.rules`. Not yet tried on the instrument.
 - Rigol DHO900 (found in a review; not yet tried on the instrument):
   - A capture without trigger is forced (`:TFORce`) once the oscilloscope waits: `:SINGle` makes
     the sweep SINGLE, so before it waited for a trigger that might never come (up to an hour).

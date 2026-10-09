@@ -120,17 +120,83 @@ class ScpiTimeout(ScpiError):
     """No answer in time. It may still come: the connection resynchronises before its next query."""
 
 
-class ScpiConnection:
-    """One TCP connection: commands, queries, block queries."""
+class TcpTransport:
+    """The bytes of a connection over the network (the instrument's port 5555, the bridge's 5560)."""
 
-    def __init__(self, host: str, port: int, timeout: float = 5.0) -> None:
-        self.host, self.port = host, port
-        self.timeout = timeout
+    def __init__(self, host: str, port: int, timeout: float) -> None:
+        self.name = host
         try:
             self._socket = socket.create_connection((host, port), timeout=timeout)
         except OSError as error:
             raise ScpiError(f"{host}:{port} cannot be reached: {error}") from error
         self._socket.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+
+    def send(self, data: bytes, timeout: float) -> None:
+        try:
+            self._socket.sendall(data)
+        except OSError as error:
+            raise ScpiError(f"the connection to {self.name} failed: {error}") from error
+
+    def receive(self, timeout: float) -> bytes:
+        self._socket.settimeout(timeout)
+        try:
+            data = self._socket.recv(1 << 20)
+        except socket.timeout as error:
+            raise ScpiTimeout(f"{self.name} did not answer in time") from error
+        except OSError as error:
+            raise ScpiError(f"the connection to {self.name} failed: {error}") from error
+        if not data:
+            raise ScpiError(f"{self.name} closed the connection")
+        return data
+
+    def close(self) -> None:
+        try:
+            self._socket.shutdown(socket.SHUT_RDWR)
+        except OSError:
+            pass
+        self._socket.close()
+
+
+class UsbTransport:
+    """The bytes of a connection over USB (USBTMC, ``driver/usbtmc.py``): every command a message,
+    every answer asked for; a timeout empties the instrument's buffers."""
+
+    def __init__(self, link) -> None:
+        self.link = link
+        self.name = link.name
+
+    def send(self, data: bytes, timeout: float) -> None:
+        from .. import usbtmc
+
+        try:
+            self.link.write(data, timeout)
+        except usbtmc.UsbTmcError as error:
+            raise ScpiError(f"the connection to {self.name} failed: {error}") from error
+
+    def receive(self, timeout: float) -> bytes:
+        from .. import usbtmc
+
+        try:
+            data = self.link.read(timeout)
+        except usbtmc.UsbTmcTimeout as error:
+            raise ScpiTimeout(f"{self.name} did not answer in time") from error
+        except usbtmc.UsbTmcError as error:
+            raise ScpiError(f"the connection to {self.name} failed: {error}") from error
+        if not data:
+            raise ScpiTimeout(f"{self.name} sent an empty answer")
+        return data
+
+    def close(self) -> None:
+        self.link.close()
+
+
+class ScpiConnection:
+    """One connection - over the network or USB (``transport``) -: commands, queries, block queries."""
+
+    def __init__(self, host: str = "", port: int = 0, timeout: float = 5.0, transport=None) -> None:
+        self._transport = transport if transport is not None else TcpTransport(host, port, timeout)
+        self.host, self.port = (host or self._transport.name), port
+        self.timeout = timeout
         self._buffer = bytearray()
         #: a data block was read: a line feed may follow it (the instrument sends one)
         self._after_block = False
@@ -144,16 +210,7 @@ class ScpiConnection:
 
     # ---------------------------------------------------------------- bytes
     def _receive(self, timeout: Optional[float]) -> None:
-        self._socket.settimeout(self.timeout if timeout is None else timeout)
-        try:
-            data = self._socket.recv(1 << 20)
-        except socket.timeout as error:
-            raise ScpiTimeout(f"{self.host} did not answer in time") from error
-        except OSError as error:
-            raise ScpiError(f"the connection to {self.host} failed: {error}") from error
-        if not data:
-            raise ScpiError(f"{self.host} closed the connection")
-        self._buffer += data
+        self._buffer += self._transport.receive(self.timeout if timeout is None else timeout)
 
     def _line(self, timeout: Optional[float]) -> str:
         while b"\n" not in self._buffer:
@@ -183,10 +240,7 @@ class ScpiConnection:
     # ------------------------------------------------------------- commands
     def write(self, text: str) -> None:
         with self.lock:
-            try:
-                self._socket.sendall(text.encode("ascii") + b"\n")
-            except OSError as error:
-                raise ScpiError(f"the connection to {self.host} failed: {error}") from error
+            self._transport.send(text.encode("ascii") + b"\n", self.timeout)
 
     def query(self, text: str, timeout: Optional[float] = None) -> str:
         with self.lock:
@@ -263,11 +317,7 @@ class ScpiConnection:
         return found
 
     def close(self) -> None:
-        try:
-            self._socket.shutdown(socket.SHUT_RDWR)
-        except OSError:
-            pass
-        self._socket.close()
+        self._transport.close()
 
 
 def _looks_like_identity(line: str) -> bool:

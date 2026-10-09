@@ -4,8 +4,8 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""Rigol DHO900 oscilloscopes on the network: found by the beacon of their bridge app or entered
-by address; and the simulated DHO924S with and without the bridge app."""
+"""Rigol DHO900 oscilloscopes on the network (found by the beacon of their bridge app or entered by
+address) and on USB (USBTMC); and the simulated DHO924S with and without the bridge app and on USB."""
 
 from __future__ import annotations
 
@@ -23,27 +23,35 @@ BACKEND_ID = "rigol"
 KIND_NETWORK = "network"
 KIND_ADDRESS = "address"
 KIND_SIMULATED = "sim"
+KIND_USB = "usb"
 
 
 class RigolBackend(DeviceBackend):
     id = BACKEND_ID
 
     def detected(self) -> list[DeviceEntry]:
-        return [DeviceEntry(BACKEND_ID, KIND_NETWORK, f"{item.host}:{item.port}", item.label) for item in beacon.seen()]
+        from ...driver.rigoldho.driver import usb_instruments, usb_selector
+
+        found = [DeviceEntry(BACKEND_ID, KIND_NETWORK, f"{item.host}:{item.port}", item.label) for item in beacon.seen()]
+        return found + [DeviceEntry(BACKEND_ID, KIND_USB, f"usb:{usb_selector(info)}", info.label)
+                        for info in usb_instruments()]
 
     def manual_entries(self) -> list[DeviceEntry]:
         return [DeviceEntry(BACKEND_ID, KIND_ADDRESS, None, "Rigol oscilloscope by address..."),
                 DeviceEntry(BACKEND_ID, KIND_SIMULATED, "bridge", "Simulation: DHO924S with bridge app", simulated=True),
                 DeviceEntry(BACKEND_ID, KIND_SIMULATED, "direct", "Simulation: DHO924S without bridge app",
-                            simulated=True)]
+                            simulated=True),
+                DeviceEntry(BACKEND_ID, KIND_SIMULATED, "usb", "Simulation: DHO924S on USB", simulated=True)]
 
     def connect(self, entry: DeviceEntry, parent: QWidget) -> Optional[AnalyzerDriverBase]:
         if entry.kind == KIND_SIMULATED:
             from ...driver.simulated.scpi_shell import open_shell
 
             return background.run(parent, "Starting the simulated oscilloscope...", lambda: open_shell(entry.value))
-        from ...driver.rigoldho.driver import open_network
+        from ...driver.rigoldho.driver import open_network, open_usb
 
+        if entry.kind == KIND_USB:
+            return background.run(parent, f"Connecting to {entry.label}...", lambda: open_usb(entry.value[4:]))
         address = entry.value
         if entry.kind == KIND_ADDRESS:
             dialog = NetworkConnectDialog(port=scpi.BRIDGE_PORT, parent=parent)

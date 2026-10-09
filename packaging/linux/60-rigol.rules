@@ -1,0 +1,5 @@
+# Access to Rigol oscilloscopes on USB (USBTMC, USB vendor 0x1ab1) for every user.
+#   sudo cp 60-rigol.rules /etc/udev/rules.d/
+#   sudo udevadm control --reload-rules && sudo udevadm trigger
+# then unplug and plug in the oscilloscope again. openSciLab detaches the usbtmc kernel module itself.
+SUBSYSTEM=="usb", ATTRS{idVendor}=="1ab1", MODE="0666"

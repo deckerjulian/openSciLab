@@ -350,3 +350,12 @@ then `STOP` - a `STOP` before that is the capture before, and one that never cha
 10 s. `:SINGle` makes the sweep SINGLE, so a capture without trigger is forced with `:TFORce` while
 it waits. After a query timed out the driver sends `*IDN?` and drops every answer up to its
 answer, so a late answer is not taken for the next one.
+
+Over USB (`rigol:usb`, `rigol:usb:<serial number>` or `rigol:usb:<bus>:<address>`) the driver speaks
+the same SCPI to the instrument's USBTMC interface (`openscilab/driver/usbtmc.py`, class 0xFE,
+subclass 0x03, Rigol vendor ID 0x1AB1): every command a `DEV_DEP_MSG_OUT` with end of message, every
+answer asked for with `REQUEST_DEV_DEP_MSG_IN` (up to 1 MiB per transfer, until the transfer with end
+of message); after a timeout `INITIATE_CLEAR` empties the instrument's buffers. There is no bridge
+app on USB: captures are read as without it. On Linux the udev rule
+`packaging/linux/60-rigol.rules` gives access (the `usbtmc` kernel module is detached); on Windows
+the interface needs the WinUSB driver instead of a VISA one.
