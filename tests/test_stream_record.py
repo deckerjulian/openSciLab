@@ -61,3 +61,29 @@ def test_the_record_buttons_follow_the_device(shell):
     assert not card.stream_record_button.isHidden()
     view = shell.show_data(instrument)
     assert not view.capture_controls.record_button.isHidden() and view.capture_controls.record_button.isEnabled()
+
+
+def test_the_web_control_of_the_oscilloscope_opens_in_the_browser(shell, monkeypatch):
+    from PySide6.QtGui import QDesktopServices
+
+    from openscilab.core.instrument import Instrument
+    from openscilab.driver.simulated.scpi_shell import open_shell
+
+    from openscilab.driver.rigoldho.driver import RigolDhoDriver
+
+    opened = []
+    monkeypatch.setattr(QDesktopServices, "openUrl", lambda url: opened.append(url.toString()))
+    for mode, expected in (("direct", "http://127.0.0.1/"), ("usb", None)):
+        driver = open_shell(mode)
+        # (the simulator has no web server; the driver's own answer is what counts here)
+        driver.web_control_url = lambda d=driver: RigolDhoDriver.web_control_url(d)
+        instrument = Instrument.from_driver(driver, uri=driver.address)
+        shell.hub.add(instrument)
+        card = shell.open_device_card(instrument)
+        assert not card.web_control_button.isHidden() and card.web_control_button.isEnabled()
+        assert card.open_web_control() == expected
+        if expected is None:  # over USB without a network address: said so, nothing opened
+            assert "no network address that answers" in card.banner.label.text()
+    assert opened == ["http://127.0.0.1/"]
+    card = shell.open_device_card(open_simulated("pico"))
+    assert card.web_control_button.isHidden()

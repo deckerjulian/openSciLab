@@ -51,6 +51,8 @@ document, a node or the device card offers follows from these strings and the fa
 | `TX_SPI` | – | Sends SPI transfers. | `GeneratorFacet` | yes |
 | `TX_I2C` | – | Sends I²C transfers. | `GeneratorFacet` | yes |
 | `PROGRESSIVE` | – | Large captures arrive progressively: an overview first, tiles on demand. | – | – |
+| `WEB_CONTROL` | – | The device has a web page to control it live (`web_control_url`): *Web control* on its card. | – | – |
+| `REMOTE_SCREEN=` | `dho` | The screen of the device live, and touches on it (the *Front panel* tab; `dho`: the Web Control servers of the Rigol DHO900, ports 9002/9003). | – | – |
 | `RESTART` | – | The device restarts on request: outputs are released, it answers again on the same connection. | – | – |
 <!-- /capabilities -->
 
@@ -335,27 +337,91 @@ the client expects data. The cache keeps the newest snapshot even when it alone 
 limit.
 
 Analog samples are 8 bit: the app and the driver read `:WAVeform:FORMat BYTE`, the top 8 of the
-12 bits of the DHO's ADC (WORD would keep all, but the overviews and the codec are 8 bit).
+12 bits of the DHO's ADC (WORD would keep all, but the overviews and the codec are 8 bit). A
+logic channel is read as `WORD`, one 16 bit word per sample (0 or 1): as `BYTE` the instrument
+gives only the word's upper byte, always 0.
 
 Varints are LEB128 (7 bits per byte, low bits first); zigzag maps 0, −1, 1, −2 … to 0, 1, 2, 3 ….
 `tests/fixtures/bridge_codec.json` has test vectors for the app and `openscilab/driver/rigoldho/codec.py`.
 Without the app the driver talks to port 5555 directly and reads `:WAVeform:DATA?` block by block.
 
 The driver (`openscilab/driver/rigoldho/`) takes the DHO900 models (DHO914, DHO914S, DHO924,
-DHO924S; the generator only on the S models) and refuses others, the DHO800 among them (no logic
-analyzer). A capture: `:STOP`, channels, `:ACQuire:MDEPth` by name (`1k`, `10k`, `100k`, `1M`,
-`10M`, `25M`, `50M`, checked with `:ACQuire:MDEPth?`), time base, trigger, `:SINGle`; then
-`:TRIGger:STATus?` until the instrument shows that it took the capture up (`RUN`, `WAIT`, `TD`) and
-then `STOP` - a `STOP` before that is the capture before, and one that never changes fails after
-10 s. `:SINGle` makes the sweep SINGLE, so a capture without trigger is forced with `:TFORce` while
-it waits. After a query timed out the driver sends `*IDN?` and drops every answer up to its
-answer, so a late answer is not taken for the next one.
+DHO924S; the generator only on the S models) by their model name, also when the maker in `*IDN?`
+is not RIGOL (a DHO924S with the modified firmware NK v0.5.2 answers `NK TECHNOLOGIES,...,00.05.02`),
+and refuses others, the DHO800 among them (no logic analyzer). The commands are checked against the
+programming guide, the command table of that firmware and on the instrument. A capture: `:STOP`, channels (`:LA:ENABle`,
+`:LA:DIGital:ENABle D<n>,ON|OFF`, `:CHANnel<n>:DISPlay`), the memory depth, time base, trigger,
+`:SINGle`; then `:TRIGger:STATus?` until the instrument shows that it took the capture up (`RUN`,
+`WAIT`, `TD`) and then `STOP` - a `STOP` before that is the capture before, and one that never
+changes fails after 10 s. `:SINGle` makes the sweep SINGLE, so a capture without trigger is forced
+with `:TFORce` while it waits. After a query timed out the driver sends `*IDN?` and drops every
+answer up to its answer, so a late answer is not taken for the next one.
+
+What the DHO924S showed (with the modified firmware NK v0.5.2), beyond its programming guide:
+
+* `:ACQuire:MDEPth` takes a tenth of the depth named up to `10M` and a twentieth above (`1M` gives
+  100 kpts, `500M` the 25 Mpts of one channel; the guide: `1M` is 1 Mpts). The driver goes through
+  `1k` … `500M`, reads back what each gave (`:ACQuire:MDEPth?`) and keeps the smallest that holds
+  the capture, so it works with either firmware.
+* The sample rate is the instrument's: the highest of its rates at which the memory depth fills the
+  screen, often below the one asked for. The driver reads it after the capture
+  (`:ACQuire:SRATe?`; before it the query still tells the rate of the capture before).
+* The points of `:WAVeform:PREamble?` are those of the read window (`:WAVeform:STARt` to `STOP`),
+  not of the acquisition, and a window an earlier read left beyond a smaller acquisition cannot be
+  changed (STARt and STOP are both refused). Switching `:WAVeform:MODE` (NORMal, then RAW) opens it
+  over the acquisition; the driver and the app do this before every preamble.
+* D0–D15 cannot be read with this firmware's unpatched library: `:WAVeform:SOURce D<n>` fails
+  ("Command execute failed"; its log: `ApiWave_SetSource: Invalid wave source`), also with the logic
+  probe plugged in. The driver and the bridge app say so instead of reading CH1 for D0. An edge on
+  D0–D15 still triggers (a capture of the analog channels). `:TRIGger:PATTern:PATTern` takes only
+  CH1–CH4 (the guide says so too; D0–D15 are refused also with the probe): the driver offers no
+  pattern trigger, and no external one (no trigger input on the DHO924S).
+* If D0–D15 are given out, alone their real sample period is twice what `:WAVeform:PREamble?`
+  reports for them (measured from 20 µs to 10 ms per division of time base, through the position
+  of a known edge): the driver and the bridge app correct it (`LA_PERIOD_FACTOR`), which also
+  corrects the trigger sample the same preamble gives (so a logic-channel-alone capture's pre/post
+  trigger split comes out halved from what was asked for too, unlike its total). Captured together
+  with the analog channels, whose rate is not halved, their preamble already matches the analog
+  one's (same `xincrement`, same trigger sample - the instrument computes it as if it had been
+  sampled at the analog rate there, both describing a count of `:ACQuire:MDEPth` memory slots):
+  every logic sample is repeated once instead, which lines it up with the analog channels' finer
+  time axis without needing to touch the preamble.
+* The edge trigger on CH1–CH4 (`:TRIGger:EDGE:SOURce CHANnel<n>`, `:TRIGger:EDGE:LEVel`) keeps the
+  level within the channel's range on the screen; the driver reads it back and refuses a level
+  that was changed, since the driver does not set the vertical scale (that stays the user's).
+* Its Web Control app: the page on port 80, the screen as JPEGs on `ws://<host>:9003`
+  (`take_screenshot`, or `record_screen_start` … `record_screen_stop`: about 5 a second), touches on
+  `ws://<host>:9002` (JSON `{"type": "onmousedown"|"onmousemove"|"onmouseup", "clientX", "clientY"}`
+  in screen pixels, 1024 × 600), H.264 on `ws://<host>:9001` (after `{"type": "SET_ENCODER",
+  "size": null, "rate": null}` the answer `{"action": "init", "width": 1024, "height": 600}`, then an
+  access unit per binary message, some 20 a second) and SCPI on 9004 (not used). openSciLab shows the
+  screen (H.264 decoded with PyAV, else the JPEGs) and sends the touches itself (*Front panel* tab,
+  `driver/rigoldho/screen.py`).
+* Its SCPI server answers one connection at a time (log: `onRequestOut: m_nActSocket == NULL`):
+  the front panel's settings go over the driver's connection. `:CHANnel<n>:BWLimit?` answers
+  nothing; `:CHANnel<n>:PROBe` is taken but answered with "Command execute failed".
+* Its web page `:LAN:IPADdress?` tells the
+  address of the LAN port only (not that of a WLAN adapter), so over USB the driver takes the
+  address its bridge app announces.
+* Its SCPI server closes the connections of its clients when another client connects or leaves;
+  the bridge app looks at its connection before a command after a pause and connects again.
+* A query the instrument does not know is answered by nothing (only an entry in the error queue),
+  and every refused command shows "remote execution command error" on its screen.
+* The generator (`:SOURce`, as the guide has it) has sine, square (duty 5–95 %), `RAMP` with a symmetry (50 %: triangle,
+  100 %: rising ramp), noise and DC, up to 25 MHz (sine), 15 MHz (square) and 150 kHz (ramp,
+  noise), ±2.5 V into high impedance; no arbitrary waveforms, sweep, burst or pulse function (a
+  pulse is played as a square wave). It cuts a frequency above the limit down without an error, so
+  the driver refuses it. The output is switched on only when the instrument took every setting.
 
 Over USB (`rigol:usb`, `rigol:usb:<serial number>` or `rigol:usb:<bus>:<address>`) the driver speaks
 the same SCPI to the instrument's USBTMC interface (`openscilab/driver/usbtmc.py`, class 0xFE,
 subclass 0x03, Rigol vendor ID 0x1AB1): every command a `DEV_DEP_MSG_OUT` with end of message, every
 answer asked for with `REQUEST_DEV_DEP_MSG_IN` (up to 1 MiB per transfer, until the transfer with end
-of message); after a timeout `INITIATE_CLEAR` empties the instrument's buffers. There is no bridge
+of message). After a timeout the request is taken back (`INITIATE_ABORT_BULK_IN`); an answer with the
+tag of an earlier request is dropped, and one that still comes with the next request is dropped by
+the `*IDN?` above. Not `INITIATE_CLEAR`: on the DHO924S (NK v0.5.2) it stops the instrument from reading
+commands over USB until it restarts. What an earlier program left unread is read and dropped when
+the interface is opened. There is no bridge
 app on USB: captures are read as without it. On Linux the udev rule
 `packaging/linux/60-rigol.rules` gives access (the `usbtmc` kernel module is detached); on Windows
 the interface needs the WinUSB driver instead of a VISA one.

@@ -31,7 +31,7 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import Optional
+from typing import Callable, Optional
 
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QColor
@@ -104,6 +104,8 @@ from .common import InlineMessage, button_box, dialog_layout, hint
 
 log = logging.getLogger(__name__)
 
+#: Data of an analog channel in the trigger channel list: ``analog:<number>``
+ANALOG_TRIGGER = "analog:"
 #: Labels of the acquisition modes of devices that have several
 ACQUISITION_LABELS = {
     ACQUISITION_BUFFER: "Buffer (device memory)",
@@ -179,10 +181,13 @@ class LargeSpinBox(QDoubleSpinBox):
 class ChannelSelector(QWidget):
     """Checkbox + colour + name of one capture channel."""
 
-    def __init__(self, channel_number: int, parent: Optional[QWidget] = None) -> None:
+    def __init__(self, channel_number: int, parent: Optional[QWidget] = None, label: str = "",
+                 analog: bool = False) -> None:
         super().__init__(parent)
         self.channel_number = channel_number
         self.channel_color: Optional[int] = None
+        #: an analog input (its number in ``channel_number``), drawn in the analog colours
+        self.analog = analog
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(2, 2, 2, 2)
@@ -192,7 +197,7 @@ class ChannelSelector(QWidget):
         row.setContentsMargins(0, 0, 0, 0)
         row.setSpacing(5)
 
-        self.enable_box = QCheckBox(f"CH{channel_number + 1}", self)
+        self.enable_box = QCheckBox(label or f"CH{channel_number + 1}", self)
         self.enable_box.toggled.connect(self._on_toggled)
         row.addWidget(self.enable_box, 1)
 
@@ -224,6 +229,10 @@ class ChannelSelector(QWidget):
 
     def color(self) -> QColor:
         if self.channel_color is None:
+            if self.analog:
+                from ..widgets.analog_viewer import ANALOG_COLORS
+
+                return QColor(ANALOG_COLORS[self.channel_number % len(ANALOG_COLORS)])
             return colors.get_color(self.channel_number)
         return colors.color_from_uint(self.channel_color)
 
@@ -636,16 +645,14 @@ class CaptureDialog(QDialog):
 
         self.channel_selectors: list[ChannelSelector] = []
         channel_count = self.driver.channel_count
+        names = self._channel_names()
 
-        for first_channel in range(0, channel_count, CHANNELS_PER_ROW):
-            row = first_channel // CHANNELS_PER_ROW
-            last_channel = min(first_channel + CHANNELS_PER_ROW, channel_count)
-
+        def row_controls(row: int, title: str, selectors: Callable[[], list[ChannelSelector]]) -> None:
             controls = QWidget(content)
             controls_layout = QVBoxLayout(controls)
             controls_layout.setContentsMargins(0, 0, 6, 0)
             controls_layout.setSpacing(3)
-            label = QLabel(f"CH{first_channel + 1}–{last_channel}", controls)
+            label = QLabel(title, controls)
             set_role(label, "section")
             controls_layout.addWidget(label)
             buttons_row = QHBoxLayout()
@@ -659,47 +666,64 @@ class CaptureDialog(QDialog):
                 button.setText(text)
                 button.setToolTip(tooltip)
                 button.clicked.connect(
-                    lambda _checked=False, start=first_channel, value=action: self._set_row(start, value)
+                    lambda _checked=False, value=action: self._set_selectors(selectors(), value)
                 )
                 buttons_row.addWidget(button)
             controls_layout.addLayout(buttons_row)
             grid.addWidget(controls, row, 0, Qt.AlignTop)
 
+        def add(selector: ChannelSelector, row: int, column: int) -> None:
+            selector.enable_box.toggled.connect(self._update_limits)
+            selector.enable_box.toggled.connect(self._update_channel_count)
+            grid.addWidget(selector, row, column, Qt.AlignTop)
+
+        for first_channel in range(0, channel_count, CHANNELS_PER_ROW):
+            row = first_channel // CHANNELS_PER_ROW
+            last_channel = min(first_channel + CHANNELS_PER_ROW, channel_count)
+            title = f"{names[first_channel]}–{names[last_channel - 1]}" if names \
+                else f"CH{first_channel + 1}–{last_channel}"
+            row_controls(row, title, lambda start=first_channel: [
+                selector for selector in self.channel_selectors
+                if start <= selector.channel_number < start + CHANNELS_PER_ROW])
             for offset in range(CHANNELS_PER_ROW):
                 number = first_channel + offset
                 if number >= channel_count:
                     break
-                selector = ChannelSelector(number, content)
-                selector.enable_box.toggled.connect(self._update_limits)
-                selector.enable_box.toggled.connect(self._update_channel_count)
-                grid.addWidget(selector, row, offset + 1, Qt.AlignTop)
+                selector = ChannelSelector(number, content, names[number] if names else "")
+                add(selector, row, offset + 1)
                 self.channel_selectors.append(selector)
+
+        # Analog inputs (devices with CAPABILITY_ANALOG): rows of their own below the logic channels
+        self.analog_selectors: list[ChannelSelector] = []
+        analog_names = self.driver.analog_channel_names() if self.driver.analog_channel_count else []
+        first_row = grid.rowCount() if channel_count else 0
+        for first in range(0, len(analog_names), CHANNELS_PER_ROW):
+            row = first_row + first // CHANNELS_PER_ROW
+            row_controls(row, "Analog", lambda start=first: self.analog_selectors[start:start + CHANNELS_PER_ROW])
+            for number in range(first, min(first + CHANNELS_PER_ROW, len(analog_names))):
+                selector = ChannelSelector(number, content, analog_names[number], analog=True)
+                selector.setToolTip(f"Analog input {analog_names[number]}")
+                add(selector, row, number - first + 1)
+                self.analog_selectors.append(selector)
 
         grid.setRowStretch(grid.rowCount(), 1)
         scroll.setWidget(content)
         outer.addWidget(scroll, 1)
-
-        # Analog inputs (devices with CAPABILITY_ANALOG): a check box each.
-        self.analog_boxes: list[QCheckBox] = []
-        names = self.driver.analog_channel_names() if self.driver.analog_channel_count else []
-        if names:
-            row = QHBoxLayout()
-            label = QLabel("Analog:", group)
-            set_role(label, "section")
-            row.addWidget(label)
-            for number, name in enumerate(names):
-                box = QCheckBox(name, group)
-                box.setProperty("analogNumber", number)
-                box.toggled.connect(self._update_limits)
-                box.toggled.connect(self._update_channel_count)
-                row.addWidget(box)
-                self.analog_boxes.append(box)
-            row.addStretch(1)
-            outer.addLayout(row)
         return group
 
+    def _channel_names(self) -> list[str]:
+        """The device's names of its logic channels (the Rigol: D0–D15), empty: CH1, CH2 …"""
+        try:
+            names = list(self.driver.channel_names())
+        except (AttributeError, TypeError, NotImplementedError):
+            return []
+        except Exception:  # noqa: BLE001 - a device that cannot say: the default names
+            log.debug("The channel names of the device could not be read", exc_info=True)
+            return []
+        return names if len(names) == self.driver.channel_count and all(names) else []
+
     def enabled_analog(self) -> list[int]:
-        return [int(box.property("analogNumber")) for box in self.analog_boxes if box.isChecked()]
+        return [selector.channel_number for selector in self.analog_selectors if selector.enabled]
 
     def _build_trigger(self) -> QWidget:
         group = QGroupBox("Trigger", self)
@@ -724,6 +748,18 @@ class CaptureDialog(QDialog):
         self.negative_trigger_box = QCheckBox("Falling edge", self.edge_panel)
         self.negative_trigger_box.setToolTip("Trigger on a high to low change instead of low to high")
         edge_layout.addWidget(self.negative_trigger_box, 0, 2)
+
+        # an analog channel triggers where it crosses a level
+        self.trigger_level_label = QLabel("Level:", self.edge_panel)
+        edge_layout.addWidget(self.trigger_level_label, 2, 0)
+        self.trigger_level_box = QDoubleSpinBox(self.edge_panel)
+        self.trigger_level_box.setRange(-1000.0, 1000.0)
+        self.trigger_level_box.setDecimals(3)
+        self.trigger_level_box.setSingleStep(0.1)
+        self.trigger_level_box.setSuffix(" V")
+        self.trigger_level_box.setToolTip("The voltage the analog channel crosses at the trigger")
+        edge_layout.addWidget(self.trigger_level_box, 2, 1)
+        self.trigger_channel_box.currentIndexChanged.connect(lambda _index: self._update_trigger_source())
 
         self.blast_box = QCheckBox("Blast mode", self.edge_panel)
         self.blast_box.setToolTip(
@@ -787,6 +823,10 @@ class CaptureDialog(QDialog):
         pattern_layout.addWidget(self.fast_trigger_box, 0, 4)
         pattern_layout.setColumnStretch(5, 1)
         layout.addWidget(self.pattern_panel)
+        if not self.driver.pattern_trigger_groups():  # (a device without a pattern trigger)
+            self.pattern_radio.setVisible(False)
+            self.pattern_panel.setVisible(False)
+        self._update_trigger_source()
 
         self.immediate_radio = QRadioButton("None: start capturing at once", group)
         self.immediate_radio.toggled.connect(self._update_trigger_mode)
@@ -874,13 +914,39 @@ class CaptureDialog(QDialog):
             for index in channels:
                 box.addItem(f"Channel {index + 1} (board {index // per_device + 1})", index)
         else:
+            names = self._channel_names()
             for index in channels:
-                box.addItem(f"Channel {index + 1}", index)
+                box.addItem(names[index] if names else f"Channel {index + 1}", index)
         if self.driver.is_hardware and self.driver.has_external_trigger():
             box.addItem(
                 "External trigger (every board)" if multi else "External trigger",
                 self.driver.channel_count,
             )
+        analog_names = self.driver.analog_channel_names() if self.driver.analog_channel_count else []
+        for number in self._analog_trigger_channels():
+            box.addItem(f"{analog_names[number]} (analog)", f"{ANALOG_TRIGGER}{number}")
+
+    def _analog_trigger_channels(self) -> list[int]:
+        try:
+            return list(self.driver.analog_trigger_channels())
+        except AttributeError:
+            return []
+
+    def _trigger_analog_number(self) -> Optional[int]:
+        """The analog channel chosen as the edge trigger, ``None``: a logic channel."""
+        data = self.trigger_channel_box.currentData()
+        if isinstance(data, str) and data.startswith(ANALOG_TRIGGER):
+            return int(data[len(ANALOG_TRIGGER):])
+        return None
+
+    def _update_trigger_source(self) -> None:
+        analog = self._trigger_analog_number() is not None
+        self.trigger_level_label.setVisible(analog)
+        self.trigger_level_box.setVisible(analog)
+        if analog and self.blast_box.isChecked():
+            self.blast_box.setChecked(False)
+        if self.blast_box.isVisible() or analog:
+            self.blast_box.setEnabled(not analog and self.driver.blast_frequency > 0)
 
     def _pattern_groups_text(self) -> str:
         return ", ".join(
@@ -903,12 +969,16 @@ class CaptureDialog(QDialog):
         return False
 
     def _set_row(self, first_channel: int, value: Optional[bool]) -> None:
-        for selector in self.channel_selectors:
-            if first_channel <= selector.channel_number < first_channel + CHANNELS_PER_ROW:
-                selector.enabled = (not selector.enabled) if value is None else value
+        self._set_selectors([selector for selector in self.channel_selectors
+                             if first_channel <= selector.channel_number < first_channel + CHANNELS_PER_ROW], value)
+
+    @staticmethod
+    def _set_selectors(selectors: list[ChannelSelector], value: Optional[bool]) -> None:
+        for selector in selectors:
+            selector.enabled = (not selector.enabled) if value is None else value
 
     def _set_all(self, value: bool) -> None:
-        for selector in self.channel_selectors:
+        for selector in self.channel_selectors + getattr(self, "analog_selectors", []):
             selector.enabled = value
 
     def enabled_channels(self) -> list[int]:
@@ -917,7 +987,7 @@ class CaptureDialog(QDialog):
     def _update_channel_count(self) -> None:
         count = len(self.enabled_channels())
         text = f"{count} of {len(self.channel_selectors)} channels selected"
-        analog = len(self.enabled_analog()) if hasattr(self, "analog_boxes") else 0
+        analog = len(self.enabled_analog()) if hasattr(self, "analog_selectors") else 0
         if analog:
             text += f", {analog} analog"
         self.channel_count_label.setText(text)
@@ -969,7 +1039,7 @@ class CaptureDialog(QDialog):
 
     def _with_memory_depth(self, limits, channels):
         """The buffer of devices whose depth depends on the analog channels in use."""
-        if self.acquisition_mode() == ACQUISITION_STREAM or not hasattr(self, "analog_boxes"):
+        if self.acquisition_mode() == ACQUISITION_STREAM or not hasattr(self, "analog_selectors"):
             return limits
         depth = self.driver.memory_depth(len(self.enabled_channels()), len(self.enabled_analog()))
         if not depth:
@@ -995,7 +1065,7 @@ class CaptureDialog(QDialog):
                 f"at most {to_thousands(maximum)}"
             )
         else:
-            analog = len(self.enabled_analog()) if hasattr(self, "analog_boxes") else 0
+            analog = len(self.enabled_analog()) if hasattr(self, "analog_selectors") else 0
             text = (
                 f"{to_thousands(total)} samples in total ({duration}), "
                 f"at most {to_thousands(maximum)} with these channels"
@@ -1285,9 +1355,16 @@ class CaptureDialog(QDialog):
         self.disk_box.setChecked(session.to_disk)
         if not self.software_box.isHidden():
             self.software_box.setChecked(session.software_trigger and self.can_stream)
-        for box in getattr(self, "analog_boxes", []):
-            box.setChecked(any(channel.channel_number == box.property("analogNumber")
-                               for channel in session.analog_channels))
+        default_names = self.driver.analog_channel_names() if self.driver.analog_channel_count else []
+        for selector in getattr(self, "analog_selectors", []):
+            channel = next((item for item in session.analog_channels
+                            if item.channel_number == selector.channel_number), None)
+            selector.enabled = channel is not None
+            if channel is not None:
+                default = default_names[selector.channel_number] if selector.channel_number < len(default_names) else ""
+                selector.channel_name = "" if channel.channel_name == default else channel.channel_name
+                selector.channel_color = channel.channel_color
+                selector._update_color()
         if session.clock_channel is not None and CAPABILITY_STATE_MODE in self.capabilities:
             self.clock_box.setChecked(True)
             self.clock_channel_box.setCurrentIndex(max(self.clock_channel_box.findData(session.clock_channel), 0))
@@ -1321,7 +1398,11 @@ class CaptureDialog(QDialog):
             if session.trigger_type == TriggerType.BLAST and self.driver.blast_frequency <= 0:
                 return  # e.g. a multi device set has no blast mode
             self.edge_radio.setChecked(True)
-            position = self.trigger_channel_box.findData(session.trigger_channel)
+            if session.trigger_analog_channel is not None:
+                position = self.trigger_channel_box.findData(f"{ANALOG_TRIGGER}{session.trigger_analog_channel}")
+                self.trigger_level_box.setValue(session.trigger_level)
+            else:
+                position = self.trigger_channel_box.findData(session.trigger_channel)
             self.trigger_channel_box.setCurrentIndex(max(position, 0))
             self.negative_trigger_box.setChecked(session.trigger_inverted)
             self.burst_box.setChecked(session.loop_count > 0)
@@ -1399,9 +1480,12 @@ class CaptureDialog(QDialog):
             if selector.enabled
         ]
 
+        analog_names = self.driver.analog_channel_names() if self.driver.analog_channel_count else []
         analog = [
-            AnalogChannel(channel_number=number, channel_name=self.driver.analog_channel_names()[number])
-            for number in (self.enabled_analog() if hasattr(self, "analog_boxes") else [])
+            AnalogChannel(channel_number=selector.channel_number,
+                          channel_name=selector.channel_name.strip() or analog_names[selector.channel_number],
+                          channel_color=selector.channel_color)
+            for selector in getattr(self, "analog_selectors", []) if selector.enabled
         ]
         if not channels and not analog:
             self._reject_settings("Select at least one channel to capture.")
@@ -1511,9 +1595,16 @@ class CaptureDialog(QDialog):
             if trigger_channel is None:
                 self._reject_settings("Choose the channel that triggers the capture.", self.trigger_channel_box)
                 return None
-            session.trigger_channel = int(trigger_channel)
+            analog_number = self._trigger_analog_number()
+            if analog_number is not None:
+                session.trigger_analog_channel = analog_number
+                session.trigger_level = round(self.trigger_level_box.value(), 6)
+                session.trigger_channel = 0
+            else:
+                session.trigger_channel = int(trigger_channel)
             session.trigger_inverted = self.negative_trigger_box.isChecked()
-            session.trigger_type = TriggerType.BLAST if self.blast_box.isChecked() else TriggerType.EDGE
+            session.trigger_type = TriggerType.BLAST if self.blast_box.isChecked() and analog_number is None \
+                else TriggerType.EDGE
         else:
             pattern = self.pattern_edit.text().strip()
             if not pattern:

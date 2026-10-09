@@ -74,6 +74,26 @@ class BridgeServerTest {
     }
 
     @Test
+    fun aConnectionTheInstrumentClosedIsOpenedAgainWithoutLosingACommand() {
+        assertEquals("hello", query(":TEST:ECHO? hello"))
+        dho.dropConnections()  // (the DHO does so when another client of its server comes or goes)
+        Thread.sleep(300)
+        send(":TIMebase:MAIN:SCALe 2e-3")  // a command: no answer would tell that it was lost
+        assertEquals("again", query(":TEST:ECHO? again"))
+        assertTrue(":TIMebase:MAIN:SCALe 2e-3" in dho.received)
+        assertEquals(2, dho.connections.get())
+    }
+
+    @Test
+    fun logicChannelsTheInstrumentRefusesAreAnErrorNotTheAnalogData() {
+        dho.refuseDigital = true
+        val answer = query(":BRIDge:SNAPshot D0,CH1")
+        assertTrue(answer.startsWith("ERR the instrument does not give out D0"), answer)
+        assertEquals("", query(":BRIDge:CACHe:LIST?"))
+        assertTrue(query(":BRIDge:SNAPshot CH1").toIntOrNull() != null)  // the analog channels still come
+    }
+
+    @Test
     fun snapshotOverviewsAndTiles() {
         val id = query(":BRIDge:SNAPshot D0-D15,CH1,CH3")
         assertEquals("1", id)
@@ -93,8 +113,10 @@ class BridgeServerTest {
         assertEquals("0", meta["CH3.yorig"])
         assertEquals("128", meta["CH3.yref"])
 
+        // with the analog channels, every logic sample is repeated (LA_PERIOD_FACTOR) to line it
+        // up with their finer time axis: samples 2i and 2i+1 are both the raw sample i's
         val bits = (0..15).toList()
-        val words = IntArray(points) { dho.digitalWord(it, bits) }
+        val words = IntArray(points) { dho.digitalWord(it / 2, bits) }
         val ch3 = IntArray(points) { dho.analog(3, it) }
         for (level in listOf(0, 3, 6, 9, 13, 14, 30)) {
             assertContentEquals(TestData.overview(SampleKind.DIGITAL, words, level), block(":BRIDge:OVERview? 1,D,$level"), "D $level")
@@ -126,16 +148,19 @@ class BridgeServerTest {
         assertEquals("1", query(":BRIDge:SNAPshot D0,D3,D5"))
         val meta = query(":BRIDge:META? 1").split(';').associate { it.substringBefore('=') to it.substringAfter('=') }
         assertEquals("D0,D3,D5", meta["channels"])
-        assertEquals("5000", meta["trigger"])
+        // alone (no analog channel to line them up with), the trigger sample is corrected like
+        // the rate (LA_PERIOD_FACTOR): half of what the instrument's preamble (unmodified) gives
+        assertEquals("2500", meta["trigger"])
         val words = IntArray(points) { dho.digitalWord(it, listOf(0, 3, 5)) }
         assertContentEquals(words, TileCodec.decodeDigital(block(":BRIDge:TILE? 1,D,0,$points")))
-        val sources = dho.received.filter { it.startsWith(":WAVeform:SOURce") }.toSet()
+        val sources = dho.received.filter { it.startsWith(":WAVeform:SOURce ") }.toSet()
         assertEquals(setOf(":WAVeform:SOURce D0", ":WAVeform:SOURce D3", ":WAVeform:SOURce D5"), sources)
     }
 
     @Test
     fun logicAndAnalogChannelsAtDifferentRatesAreRefused() {
-        // twice the sample interval, the trigger at the same sample
+        // genuinely sampled at half CH1's rate (312.5 instead of 625 MSa/s - not the usual case,
+        // where a logic channel's preamble matches the analog one's), the trigger at the same sample
         dho.digitalPreamble = "0,2,$points,1,3.200000E-09,-1.600000E-05,0,1,0,0"
         val answer = query(":BRIDge:SNAPshot D0-D3,CH1")
         assertTrue(answer.startsWith("ERR the channels were sampled at different rates"), answer)

@@ -62,7 +62,10 @@ def test_a_capture_over_usb(usb):
     result = run(usb, session)
     assert result.success, result.error
     assert len(session.capture_channels[0].samples) == 10_000
-    assert np.all(np.diff(session.capture_channels[0].samples[:10].astype(int)) != 0)  # D0 toggles every sample
+    # D0 toggles every raw sample; captured with CH1, each is repeated once (LA_PERIOD_FACTOR) to
+    # line it up with the analog channels' finer time axis, so every *pair* toggles
+    pairs = session.capture_channels[0].samples[:10].reshape(-1, 2)
+    assert np.all(pairs[:, 0] == pairs[:, 1]) and np.all(np.diff(pairs[:, 0].astype(int)) != 0)
     volts = session.analog_channels[0].raw * session.analog_channels[0].scale + session.analog_channels[0].offset
     assert volts.max() - volts.min() > 0.5
 
@@ -74,15 +77,45 @@ def test_answers_split_by_libusb_are_put_together(usb):
     assert run(usb, session).success
 
 
-def test_a_late_answer_is_cleared_and_the_next_one_is_in_step(usb):
+def test_a_late_answer_is_dropped_and_the_next_one_is_in_step(usb):
     port = usb.usb_port
     port.delay = 0.5
     with pytest.raises(scpi.ScpiTimeout):
         usb.connection.query(":ACQuire:SRATe?", timeout=0.1)
-    assert port.cleared == 1  # (INITIATE_CLEAR: the instrument dropped the late answer)
+    # the request is taken back, the instrument is not cleared (INITIATE_CLEAR stops a DHO900)
+    assert port.aborted == 1 and port.cleared == 0
     port.delay = 0.0
-    assert usb.connection.query("*IDN?").startswith("RIGOL TECHNOLOGIES")
+    assert usb.connection.query("*IDN?").startswith("RIGOL TECHNOLOGIES")  # (the late answer dropped)
     assert usb.connection.query(":TRIGger:STATus?") in ("STOP", "RUN", "WAIT", "TD", "AUTO")
+
+
+def test_a_query_the_instrument_does_not_know(usb):
+    """It answers nothing: the request is taken back and the next query gets its own answer."""
+    with pytest.raises(scpi.ScpiTimeout):
+        usb.connection.query(":SOURce:SWEep:STATe?", timeout=0.2)
+    assert usb.usb_port.aborted == 1
+    assert usb.connection.query(":SOURce:OUTPut:STATe?") == "0"
+    assert usb.connection.errors() == ['-113,"Undefined header"']
+
+
+def test_an_answer_with_the_tag_of_an_earlier_request_is_dropped():
+    class Port(usbtmc.UsbTmcPort):
+        def __init__(self):
+            self.transfers = []
+
+        def write(self, data, timeout):
+            if data[0] == usbtmc.REQUEST_DEV_DEP_MSG_IN:
+                tag = data[1]
+                # first a late answer to the request before, then the one asked for
+                self.transfers = [usbtmc.header(usbtmc.DEV_DEP_MSG_IN, tag - 1, 4, usbtmc.EOM) + b"old\n",
+                                  usbtmc.header(usbtmc.DEV_DEP_MSG_IN, tag, 4, usbtmc.EOM) + b"new\n"]
+
+        def read(self, size, timeout):
+            return self.transfers.pop(0)
+
+    link = usbtmc.UsbTmcLink(Port())
+    link.write(b"x", 1.0)
+    assert link.read(1.0) == b"new\n"
 
 
 # ------------------------------------------------------- choosing the scope
@@ -134,3 +167,26 @@ def test_the_address_rigol_usb_opens_the_oscilloscope_on_usb(monkeypatch):
         driver.dispose()
     finally:
         shell.close()
+
+
+def test_a_dho_that_names_another_maker_is_taken_by_its_model():
+    """A DHO924S with the modified firmware NK v0.5.2 answers *IDN? with NK TECHNOLOGIES."""
+    found = [usbtmc.UsbTmcInfo(1, 4, 0x1AB1, 0x044C, "Rigol", "DHO924S", "DHO9A250445716")]
+    shells = []
+
+    def link(info, identity):
+        shell = ScpiShell()
+        shell.identity = identity
+        shells.append(shell)
+        return usbtmc.UsbTmcLink(ShellTmcPort(shell), info.label)
+
+    try:
+        driver = open_usb("", find=lambda: found,
+                          open_link=lambda info: link(info, "NK TECHNOLOGIES,DHO924S,DHO9A250445716,00.05.02"))
+        assert (driver.model, driver.serial, driver.firmware) == ("DHO924S", "DHO9A250445716", "00.05.02")
+        driver.dispose()
+        with pytest.raises(DeviceConnectionError, match="is no Rigol instrument"):
+            open_usb("", find=lambda: found, open_link=lambda info: link(info, "NK TECHNOLOGIES,XYZ100,1,2"))
+    finally:
+        for shell in shells:
+            shell.close()

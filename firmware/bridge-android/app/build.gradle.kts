@@ -9,8 +9,8 @@ android {
 
     defaultConfig {
         applicationId = "org.openscilab.bridge"
-        // The DHO800/900 run Android 9 (API 28) - to be confirmed on the instrument (step 3a).
-        minSdk = 28
+        // The DHO800/900 run Android 7.1.2 (API 25), measured on a DHO924S.
+        minSdk = 25
         targetSdk = 34
         versionCode = 1
         versionName = "0.1.0"

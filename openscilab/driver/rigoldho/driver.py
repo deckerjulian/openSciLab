@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import logging
 import re
+import socket
 import threading
 import time
 from dataclasses import dataclass
@@ -32,8 +33,9 @@ from .scpi import ScpiConnection, ScpiError, command
 from ..base import (
     CAPABILITY_AFG,
     CAPABILITY_IMMEDIATE_TRIGGER,
-    CAPABILITY_PATTERN_GROUPS,
     CAPABILITY_PROGRESSIVE,
+    CAPABILITY_REMOTE_SCREEN,
+    CAPABILITY_WEB_CONTROL,
     CAPABILITY_THRESHOLD,
     AnalyzerDriverBase,
     AnalyzerDriverType,
@@ -130,13 +132,14 @@ class RigolDhoDriver(AnalyzerDriverBase):
             self.connection.close()
             raise DeviceConnectionError(f"{host} does not answer: {error}") from error
         parts = [part.strip() for part in self.identity.split(",")]
-        if len(parts) < 2 or "RIGOL" not in parts[0].upper():
+        features = model_features(parts[1]) if len(parts) >= 2 else None
+        # the model decides: DHOs sold under another name answer e.g. "NK TECHNOLOGIES,DHO924S,..."
+        if len(parts) < 2 or ("RIGOL" not in parts[0].upper() and features is None):
             self.connection.close()
             raise DeviceConnectionError(f"{host} is no Rigol instrument ({self.identity!r})")
         self.model = parts[1]
         self.serial = parts[2] if len(parts) > 2 else ""
         self.firmware = parts[3] if len(parts) > 3 else ""
-        features = model_features(self.model)
         if features is None or not features.digital:
             self.connection.close()
             reason = "has no logic analyzer" if features else "is a model openSciLab does not know"
@@ -148,6 +151,8 @@ class RigolDhoDriver(AnalyzerDriverBase):
         self._thread: Optional[threading.Thread] = None
         self._fetcher = None
         self._facets: Optional[list] = None
+        #: memory depth setting → points it gave (0: refused), see :meth:`_set_depth`
+        self._depths: dict[int, int] = {}
 
     def _connect(self, host: str, port: Optional[int]) -> ScpiConnection:
         """The bridge app when it answers (on ``port`` or 5560), else the instrument (5555)."""
@@ -209,6 +214,10 @@ class RigolDhoDriver(AnalyzerDriverBase):
         return 0
 
     @property
+    def max_loop_count(self) -> int:
+        return 0  # (one capture per trigger: no bursts)
+
+    @property
     def channel_count(self) -> int:
         return len(DIGITAL)
 
@@ -228,8 +237,8 @@ class RigolDhoDriver(AnalyzerDriverBase):
         return self.bridge_version is not None
 
     def capabilities(self) -> frozenset[str]:
-        items = {CAPABILITY_IMMEDIATE_TRIGGER, CAPABILITY_THRESHOLD, f"{CAPABILITY_PATTERN_GROUPS}0-15",
-                 f"ANALOG={self.features.analog}"}
+        items = {CAPABILITY_IMMEDIATE_TRIGGER, CAPABILITY_THRESHOLD, CAPABILITY_WEB_CONTROL,
+                 f"{CAPABILITY_REMOTE_SCREEN}dho", f"ANALOG={self.features.analog}"}
         if self.features.generator:
             items.add(CAPABILITY_AFG)
         if self.uses_bridge:
@@ -262,10 +271,50 @@ class RigolDhoDriver(AnalyzerDriverBase):
                              max_post_samples=depth)
 
     def pattern_trigger_groups(self) -> tuple[tuple[int, int], ...]:
-        return ((0, 16),)
+        # (its pattern trigger takes CH1–CH4 only: the programming guide, and refused on the instrument
+        # for D0–D15 also with the logic probe)
+        return ()
+
+    def has_external_trigger(self) -> bool:
+        return False
 
     def edge_trigger_channels(self) -> list[int]:
         return list(range(16))
+
+    def analog_trigger_channels(self) -> list[int]:
+        return list(range(self.features.analog))
+
+    def web_control_url(self) -> Optional[str]:
+        """The instrument's Web Control (its screen and front panel in a browser, port 80): at the
+        network address it is reached at. Over USB: where the bridge app with its serial number
+        announces itself, else the address it reports (``:LAN:IPADdress?``, that of the LAN port: a
+        WLAN adapter's is not among them) if its web server answers there."""
+        if not self.over_usb:
+            return f"http://{self.host}/"
+        from . import beacon
+
+        for item in beacon.seen():
+            if self.serial and item.serial == self.serial:
+                return f"http://{item.host}/"
+        try:
+            with self.connection.lock:
+                address = self.connection.query(command("lan_address?"), timeout=2.0).strip().strip('"')
+        except ScpiError as error:
+            log.debug("The network address of the DHO could not be read: %s", error)
+            return None
+        parts = address.split(".")
+        if len(parts) != 4 or not all(part.isdigit() for part in parts) or address in ("0.0.0.0", "127.0.0.1"):
+            return None
+        try:
+            socket.create_connection((address, 80), timeout=1.0).close()
+        except OSError:
+            return None
+        return f"http://{address}/"
+
+    def screenshot(self) -> bytes:
+        """The instrument's screen as a PNG (``:DISPlay:DATA?``; about half a second)."""
+        with self.connection.lock:
+            return self.connection.query_block(command("screen?"), timeout=10.0)
 
     # --------------------------------------------------------------- capture
     def start_capture(self, session: CaptureSession,
@@ -283,67 +332,97 @@ class RigolDhoDriver(AnalyzerDriverBase):
         depth = self.memory_depth(len(numbers), len(analog)) or DEPTH_DIGITAL
         if total > depth or session.frequency <= 0 or session.frequency > MAX_RATE:
             return CaptureError.BAD_PARAMS
-        if session.trigger_type not in (TriggerType.IMMEDIATE, TriggerType.EDGE, TriggerType.COMPLEX,
-                                        TriggerType.FAST):
+        if session.trigger_type not in (TriggerType.IMMEDIATE, TriggerType.EDGE):
             return CaptureError.UNSUPPORTED
-        try:
-            self._configure(session, numbers, analog, total)
-            self.connection.write(command("single"))
-        except ScpiError as error:
-            log.warning("Configuring the DHO failed: %s", error)
-            return CaptureError.HARDWARE_ERROR
+        if session.trigger_type == TriggerType.EDGE and (
+                not 0 <= session.trigger_channel < 16 if session.trigger_analog_channel is None
+                else not 0 <= session.trigger_analog_channel < self.features.analog):
+            return CaptureError.BAD_PARAMS
         self._capturing = True
         self._abort = threading.Event()
         force = session.trigger_type == TriggerType.IMMEDIATE
+        # (set up in the thread: a refusal arrives with its reason, e.g. no logic probe)
         self._thread = threading.Thread(target=self._run, args=(session, numbers, analog, completed_handler,
-                                                                self._abort, force), name="openscilab-dho", daemon=True)
+                                                                self._abort, force, total),
+                                        name="openscilab-dho", daemon=True)
         self._thread.start()
         return CaptureError.NONE
 
     def _configure(self, session: CaptureSession, numbers: list[int], analog: list[int], total: int) -> None:
         write = self.connection.write
+        self.connection.errors()  # (an earlier error is not this capture's)
+        edge = session.trigger_type == TriggerType.EDGE
+        trigger_analog = session.trigger_analog_channel if edge else None
+        # the channel of the trigger stays on also when it is not captured
+        digital_on = set(numbers) | ({session.trigger_channel} if edge and trigger_analog is None else set())
+        analog_on = set(analog) | ({trigger_analog} if trigger_analog is not None else set())
         write(command("stop"))
-        write(command("la_state", value="ON" if numbers else "OFF"))
+        write(command("la_state", value="ON" if digital_on else "OFF"))
         for index in range(16):
-            write(command("la_channel", n=index, value="ON" if index in numbers else "OFF"))
+            write(command("la_channel", n=index, value="ON" if index in digital_on else "OFF"))
         if session.threshold_voltage is not None:
             for pod in (1, 2):
                 write(command("la_threshold", n=pod, value=f"{session.threshold_voltage:g}"))
         for index in range(self.features.analog):
-            write(command("channel", n=index + 1, value="ON" if index in analog else "OFF"))
+            write(command("channel", n=index + 1, value="ON" if index in analog_on else "OFF"))
         # the instrument has fixed memory depths: the smallest that holds the capture, over the time
         # that gives the rate asked for (the capture then has more samples than asked for)
-        depth = next((value for value in scpi.MEMORY_DEPTHS if value >= total), scpi.MEMORY_DEPTHS[-1])
-        write(command("memory_depth", value=scpi.depth_text(depth)))
-        answer = self.connection.query(command("memory_depth?"))
-        if scpi.parse_depth(answer) != depth:
-            raise ScpiError(f"the memory depth is {answer} instead of {scpi.depth_text(depth)}: "
-                            + "; ".join(self.connection.errors() or ["the instrument says nothing more"]))
+        depth = self._set_depth(total)
         write(command("timebase_scale", value=f"{depth / session.frequency / scpi.DIVISIONS:.6e}"))
         # the trigger is at the centre of the screen; the offset moves it to the pre-trigger samples
         write(command("timebase_offset", value=f"{(depth / 2 - session.pre_trigger_samples) / session.frequency:.6e}"))
-        kind = session.trigger_type
-        if kind == TriggerType.IMMEDIATE:
+        if session.trigger_type == TriggerType.IMMEDIATE:
             pass  # :SINGle makes the sweep SINGLE whatever it was: the capture is forced (_wait_for_trigger)
-        elif kind == TriggerType.EDGE:
+        elif trigger_analog is not None:
+            write(command("trigger_mode", value="EDGE"))
+            write(command("edge_source", value=f"CHANnel{trigger_analog + 1}"))
+            write(command("edge_slope", value="NEGative" if session.trigger_inverted else "POSitive"))
+            write(command("edge_level", value=f"{session.trigger_level:g}"))
+            write(command("trigger_sweep", value="NORMal"))
+            # the instrument keeps the level within the channel's range on the screen
+            level = float(self.connection.query(command("edge_level?")))
+            if abs(level - session.trigger_level) > max(1e-3, 0.01 * abs(session.trigger_level)):
+                raise ScpiError(f"CH{trigger_analog + 1} cannot trigger at {session.trigger_level:g} V: the level has "
+                                f"to lie within the range of the channel on the oscilloscope's screen (it took "
+                                f"{level:g} V); set the volts per division or the offset of CH{trigger_analog + 1} "
+                                "on the oscilloscope")
+        else:
             write(command("trigger_mode", value="EDGE"))
             write(command("edge_source", value=f"D{session.trigger_channel}"))
             write(command("edge_slope", value="NEGative" if session.trigger_inverted else "POSitive"))
             write(command("trigger_sweep", value="NORMal"))
-        else:
-            levels = ["X"] * 20  # CH1–CH4, D0–D15
-            for offset in range(max(session.trigger_bit_count, 1)):
-                channel = session.trigger_channel + offset
-                if session.trigger_mask is not None and not (session.trigger_mask >> offset) & 1:
-                    continue  # (don't care: X)
-                if 0 <= channel < 16:
-                    levels[4 + channel] = "H" if (session.trigger_pattern >> offset) & 1 else "L"
-            write(command("trigger_mode", value="PATTern"))
-            write(command("pattern", value=",".join(levels)))
-            write(command("trigger_sweep", value="NORMal"))
         errors = self.connection.errors()
         if errors:
             log.warning("The DHO reported while configuring: %s", "; ".join(errors))
+
+    def _set_depth(self, total: int) -> int:
+        """Sets the smallest memory depth that holds ``total`` samples and returns it (points).
+
+        What a setting gives is read back, not assumed: the modified firmware NK v0.5.2 takes a
+        tenth or a twentieth of the depth asked for (:data:`.scpi.MEMORY_DEPTHS`). What each setting gave is
+        kept, so a later capture asks once."""
+        connection = self.connection
+        best: Optional[tuple[int, int]] = None  # (setting, points) the largest seen
+        for setting in scpi.MEMORY_DEPTHS:
+            known = self._depths.get(setting)
+            if known is not None and known < total:
+                best = max(best or (setting, known), (setting, known), key=lambda item: item[1])
+                continue  # (too small: no need to ask again)
+            connection.write(command("memory_depth", value=scpi.depth_text(setting)))
+            if connection.errors():  # a setting the instrument does not take ("Data out of range")
+                self._depths[setting] = 0
+                continue
+            answer = connection.query(command("memory_depth?"))
+            points = scpi.parse_depth(answer)
+            if points is None:
+                raise ScpiError(f"the memory depth is {answer} instead of {scpi.depth_text(setting)}")
+            self._depths[setting] = points
+            if points >= total:
+                return points
+            best = (setting, points)
+        if best is None:
+            raise ScpiError("the oscilloscope takes no memory depth")
+        raise ScpiError(f"{total} samples are more than the {best[1]} the oscilloscope holds with these channels")
 
     def _wait_for_trigger(self, abort: threading.Event, force: bool = False) -> bool:
         """``True`` once the capture is done, ``False`` when it was stopped.
@@ -375,8 +454,15 @@ class RigolDhoDriver(AnalyzerDriverBase):
             interval = STATUS_INTERVAL_S if armed else ARM_INTERVAL_S
         return False
 
-    def _run(self, session, numbers, analog, handler, abort: threading.Event, force: bool = False) -> None:
+    def _run(self, session, numbers, analog, handler, abort: threading.Event, force: bool = False,
+             total: int = 0) -> None:
         try:
+            with self.connection.lock:
+                self._configure(session, numbers, analog, total or session.pre_trigger_samples
+                                + session.post_trigger_samples)
+                if abort.is_set():
+                    return
+                self.connection.write(command("single"))
             if not self._wait_for_trigger(abort, force):
                 return  # stopped
             rate = float(self.connection.query(command("sample_rate?")))
@@ -406,10 +492,24 @@ class RigolDhoDriver(AnalyzerDriverBase):
                                           handler)
 
     def _read_source(self, source: str, abort: threading.Event) -> tuple[np.ndarray, dict[str, float]]:
+        """The samples of ``source`` (``D<n>``, ``CHANnel<n>``) and its preamble, unchanged (a logic
+        channel's preamble describes the analog sample period, not its own real one twice as long:
+        :meth:`_read_direct` corrects it, in the way the capture needs). A logic channel comes as
+        16 bit words (0 or 1), returned as 0/1 bytes."""
         connection = self.connection
+        digital = source.startswith("D")
         connection.write(command("wave_source", value=source))
+        if digital and (connection.errors() or
+                        connection.query(command("wave_source?")).strip().upper() != source.upper()):
+            raise ScpiError(f"the oscilloscope does not give out {source} (it refuses it as :WAVeform:SOURce; "
+                            "without the logic probe, and the modified firmware NK v0.5.2 also with it unless its "
+                            "library is patched): capture the analog channels, D0–D15 can still trigger them")
+        # the points of the preamble are those of the window (STARt to STOP, still set by the read
+        # before, maybe beyond this acquisition so neither can be set): switching the mode opens it
+        # over the whole acquisition
+        connection.write(command("wave_mode_normal"))
         connection.write(command("wave_mode"))
-        connection.write(command("wave_format"))
+        connection.write(command("wave_format_word" if digital else "wave_format"))
         preamble = scpi.parse_preamble(connection.query(command("wave_preamble?")))
         points = int(preamble["points"])
         data = np.zeros(points, dtype=np.uint8)
@@ -422,21 +522,51 @@ class RigolDhoDriver(AnalyzerDriverBase):
             connection.write(command("wave_start", value=start + 1))
             connection.write(command("wave_stop", value=stop))
             block = connection.query_block(command("wave_data?"), timeout=30.0)
-            data[start:start + len(block)] = np.frombuffer(block, dtype=np.uint8)
+            if digital:
+                words = np.frombuffer(block[:len(block) // 2 * 2], dtype="<u2")
+                data[start:start + len(words)] = words != 0
+            else:
+                data[start:start + len(block)] = np.frombuffer(block, dtype=np.uint8)
         return data, preamble
 
     def _read_direct(self, session, numbers, analog, abort) -> None:
         sources = []  # (name, preamble)
+        digital_entries = []  # (channel, preamble), the capture's logic channels
         for channel in session.capture_channels:
             values, preamble = self._read_source(f"D{channel.channel_number}", abort)
             channel.samples = (values != 0).astype(np.uint8)
+            digital_entries.append((channel, preamble))
             sources.append((f"D{channel.channel_number}", preamble))
         for channel in session.analog_channels:
             values, preamble = self._read_source(f"CHANnel{channel.channel_number + 1}", abort)
             self.set_analog(channel, values, preamble["yinc"], preamble["yorig"], preamble["yref"])
             sources.append((ANALOG[channel.channel_number], preamble))
+        if digital_entries and session.analog_channels:
+            # with the analog channels: the logic channels' real sample period is twice the
+            # analog one's (measured), but the instrument's own preamble for them already matches
+            # the analog one's (same xinc, same trigger sample, as if both were sampled alike):
+            # repeating every logic sample lines it up with the analog channels' finer time axis,
+            # not changing the (already matching) preamble.
+            for channel, preamble in digital_entries:
+                channel.samples = np.repeat(channel.samples, scpi.LA_PERIOD_FACTOR)
+                preamble["points"] = int(preamble["points"]) * scpi.LA_PERIOD_FACTOR
+        else:
+            # alone, the instrument's own preamble understates their real sample period by
+            # LA_PERIOD_FACTOR (measured): session.frequency (below) needs the real one. This
+            # also halves the trigger sample same_timing computes from the (otherwise
+            # unmodified) preamble below, which is correct too (measured through a known edge's
+            # position): a logic-channel-alone capture's pre/post trigger split comes out halved
+            # from what was asked for, unlike its total (the memory depth: samples are real
+            # samples, only their rate and trigger position are off without an analog channel to
+            # line them up with).
+            for _, preamble in digital_entries:
+                preamble["xinc"] *= scpi.LA_PERIOD_FACTOR
         if sources:
             points, trigger = same_timing(sources)
+            # the rate of the data: that of the logic channels is not the one ``:ACQuire:SRATe?`` gives
+            xinc = sources[0][1]["xinc"]
+            if xinc > 0:
+                session.frequency = int(round(1.0 / xinc))
             for channel in session.capture_channels:
                 channel.samples = channel.samples[:points]
             for channel in session.analog_channels:
@@ -495,9 +625,10 @@ class RigolDhoDriver(AnalyzerDriverBase):
     # ---------------------------------------------------------------- facets
     def instrument_facets(self) -> list:
         if self._facets is None:
+            from .controls import DhoSettings
             from .generator import DhoCache, DhoGenerator
 
-            self._facets = (([DhoGenerator(self)] if self.features.generator else [])
+            self._facets = ([DhoSettings(self)] + ([DhoGenerator(self)] if self.features.generator else [])
                             + ([DhoCache(self)] if self.uses_bridge else []))
         return list(self._facets)
 

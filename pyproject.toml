@@ -26,6 +26,7 @@ dependencies = [
     "pyusb>=1.2",
     "libusb-package>=1.0.26",
     "PyYAML>=6.0",
+    "av>=12",
 ]
 
 [project.optional-dependencies]

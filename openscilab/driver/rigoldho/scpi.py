@@ -7,8 +7,9 @@
 """SCPI over TCP for the Rigol DHO900: lines, IEEE 488.2 definite-length blocks, the error queue.
 
 The commands the driver sends are collected in :data:`COMMANDS`, so the findings on the
-instrument (``tools/dho_la_probe.py``) change one table, not the driver. They
-follow the programming guide of the DHO800/900 series and are provisional until checked there.
+instrument (``tools/dho_la_probe.py``) change one table, not the driver. They are checked against
+the programming guide of the DHO800/DHO900, the command table of a DHO924S with the modified
+firmware NK v0.5.2 and on that instrument.
 """
 
 from __future__ import annotations
@@ -22,7 +23,7 @@ SCPI_PORT = 5555
 BRIDGE_PORT = 5560
 BEACON_PORT = 5561
 
-#: The commands of the driver; ``{n}``, ``{value}`` … are filled in. Provisional until step 3a.
+#: The commands of the driver; ``{n}``, ``{value}`` … are filled in.
 COMMANDS = {
     "identify": "*IDN?",
     "clear": "*CLS",
@@ -32,8 +33,10 @@ COMMANDS = {
     "single": ":SINGle",
     "force": ":TFORce",
     "status": ":TRIGger:STATus?",
-    "la_state": ":LA:STATe {value}",
-    "la_channel": ":LA:DIGital{n}:DISPlay {value}",
+    "lan_address?": ":LAN:IPADdress?",
+    "screen?": ":DISPlay:DATA?",
+    "la_state": ":LA:ENABle {value}",
+    "la_channel": ":LA:DIGital:ENABle D{n},{value}",
     "la_threshold": ":LA:POD{n}:THReshold {value}",
     "channel": ":CHANnel{n}:DISPlay {value}",
     "memory_depth": ":ACQuire:MDEPth {value}",
@@ -46,44 +49,60 @@ COMMANDS = {
     "edge_source": ":TRIGger:EDGE:SOURce {value}",
     "edge_slope": ":TRIGger:EDGE:SLOPe {value}",
     "edge_level": ":TRIGger:EDGE:LEVel {value}",
-    "pattern": ":TRIGger:PATTern:PATTern {value}",
+    "edge_level?": ":TRIGger:EDGE:LEVel?",
     "wave_source": ":WAVeform:SOURce {value}",
+    "wave_source?": ":WAVeform:SOURce?",
     "wave_mode": ":WAVeform:MODE RAW",
+    "wave_mode_normal": ":WAVeform:MODE NORMal",
     # BYTE: the top 8 of the 12 bits of the ADC. WORD would keep them all, but the driver, the
     # bridge app's codec and its overviews work with 8 bit raw values (docs/protocols.md, *Bridge*)
     "wave_format": ":WAVeform:FORMat BYTE",
+    # a logic channel comes as one 16 bit word per sample (0 or 1): BYTE would give its upper byte,
+    # always 0 (the logic channels can be read at all only with a patch of the library of the
+    # modified firmware NK v0.5.2: without it :WAVeform:SOURce D0 is refused)
+    "wave_format_word": ":WAVeform:FORMat WORD",
     "wave_start": ":WAVeform:STARt {value}",
     "wave_stop": ":WAVeform:STOP {value}",
     "wave_data?": ":WAVeform:DATA?",
     "wave_preamble?": ":WAVeform:PREamble?",
-    # the built-in generator (GI)
+    # the built-in generator (GI); its command table has no sweep, burst, pulse or arbitrary data
     "afg_function": ":SOURce:FUNCtion {value}",
     "afg_frequency": ":SOURce:FREQuency {value}",
     "afg_amplitude": ":SOURce:VOLTage:AMPLitude {value}",
     "afg_offset": ":SOURce:VOLTage:OFFSet {value}",
-    "afg_duty": ":SOURce:PULSe:DCYCle {value}",
     "afg_square_duty": ":SOURce:FUNCtion:SQUare:DUTY {value}",
+    "afg_ramp_symmetry": ":SOURce:FUNCtion:RAMP:SYMMetry {value}",
     "afg_phase": ":SOURce:PHASe {value}",
+    "afg_modulation": ":SOURce:MOD:STATe {value}",
     "afg_output": ":SOURce:OUTPut:STATe {value}",
     "afg_output?": ":SOURce:OUTPut:STATe?",
-    "afg_arb": ":SOURce:TRACe:DATA VOLATILE,{value}",
-    "afg_sweep": ":SOURce:SWEep:STATe {value}",
-    "afg_sweep_start": ":SOURce:SWEep:STARt {value}",
-    "afg_sweep_stop": ":SOURce:SWEep:STOP {value}",
-    "afg_sweep_time": ":SOURce:SWEep:TIME {value}",
-    "afg_burst": ":SOURce:BURSt:STATe {value}",
-    "afg_burst_cycles": ":SOURce:BURSt:CYCLes {value}",
-    "afg_burst_period": ":SOURce:BURSt:PERiod {value}",
 }
 
-#: Memory depths the instrument offers (points); the driver takes the smallest that holds a capture
-MEMORY_DEPTHS = (1_000, 10_000, 100_000, 1_000_000, 10_000_000, 25_000_000, 50_000_000)
+#: Memory depths the driver asks for, from small to large: those of the programming guide (up to
+#: 50M), then larger names for the modified firmware NK v0.5.2 (``*IDN?``: NK TECHNOLOGIES,
+#: 00.05.02), which takes a tenth of a depth up to 10M and a twentieth above (``50M`` gives
+#: 2.5 Mpts, ``500M`` the 25 Mpts of one channel). The driver reads back what it got.
+MEMORY_DEPTHS = (1_000, 10_000, 100_000, 1_000_000, 5_000_000, 10_000_000, 25_000_000, 50_000_000,
+                 100_000_000, 125_000_000, 250_000_000, 500_000_000)
 #: The query that brings a connection back in step after a timeout (its answer is recognised)
 SYNC_QUERY = "*IDN?"
 #: Points of one ``:WAVeform:DATA?`` read in RAW mode
 MAX_POINTS_PER_READ = 250_000
 #: Divisions of the time base
 DIVISIONS = 10
+#: The logic channels' real sample period is this many times the ``xincrement`` their own
+#: ``:WAVeform:PREamble?`` reports (measured on a DHO924S from 20 µs to 10 ms per division with a
+#: signal of known frequency: real period 3.2 ns at reported ``xincrement`` 1.6 ns): the
+#: instrument computes their preamble as if they were sampled at the analog rate. Captured
+#: without the analog channels, the driver corrects ``xincrement`` by it (the rate the capture
+#: gets is the real one; this also halves the trigger sample the same preamble gives, measured
+#: correct too - a logic-channel-alone capture's pre/post trigger split comes out halved from
+#: what was asked for, unlike its total). Captured with them, their preamble already matches
+#: the analog one's (same ``xincrement``, same trigger sample: measured through a known edge),
+#: since both describe a count of ``:ACQuire:MDEPth`` memory slots, and the driver instead repeats
+#: every logic sample this many times, which lines it up with the analog channels' finer time
+#: axis without changing (or needing to understand) the preamble.
+LA_PERIOD_FACTOR = 2
 
 
 def command(name: str, **values) -> str:
@@ -138,8 +157,8 @@ class TcpTransport:
             raise ScpiError(f"the connection to {self.name} failed: {error}") from error
 
     def receive(self, timeout: float) -> bytes:
-        self._socket.settimeout(timeout)
         try:
+            self._socket.settimeout(timeout)  # (also fails on a connection closed meanwhile)
             data = self._socket.recv(1 << 20)
         except socket.timeout as error:
             raise ScpiTimeout(f"{self.name} did not answer in time") from error
@@ -159,7 +178,7 @@ class TcpTransport:
 
 class UsbTransport:
     """The bytes of a connection over USB (USBTMC, ``driver/usbtmc.py``): every command a message,
-    every answer asked for; a timeout empties the instrument's buffers."""
+    every answer asked for; after a timeout the request is taken back."""
 
     def __init__(self, link) -> None:
         self.link = link

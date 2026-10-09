@@ -476,14 +476,19 @@ def test_api_save_and_load(tmp_path):
 
 # ------------------------------------------------------------------ discovery
 def test_list_devices(monkeypatch):
+    from openscilab.driver import usbtmc
     from openscilab.driver.dslogic import usb
     from openscilab.driver.pico import detector
+    from openscilab.driver.rigoldho import driver as rigol
 
     monkeypatch.setattr(detector, "detect", lambda: [detector.DetectedDevice("/dev/cu.usbmodem1", "E661")])
     monkeypatch.setattr(usb, "list_devices", lambda: [usb.UsbDeviceInfo(1, 4, 0x0030, "DSLogic U2Pro16")])
+    monkeypatch.setattr(rigol, "usb_instruments", lambda: [usbtmc.UsbTmcInfo(0, 3, 0x1AB1, 0x044C, "Rigol", "DHO924S",
+                                                                             "DHO9A0001")])
     assert discovery.list_devices() == [
         discovery.DeviceInfo("pico:/dev/cu.usbmodem1", "openSciLab Pico on /dev/cu.usbmodem1, S/N E661", "pico"),
         discovery.DeviceInfo("dslogic:1:4", "DSLogic U2Pro16 (USB 2, 1:4)", "dslogic"),
+        discovery.DeviceInfo("rigol:usb:DHO9A0001", "Rigol DHO924S (USB, DHO9A0001)", "rigol"),
     ]
 
 

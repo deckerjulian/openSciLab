@@ -62,7 +62,9 @@ a = Analysis(
     # every module of openSciLab: node modules, drivers and device processes are partly imported by
     # name at run time (importlib), which the analysis does not see
     hiddenimports=DECODER_MODULES + collect_submodules("openscilab") + collect_submodules("openscilab_device")
-    + ["libusb_package", "usb.backend.libusb1"],
+    + ["libusb_package", "usb.backend.libusb1"]
+    # PyAV (FFmpeg): the oscilloscope's screen as H.264, imported only when the screen is shown
+    + collect_submodules("av"),
     excludes=["tkinter"],
 )
 

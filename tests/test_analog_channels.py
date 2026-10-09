@@ -151,11 +151,11 @@ def test_the_capture_dialog_offers_analog_inputs_and_their_depth(application):
     driver = open_simulated("dho924s", fast=True).capture.driver
     dialog = CaptureDialog(driver)
     try:
-        assert [box.text() for box in dialog.analog_boxes] == ["CH1", "CH2", "CH3", "CH4"]
+        assert [selector.enable_box.text() for selector in dialog.analog_selectors] == ["CH1", "CH2", "CH3", "CH4"]
         dialog.immediate_radio.setChecked(True)
         assert dialog.limits.max_post_samples == 31_250_000
-        for box in dialog.analog_boxes:
-            box.setChecked(True)
+        for selector in dialog.analog_selectors:
+            selector.enabled = True
         assert dialog.limits.max_post_samples == 10_000_000  # the depth follows the analog channels
         assert "4 analog" in dialog.summary_label.text()
         session = dialog.build_session()
@@ -236,3 +236,40 @@ def test_analog_channels_live_and_the_roll_mode(make_dataview, streaming_scope):
     done = window.model.session
     assert done.analog_channels[0].volts().max() == pytest.approx(4.5, abs=0.05)
     assert len(done.analog_channels[0].raw) == 5000
+
+
+def test_the_capture_dialog_of_the_rigol(application):
+    """Logic channels by the instrument's names (D0–D15), the analog inputs as channels beside them,
+    an analog channel as edge trigger with its level; no pattern and no external trigger."""
+    from openscilab.driver.models import TriggerType
+    from openscilab.driver.simulated.scpi_shell import open_shell
+    from openscilab.ui.dialogs.capture_dialog import CaptureDialog
+
+    driver = open_shell("direct")
+    dialog = CaptureDialog(driver)
+    try:
+        assert [selector.enable_box.text() for selector in dialog.channel_selectors][:2] == ["D0", "D1"]
+        assert [selector.enable_box.text() for selector in dialog.analog_selectors] == ["CH1", "CH2", "CH3", "CH4"]
+        assert dialog.pattern_radio.isHidden() and dialog.burst_box.isHidden()
+        box = dialog.trigger_channel_box
+        items = [box.itemText(index) for index in range(box.count())]
+        assert "External trigger" not in items and items[0] == "D0" and items[-1] == "CH4 (analog)"
+        assert dialog.trigger_level_box.isHidden()
+        dialog._set_all(False)
+        dialog.analog_selectors[0].enabled = True
+        dialog.analog_selectors[0].channel_name = "Supply"
+        dialog.edge_radio.setChecked(True)
+        box.setCurrentIndex(box.findText("CH2 (analog)"))
+        assert not dialog.trigger_level_box.isHidden()
+        dialog.trigger_level_box.setValue(1.25)
+        session = dialog.build_session()
+        assert session.capture_channels == [] and [c.channel_name for c in session.analog_channels] == ["Supply"]
+        assert (session.trigger_type, session.trigger_analog_channel, session.trigger_level) == (TriggerType.EDGE, 1, 1.25)
+        # the settings come back: the analog channel with its name, the trigger with its level
+        dialog.reset_settings()
+        dialog.apply_session(session)
+        assert dialog.analog_selectors[0].enabled and dialog.analog_selectors[0].channel_name == "Supply"
+        assert box.currentText() == "CH2 (analog)" and dialog.trigger_level_box.value() == 1.25
+    finally:
+        dialog.close()
+        driver.dispose()

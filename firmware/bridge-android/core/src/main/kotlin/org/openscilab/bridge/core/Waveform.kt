@@ -14,6 +14,22 @@ import kotlin.math.abs
 import kotlin.math.roundToLong
 
 /**
+ * The logic channels' real sample period is this many times the `xIncrement` their own
+ * `:WAVeform:PREamble?` reports (measured on a DHO924S from 20 µs to 10 ms per division with a
+ * signal of known frequency: real period 3.2 ns at reported `xIncrement` 1.6 ns): the instrument
+ * computes their preamble as if they were sampled at the analog rate. Read alone (no analog
+ * channel to line them up with), [SnapshotWriter] corrects `xIncrement` by it (which also
+ * corrects the trigger sample the same preamble gives, measured through a known edge's position:
+ * both the rate and the pre/post trigger split a capture of logic channels alone gets are, this
+ * way, half of what the instrument's preamble would suggest). Read with the analog channels,
+ * whose rate is not halved, their preamble already matches the analog one's (same `xIncrement`,
+ * same trigger sample), since both describe a count of `:ACQuire:MDEPth` memory slots: there,
+ * every logic sample is repeated this many times instead, which lines it up with the analog
+ * channels' finer time axis without changing (or needing to understand) the preamble.
+ */
+const val LA_PERIOD_FACTOR = 2
+
+/**
  * `:WAVeform:PREamble?`: format, type, points, count, xincrement, xorigin, xreference,
  * yincrement, yorigin, yreference. The y values are kept as the instrument wrote them.
  */
@@ -51,30 +67,73 @@ data class Preamble(
 }
 
 /**
- * Reads waveform memory from the instrument block by block (`:WAVeform:STARt/STOP/DATA?`,
- * RAW mode, BYTE format). [chunk] is the most points one `:WAVeform:DATA?` returns.
+ * Reads waveform memory from the instrument block by block (`:WAVeform:STARt/STOP/DATA?`, RAW
+ * mode). [chunk] is the most points one `:WAVeform:DATA?` returns.
  *
- * BYTE gives the top 8 of the 12 bits of the DHO's ADC. WORD would keep all of them, but the
- * cache, the overviews (`<BB`) and the tile codec work with 8 bit analog samples, as the driver does.
+ * An analog channel is read as BYTE, the top 8 of the 12 bits of the DHO's ADC (the cache, the
+ * overviews `<BB` and the tile codec work with 8 bit analog samples, as the driver does). A
+ * logic channel (`D0`–`D15`) is read as WORD, one 16 bit word per sample (0 or 1): as BYTE the
+ * instrument gives only the word's upper byte, always 0. Reading them needs a patch of the
+ * library of the modified firmware NK v0.5.2; without it the instrument refuses the source.
  */
 class WaveformReader(private val instrument: Instrument, private val chunk: Int) {
     private var start: Long? = null
     private var stop: Long? = null
 
-    /** Selects a source (`CHANnel1`, `D0` …) for RAW BYTE reads and returns its preamble. */
+    /** The format last set on the instrument ("BYTE" or "WORD"), or null before the first one. */
+    private var currentFormat: String? = null
+
+    /** Selects a source (`CHANnel1`, `D0` …), sets the format it needs and returns its preamble,
+     * unchanged (a logic channel's does not describe its own real sample period: the caller
+     * corrects it, in the way its capture needs - see [LA_PERIOD_FACTOR]). */
     fun select(source: String): Preamble {
-        prepare()
         instrument.write(":WAVeform:SOURce $source")
-        return Preamble.parse(instrument.query(":WAVeform:PREamble?"))
+        if (source.startsWith("D")) {
+            // A refused source leaves the one before (CHANnel1 …): its data would be taken for D<n>.
+            // The DHO refuses D0–D15 without the logic probe, and with the modified firmware
+            // NK v0.5.2 also with it unless its library is patched.
+            val selected = instrument.query(":WAVeform:SOURce?").trim()
+            if (!selected.equals(source, ignoreCase = true)) {
+                throw BridgeError("the instrument does not give out $source (it kept $selected as :WAVeform:SOURce)")
+            }
+        }
+        prepare()
+        return preamble()
     }
 
-    /** RAW mode, BYTE format, for the current source. */
+    /**
+     * RAW mode, the format of the source currently selected on the instrument, the window (STARt
+     * to STOP) over the whole acquisition. The points of the preamble are those of the window,
+     * and a window an earlier read left beyond this acquisition cannot be set (neither STARt nor
+     * STOP): switching the mode opens it. Used directly (not through [select]) when the source
+     * was already chosen, as [Bench] does.
+     */
     fun prepare() {
+        instrument.write(":WAVeform:MODE NORMal")
         instrument.write(":WAVeform:MODE RAW")
-        instrument.write(":WAVeform:FORMat BYTE")
+        setFormat(formatFor(instrument.query(":WAVeform:SOURce?").trim()))
+        start = null
+        stop = null
     }
 
-    fun switchSource(source: String) = instrument.write(":WAVeform:SOURce $source")
+    /** Switches to [source] and sets the format it needs, without resetting the window (unlike
+     * [select]): for repeated switches between sources of one already opened acquisition, as
+     * reading the digital channels bit by bit does. */
+    fun switchSource(source: String) {
+        instrument.write(":WAVeform:SOURce $source")
+        setFormat(formatFor(source))
+    }
+
+    private fun formatFor(source: String) = if (source.startsWith("D")) "WORD" else "BYTE"
+
+    private fun setFormat(format: String) {
+        if (format == currentFormat) return
+        instrument.write(":WAVeform:FORMat $format")
+        currentFormat = format
+    }
+
+    /** Bytes one sample takes in the format currently selected. */
+    private fun bytesPerPoint(): Long = if (currentFormat == "WORD") 2L else 1L
 
     fun preamble(): Preamble = Preamble.parse(instrument.query(":WAVeform:PREamble?"))
 
@@ -89,11 +148,14 @@ class WaveformReader(private val instrument: Instrument, private val chunk: Int)
         }
     }
 
-    /** One `:WAVeform:DATA?` of up to [chunk] points. */
+    /** One `:WAVeform:DATA?` of up to [chunk] points, in the format currently selected. */
     fun readWindow(first: Long, length: Long, out: OutputStream) {
         setWindow(first + 1, first + length)
         val received = instrument.queryBlock(":WAVeform:DATA?", out)
-        if (received != length) throw IOException("asked for $length points from ${first + 1}, got $received")
+        val expected = length * bytesPerPoint()
+        if (received != expected) {
+            throw IOException("asked for $length points from ${first + 1}, got ${received / bytesPerPoint()}")
+        }
     }
 
     /**
@@ -130,7 +192,14 @@ class SnapshotWriter(
         try {
             val reader = WaveformReader(instrument, chunk)
             // Every source's own preamble: only the channels asked for (the others may be off).
-            val digital = channels.digital.associate { digitalSource(it) to reader.select(digitalSource(it)) }
+            // Alone (no analog channel to line them up with), a logic channel's real sample
+            // period is corrected (LA_PERIOD_FACTOR); with one, its preamble already matches the
+            // analog one's and every sample is repeated instead, when the data are read, below.
+            val alone = channels.analog.isEmpty()
+            val digital = channels.digital.associate {
+                val raw = reader.select(digitalSource(it))
+                digitalSource(it) to if (alone) raw.copy(xIncrement = raw.xIncrement * LA_PERIOD_FACTOR) else raw
+            }
             val analog = channels.analog.associateWith { reader.select(analogSource(it)) }
             val sources = digital + analog.mapKeys { "CH${it.key}" }
             val first = sources.values.first()
@@ -157,7 +226,7 @@ class SnapshotWriter(
             }
             if (channels.digital.isNotEmpty()) {
                 BufferedOutputStream(FileOutputStream(Snapshot.rawFile(dir, "D")), 1 shl 16).use {
-                    readDigital(reader, channels.digital, points, it)
+                    readDigital(reader, channels.digital, points, it, if (alone) 1 else LA_PERIOD_FACTOR)
                 }
             }
             for (name in channels.names) {
@@ -173,29 +242,44 @@ class SnapshotWriter(
     }
 
     /**
-     * The instrument gives every digital channel on its own (one byte per sample, not 0 = high);
-     * they are combined into one little-endian 16 bit word per sample, chunk by chunk.
+     * The instrument gives every digital channel on its own, as WORD (one 16 bit word per
+     * sample, 0 or 1); they are combined into one little-endian 16 bit word per sample, chunk by
+     * chunk. [repeat] (1, alone, or [LA_PERIOD_FACTOR] with the analog channels) is how many
+     * times each one is written, lining the logic channels up with the analog ones' finer time
+     * axis; [outputPoints] is the count after repeating (at most [repeat] fewer raw samples are
+     * read than it, for an [outputPoints] not a multiple of [repeat]).
      */
-    private fun readDigital(reader: WaveformReader, bits: List<Int>, points: Long, out: OutputStream) {
+    private fun readDigital(reader: WaveformReader, bits: List<Int>, outputPoints: Long, out: OutputStream, repeat: Int) {
+        val rawPoints = (outputPoints + repeat - 1) / repeat
         var position = 0L
+        var written = 0L
         val words = IntArray(chunk)
-        val buffer = ByteArrayOutputStream(chunk)
-        val bytes = ByteArray(chunk * 2)
-        while (position < points) {
-            val length = minOf(chunk.toLong(), points - position).toInt()
+        val buffer = ByteArrayOutputStream(chunk * 2)
+        val bytes = ByteArray(chunk * 2 * repeat)
+        while (position < rawPoints) {
+            val length = minOf(chunk.toLong(), rawPoints - position).toInt()
             words.fill(0, 0, length)
             for (bit in bits) {
                 reader.switchSource(digitalSource(bit))
                 buffer.reset()
                 reader.readWindow(position, length.toLong(), buffer)
                 val data = buffer.toByteArray()
-                for (i in 0 until length) if (data[i].toInt() != 0) words[i] = words[i] or (1 shl bit)
+                for (i in 0 until length) {
+                    val value = (data[2 * i].toInt() and 0xFF) or ((data[2 * i + 1].toInt() and 0xFF) shl 8)
+                    if (value != 0) words[i] = words[i] or (1 shl bit)
+                }
             }
             for (i in 0 until length) {
-                bytes[2 * i] = words[i].toByte()
-                bytes[2 * i + 1] = (words[i] ushr 8).toByte()
+                val lo = words[i].toByte()
+                val hi = (words[i] ushr 8).toByte()
+                for (r in 0 until repeat) {
+                    bytes[2 * (i * repeat + r)] = lo
+                    bytes[2 * (i * repeat + r) + 1] = hi
+                }
             }
-            out.write(bytes, 0, 2 * length)
+            val produced = minOf(length.toLong() * repeat, outputPoints - written)
+            out.write(bytes, 0, (produced * 2).toInt())
+            written += produced
             position += length
         }
     }

@@ -57,8 +57,9 @@ def test_blocks_preamble_meta():
     preamble = scpi.parse_preamble("0,2,1000,1,1.0e-06,-1.0e-04,0,0.04,0,128")
     assert preamble["points"] == 1000 and preamble["xorig"] == -1e-4 and preamble["yref"] == 128
     assert scpi.parse_meta("points=10;rate=1e6;CH1.yinc=0.04") == {"points": "10", "rate": "1e6", "CH1.yinc": "0.04"}
-    assert scpi.command("la_channel", n=3, value="ON") == ":LA:DIGital3:DISPlay ON"
-    assert [scpi.depth_text(value) for value in scpi.MEMORY_DEPTHS] == ["1k", "10k", "100k", "1M", "10M", "25M", "50M"]
+    assert scpi.command("la_channel", n=3, value="ON") == ":LA:DIGital:ENABle D3,ON"
+    assert [scpi.depth_text(value) for value in scpi.MEMORY_DEPTHS] == [
+        "1k", "10k", "100k", "1M", "5M", "10M", "25M", "50M", "100M", "125M", "250M", "500M"]
     assert [scpi.parse_depth(text) for text in ("1M", "10k", "1.0000E+06", "25000000", "AUTO")] == [
         1_000_000, 10_000, 1_000_000, 25_000_000, None]
 
@@ -164,7 +165,7 @@ def test_the_models_the_driver_knows():
     driver = open_model("DHO914")  # no generator
     try:
         assert "AFG" not in driver.capabilities() and "ANALOG=4" in driver.capabilities()
-        assert [type(facet).__name__ for facet in driver.instrument_facets()] == ["DhoCache"]
+        assert [type(facet).__name__ for facet in driver.instrument_facets()] == ["DhoSettings", "DhoCache"]
     finally:
         driver.dispose()
     with pytest.raises(DeviceConnectionError, match="DHO804 at .* has no logic analyzer"):
@@ -177,7 +178,10 @@ def test_the_models_the_driver_knows():
 def test_the_instrument_describes_itself(direct):
     assert direct.device_version.startswith("Rigol DHO924S")
     assert not direct.uses_bridge and "PROGRESSIVE" not in direct.capabilities()
-    assert {"THRESHOLD", "ANALOG=4", "PATTERN_GROUPS=0-15", "AFG"} <= direct.capabilities()
+    assert {"THRESHOLD", "ANALOG=4", "AFG"} <= direct.capabilities()
+    # no pattern trigger (it takes CH1–CH4 only), no external trigger input; edges on D0–D15 and CH1–CH4
+    assert direct.pattern_trigger_groups() == () and not direct.has_external_trigger()
+    assert direct.analog_trigger_channels() == [0, 1, 2, 3]
     assert direct.analog_channel_names() == ["CH1", "CH2", "CH3", "CH4"]
     assert direct.memory_depth(16, 4) == 10_000_000
 
@@ -189,7 +193,10 @@ def test_a_direct_capture_digital_and_analog(direct):
     assert result.success, result.error
     assert len(session.capture_channels[0].samples) == 10_000
     assert session.pre_trigger_samples == 1000 and session.post_trigger_samples == 9000
-    assert np.all(np.diff(session.capture_channels[0].samples[:10].astype(int)) != 0)  # D0 toggles every sample
+    # D0 toggles every raw sample; captured with CH1, each is repeated once (LA_PERIOD_FACTOR) to
+    # line it up with the analog channels' finer time axis, so every *pair* toggles
+    pairs = session.capture_channels[0].samples[:10].reshape(-1, 2)
+    assert np.all(pairs[:, 0] == pairs[:, 1]) and np.all(np.diff(pairs[:, 0].astype(int)) != 0)
     volts = session.analog_channels[0].raw * session.analog_channels[0].scale + session.analog_channels[0].offset
     assert volts.max() - volts.min() > 0.5 and -5 <= volts.min() and volts.max() <= 5  # the 1 kHz sine
     assert direct.shell.thresholds == {1: 1.4, 2: 1.4}
@@ -268,17 +275,147 @@ def test_a_capture_is_done_only_after_the_instrument_took_it_up(fresh_direct, mo
     assert not result.success and "did not take the capture up" in result.error and "Settings conflict" in result.error
 
 
-def test_the_memory_depth_is_set_by_name_and_checked(fresh_direct, monkeypatch):
+def test_the_memory_depth_is_set_by_name_and_read_back(fresh_direct, monkeypatch):
     shell = fresh_direct.shell
     sent = []
     handle = shell.handle
     monkeypatch.setattr(shell, "handle", lambda line: (sent.append(line), handle(line))[1])
     assert run(fresh_direct, make_session(channels=(0,), pre=1000, post=99_000)).success
     assert ":ACQuire:MDEPth 100k" in sent and shell.depth == 100_000
-    # a depth the instrument does not take: the capture is refused, not taken with another depth
+    # a depth the instrument does not take is skipped: the next larger one holds the capture
     monkeypatch.setattr(scpi, "MEMORY_DEPTHS", (1_000, 2_000, 10_000))
-    assert fresh_direct.start_capture(make_session(channels=(0,), pre=0, post=1500)) == CaptureError.HARDWARE_ERROR
-    assert ":ACQuire:MDEPth 2k" in sent and shell.depth == 100_000
+    sent.clear()
+    assert run(fresh_direct, make_session(channels=(0,), pre=0, post=1500)).success
+    assert ":ACQuire:MDEPth 2k" in sent and shell.depth == 10_000 and not shell.errors
+    # more samples than the instrument holds: refused with the reason
+    result = run(fresh_direct, make_session(channels=(0,), pre=0, post=20_000))
+    assert not result.success and "20000 samples are more than the 10000" in result.error
+
+
+def test_firmware_that_takes_a_tenth_of_the_memory_depth(fresh_direct, monkeypatch):
+    """The modified firmware NK v0.5.2 of the DHO924S: "1M" gives 100 kpts, "500M" the 25 Mpts."""
+    shell = fresh_direct.shell
+    shell.firmware_depths = True
+    sent = []
+    handle = shell.handle
+    monkeypatch.setattr(shell, "handle", lambda line: (sent.append(line), handle(line))[1])
+    session = make_session(channels=(0,), pre=1000, post=99_000)
+    assert run(fresh_direct, session).success
+    assert shell.depth == 100_000 and ":ACQuire:MDEPth 1M" in sent
+    assert len(session.capture_channels[0].samples) == 100_000
+    sent.clear()  # (the next capture asks only for the depth it needs)
+    assert run(fresh_direct, make_session(channels=(0,), pre=1000, post=99_000)).success
+    assert [line for line in sent if line.startswith(":ACQuire:MDEPth ")] == [":ACQuire:MDEPth 1M"]
+
+
+def test_a_small_capture_after_a_large_one(fresh_direct):
+    """The read window of the large capture lies beyond the small one (the DHO refuses STARt and
+    STOP then, and its preamble counts the window): every sample comes, no error is left."""
+    shell = fresh_direct.shell
+    assert run(fresh_direct, make_session(channels=(), analog=(0,), pre=0, post=600_000), seconds=60).success
+    session = make_session(channels=(), analog=(0,), pre=100, post=900)
+    assert run(fresh_direct, session).success
+    assert len(session.analog_channels[0].raw) == 1000 and session.pre_trigger_samples == 100
+    assert not shell.errors
+
+
+def test_logic_channels_the_instrument_does_not_give_out(fresh_direct):
+    """Without the logic probe (and with the modified firmware NK v0.5.2 also with it) the DHO
+    refuses D0–D15 as :WAVeform:SOURce: the capture says so; the analog channels still come."""
+    fresh_direct.shell.probe = False
+    result = run(fresh_direct, make_session(channels=(0,), pre=100, post=900))
+    assert not result.success and "does not give out D0" in result.error
+    session = make_session(channels=(), analog=(0,), pre=100, post=900)
+    assert run(fresh_direct, session).success
+
+
+def test_a_logic_channel_is_read_as_words(fresh_direct):
+    """A logic channel comes as 16 bit words: as BYTE the instrument gives only the upper byte, always 0.
+    The capture reads WORD, its data are the levels, and the analog channels still come as BYTE."""
+    shell = fresh_direct.shell
+    session = make_session(channels=(0, 5), analog=(0,), pre=100, post=900)
+    assert run(fresh_direct, session).success
+    # D0 toggles every raw sample; captured with CH1 each is repeated once (LA_PERIOD_FACTOR)
+    pairs = session.capture_channels[0].samples[:10].reshape(-1, 2)
+    assert np.all(pairs[:, 0] == pairs[:, 1]) and np.all(np.diff(pairs[:, 0].astype(int)) != 0)
+    assert set(np.unique(session.capture_channels[1].samples)) <= {0, 1}
+    assert session.analog_channels[0].raw.max() > 0
+    assert shell.wave_format == "BYTE"  # (the analog channel was read last)
+    shell.wave_format = "BYTE"
+    shell.source = "D0"
+    shell.window = (1, 100)
+    assert not shell.handle(":WAVeform:DATA?")[11:].strip(b"\n").strip(b"\x00")  # BYTE: the upper byte, 0
+
+
+def test_the_sample_period_of_a_logic_channel_alone_is_twice_the_preambles(fresh_direct):
+    """A logic channel's preamble is computed as if it were sampled at the analog rate (measured
+    on the DHO924S): captured alone (no analog channel to line it up with), the rate of its
+    capture is half the preamble's, the real one. Trigger position comes from the same (otherwise
+    unmodified) preamble: its pre-trigger count ends up halved too (a known imprecision of a
+    logic-channel-alone capture - the requested split of pre/post is not exactly honoured, unlike
+    the total, :func:`same_timing`)."""
+    fresh_direct.shell.la_rate = 4_000_000.0
+    session = make_session(channels=(0,), pre=100, post=900)
+    result = run(fresh_direct, session)
+    assert result.success, result.error
+    assert session.frequency == 2_000_000
+    assert session.pre_trigger_samples == 50 and len(session.capture_channels[0].samples) == 1000
+
+
+def test_a_logic_channel_captured_with_an_analog_one_is_not_halved(fresh_direct):
+    """Captured with an analog channel, the rate of the capture is the analog one's and the
+    requested pre/post trigger split is honoured exactly (unlike alone, above): the logic
+    channel's samples were repeated (LA_PERIOD_FACTOR) to line up with it, not its preamble
+    corrected, which would have made the two (deliberately, below) look out of step."""
+    session = make_session(channels=(0,), analog=(0,), pre=100, post=900, rate=2_000_000)
+    result = run(fresh_direct, session)
+    assert result.success, result.error
+    assert session.frequency == 2_000_000
+    assert session.pre_trigger_samples == 100 and session.post_trigger_samples == 900
+    assert len(session.capture_channels[0].samples) == len(session.analog_channels[0].raw) == 1000
+
+
+def test_an_edge_on_an_analog_channel(fresh_direct, monkeypatch):
+    shell = fresh_direct.shell
+    sent = []
+    handle = shell.handle
+    monkeypatch.setattr(shell, "handle", lambda line: (sent.append(line), handle(line))[1])
+    session = make_session(channels=(), analog=(0,), pre=100, post=900)
+    session.trigger_type = TriggerType.EDGE
+    session.trigger_analog_channel, session.trigger_level, session.trigger_inverted = 1, 1.5, True
+    assert run(fresh_direct, session).success
+    assert {":TRIGger:EDGE:SOURce CHANnel2", ":TRIGger:EDGE:SLOPe NEGative", ":TRIGger:EDGE:LEVel 1.5",
+            ":CHANnel2:DISPlay ON"} <= set(sent)  # (the trigger's channel is on, though not captured)
+    assert session.trigger_description() == "Negative at 1.5 V"
+    # a level outside the channel's range on the screen: the instrument would take another one
+    session = make_session(channels=(), analog=(0,), pre=100, post=900)
+    session.trigger_type = TriggerType.EDGE
+    session.trigger_analog_channel, session.trigger_level = 0, 7.0
+    result = run(fresh_direct, session)
+    assert not result.success and "CH1 cannot trigger at 7 V" in result.error and "took 4 V" in result.error
+    session.trigger_analog_channel = 4
+    assert fresh_direct.start_capture(session) == CaptureError.BAD_PARAMS
+
+
+def test_a_logic_channel_triggers_an_analog_capture(fresh_direct, monkeypatch):
+    shell = fresh_direct.shell
+    sent = []
+    handle = shell.handle
+    monkeypatch.setattr(shell, "handle", lambda line: (sent.append(line), handle(line))[1])
+    session = make_session(channels=(), analog=(0,), pre=100, post=900)
+    session.trigger_type, session.trigger_channel = TriggerType.EDGE, 3
+    assert run(fresh_direct, session).success
+    assert {":LA:ENABle ON", ":LA:DIGital:ENABle D3,ON", ":TRIGger:EDGE:SOURce D3"} <= set(sent)
+
+
+def test_the_analog_trigger_is_saved_with_the_capture():
+    from openscilab.core.capture_io import session_from_dict, session_to_dict
+
+    session = make_session(channels=(0,))
+    session.trigger_analog_channel, session.trigger_level = 2, -0.25
+    loaded = session_from_dict(session_to_dict(session))
+    assert (loaded.trigger_analog_channel, loaded.trigger_level) == (2, -0.25)
+    assert session_from_dict({}).trigger_analog_channel is None  # (files from before it)
 
 
 def test_channels_sampled_at_different_rates_are_refused(fresh_direct):
@@ -393,14 +530,46 @@ def test_the_generator_drives_ch1(bridge):
     assert shell.instrument.generator.running("GI")
     played = shell.instrument.generator._running["GI"][0]
     assert (played.kind, played.frequency, played.amplitude, played.offset, played.duty) == ("square", 5000.0, 2.0, 0.5, 0.25)
-    generator.start("GI", waves.standard("sine", 1000.0, modulation="sweep", sweep_start=100, sweep_stop=2000))
-    assert shell.instrument.generator._running["GI"][0].modulation == "sweep"
-    generator.start("GI", waves.from_points([0.0, 1.0, -1.0, 0.5], frequency=200.0))
-    assert shell.instrument.generator._running["GI"][0].points.tolist() == [0.0, 1.0, -1.0, 0.5]
+    generator.start("GI", waves.standard("triangle", 2000.0, amplitude=1.0))
+    played = shell.instrument.generator._running["GI"][0]
+    assert (played.kind, played.frequency, played.amplitude) == ("triangle", 2000.0, 1.0)  # (RAMP, symmetry 50)
+    generator.start("GI", waves.standard("ramp", 2000.0))
+    assert shell.instrument.generator._running["GI"][0].kind == "ramp"  # (RAMP, symmetry 100)
+    # a pulse is a square wave from the offset to offset + amplitude
+    generator.start("GI", waves.standard("pulse", 1000.0, amplitude=1.0, offset=0.0, duty=0.2))
+    played = shell.instrument.generator._running["GI"][0]
+    assert (played.kind, played.amplitude, played.offset, played.duty) == ("square", 0.5, 0.5, 0.2)
     generator.stop("GI")
     assert not shell.instrument.generator.running("GI")
-    with pytest.raises(InstrumentError):
-        generator.start("GI", waves.standard("sine", 50e6))
+    # what the instrument cannot play is refused before anything is sent; the output stays off
+    for waveform, reason in [
+            (waves.standard("sine", 1000.0, modulation="sweep", sweep_start=100, sweep_stop=2000), "cannot sweep"),
+            (waves.from_points([0.0, 1.0, -1.0, 0.5], frequency=200.0), "cannot play arbitrary"),
+            (waves.standard("sine", 50e6), "above the 25 MHz"),
+            (waves.standard("ramp", 200e3), "above the 150 kHz of ramp"),
+            (waves.standard("square", 1000.0, duty=0.01), "outside the 5 to 95 %"),
+            (waves.standard("sine", 1000.0, amplitude=2.0, offset=1.0), "outside the -2.5 V to 2.5 V")]:
+        with pytest.raises(InstrumentError, match=reason):
+            generator.start("GI", waveform)
+        assert not shell.instrument.generator.running("GI")
+
+
+def test_a_refused_waveform_leaves_the_output_off(bridge):
+    from openscilab.driver.rigoldho import generator as module
+
+    generator = Instrument.from_driver(bridge, uri=bridge.address).generator
+    bridge.shell.errors.append('-100,"Command err"')  # (an earlier error is not the waveform's)
+    generator.start("GI", waves.standard("sine", 1000.0))
+    assert bridge.shell.instrument.generator.running("GI")
+    generator.stop("GI")
+    original = module.FUNCTIONS
+    module.FUNCTIONS = dict(original, sine=("SINE_UNKNOWN", None))
+    try:
+        with pytest.raises(InstrumentError, match="refused the waveform"):
+            generator.start("GI", waves.standard("sine", 1000.0))
+    finally:
+        module.FUNCTIONS = original
+    assert not bridge.shell.instrument.generator.running("GI")
 
 
 # ----------------------------------------------------------- beacon, probe
@@ -462,3 +631,20 @@ def test_the_device_card_lists_the_bridge_cache(shell):
         assert Instrument.from_driver(direct_driver).facet(type(card.cache_panel.cache).__mro__[1]) is None
     finally:
         direct_driver.dispose()
+
+
+def test_a_closed_connection_is_an_error_of_the_connection():
+    """A thread still reading when the connection was closed (dispose during a transfer) gets a
+    ScpiError, not a raw OSError that ends the thread with a traceback."""
+    server = socket.socket()
+    server.bind(("127.0.0.1", 0))
+    server.listen(1)
+    try:
+        transport = scpi.TcpTransport("127.0.0.1", server.getsockname()[1], 1.0)
+        transport.close()
+        with pytest.raises(scpi.ScpiError):
+            transport.receive(0.1)
+        with pytest.raises(scpi.ScpiError):
+            transport.send(b"*IDN?\n", 0.1)
+    finally:
+        server.close()

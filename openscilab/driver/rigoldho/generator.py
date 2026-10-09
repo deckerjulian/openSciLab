@@ -4,17 +4,22 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""The built-in generator of the DHO900 (output GI) as a :class:`GeneratorFacet`: standard
-waveforms, arbitrary points, sweep and burst, through the ``:SOURce`` commands of
-:data:`.scpi.COMMANDS` (provisional until step 3a)."""
+"""The built-in generator of the DHO900 S models (output GI) as a :class:`GeneratorFacet`, through
+the ``:SOURce`` commands of :data:`.scpi.COMMANDS`.
+
+What the instrument offers (the programming guide, and measured on a DHO924S with the modified
+firmware NK v0.5.2): sine, square (duty 5–95 %), ramp (``RAMP`` with a symmetry: 50 % is the triangle, 100 % the
+rising ramp), noise and DC; up to 25 MHz (sine), 15 MHz (square) and 150 kHz (ramp, noise), and
+±2.5 V into high impedance. No arbitrary waveforms, no sweep, no burst. A frequency above the
+limit is cut down without an error, so the driver refuses it itself.
+"""
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-import numpy as np
-
 from .scpi import ScpiError, command
+from ...core import units
 from ...core import waveform as waves
 from ...core.instrument import CacheEntry, CacheFacet, GeneratorFacet, InstrumentError, OutputInfo
 
@@ -22,11 +27,17 @@ if TYPE_CHECKING:  # pragma: no cover
     from .driver import RigolDhoDriver
 
 OUTPUT = "GI"
-FUNCTIONS = {waves.SINE: "SINusoid", waves.SQUARE: "SQUare", waves.TRIANGLE: "RAMP", waves.RAMP: "RAMP",
-             waves.PULSE: "PULSe", waves.DC: "DC", waves.NOISE: "NOISe", waves.ARBITRARY: "ARB"}
-INFO = OutputInfo(OUTPUT, "analog", voltage_range=(-5.0, 5.0), resolution=14, max_rate=156_250_000,
-                  max_points=16384, max_frequency=25_000_000,
-                  capabilities=frozenset({"SWEEP", "BURST", "ARB"}))
+#: the function of the instrument and the ramp symmetry (percent) for each kind it can play
+FUNCTIONS = {waves.SINE: ("SINusoid", None), waves.SQUARE: ("SQUare", None), waves.PULSE: ("SQUare", None),
+             waves.TRIANGLE: ("RAMP", 50), waves.RAMP: ("RAMP", 100), waves.NOISE: ("NOISe", None),
+             waves.DC: ("DC", None)}
+#: highest frequency (Hz) per kind
+MAX_FREQUENCY = {waves.SINE: 25e6, waves.SQUARE: 15e6, waves.PULSE: 15e6, waves.TRIANGLE: 150e3,
+                 waves.RAMP: 150e3, waves.NOISE: 150e3, waves.DC: 25e6}
+#: duty cycle range of square waves and pulses
+DUTY_RANGE = (0.05, 0.95)
+INFO = OutputInfo(OUTPUT, "analog", voltage_range=(-2.5, 2.5), resolution=14, max_rate=156_250_000,
+                  max_points=0, max_frequency=25_000_000)
 
 
 class DhoGenerator(GeneratorFacet):
@@ -41,41 +52,52 @@ class DhoGenerator(GeneratorFacet):
     def commands_for(self, waveform: Any) -> list[str]:
         """The SCPI commands that set ``waveform`` up (without switching the output on)."""
         found = waves.problems(waveform, INFO)
+        if waveform.kind not in FUNCTIONS:
+            found.append(f"the generator of the oscilloscope cannot play {waveform.kind} waveforms (it has sine, "
+                         "square, pulse, triangle, ramp, noise and DC)")
+        elif waveform.kind != waves.DC and waveform.frequency > MAX_FREQUENCY[waveform.kind]:
+            found.append(f"{units.format_quantity(waveform.frequency, 'Hz')} is above the "
+                         f"{units.format_quantity(MAX_FREQUENCY[waveform.kind], 'Hz')} of {waveform.kind} waves")
+        if waveform.kind in (waves.SQUARE, waves.PULSE) and not DUTY_RANGE[0] <= waveform.duty <= DUTY_RANGE[1]:
+            found.append(f"a duty cycle of {waveform.duty * 100:g} % is outside the {DUTY_RANGE[0] * 100:g} to "
+                         f"{DUTY_RANGE[1] * 100:g} % of the oscilloscope")
+        if waveform.repeat > 0 and waveform.kind not in (waves.DC, waves.NOISE):
+            found.append("the generator of the oscilloscope repeats until stopped, not a number of times")
         if found:
-            raise InstrumentError("; ".join(found))
-        result = [command("afg_function", value=FUNCTIONS[waveform.kind])]
-        if waveform.kind == waves.ARBITRARY:
-            points = waveform.points if waveform.points is not None else np.zeros(1)
-            result.append(command("afg_arb", value=",".join(f"{value:.4f}" for value in points)))
-        if waveform.kind != waves.DC:
-            result.append(command("afg_frequency", value=f"{waveform.frequency:.6g}"))
-            result.append(command("afg_amplitude", value=f"{2 * abs(waveform.amplitude):.6g}"))
-        result.append(command("afg_offset", value=f"{waveform.offset:.6g}"))
-        if waveform.kind == waves.SQUARE:
-            result.append(command("afg_square_duty", value=f"{waveform.duty * 100:.6g}"))
-        if waveform.kind == waves.PULSE:
-            result.append(command("afg_duty", value=f"{waveform.duty * 100:.6g}"))
-        if waveform.phase:
-            result.append(command("afg_phase", value=f"{waveform.phase:.6g}"))
-        result.append(command("afg_sweep", value="ON" if waveform.modulation == waves.SWEEP else "OFF"))
-        if waveform.modulation == waves.SWEEP:
-            result += [command("afg_sweep_start", value=f"{waveform.sweep_start:.6g}"),
-                       command("afg_sweep_stop", value=f"{waveform.sweep_stop:.6g}"),
-                       command("afg_sweep_time", value=f"{waveform.sweep_time:.6g}")]
-        result.append(command("afg_burst", value="ON" if waveform.modulation == waves.BURST else "OFF"))
-        if waveform.modulation == waves.BURST:
-            result += [command("afg_burst_cycles", value=int(waveform.burst_cycles)),
-                       command("afg_burst_period", value=f"{waveform.burst_period:.6g}")]
+            raise InstrumentError("; ".join(dict.fromkeys(found)))
+        function, symmetry = FUNCTIONS[waveform.kind]
+        result = [command("afg_modulation", value="OFF"), command("afg_function", value=function)]
+        if waveform.kind == waves.DC:
+            return result + [command("afg_offset", value=f"{waveform.offset:.6g}")]
+        if symmetry is not None:
+            result.append(command("afg_ramp_symmetry", value=symmetry))
+        low, high = waveform.voltage_range()
+        if waveform.kind == waves.NOISE:
+            low, high = waveform.offset - abs(waveform.amplitude), waveform.offset + abs(waveform.amplitude)
+        result += [command("afg_frequency", value=f"{waveform.frequency:.6g}"),
+                   command("afg_amplitude", value=f"{high - low:.6g}"),
+                   command("afg_offset", value=f"{(high + low) / 2:.6g}")]
+        if waveform.kind in (waves.SQUARE, waves.PULSE):
+            duty = waveform.duty if waveform.kind == waves.SQUARE or waveform.amplitude >= 0 else 1 - waveform.duty
+            result.append(command("afg_square_duty", value=f"{duty * 100:.6g}"))
+        result.append(command("afg_phase", value=f"{waveform.phase:.6g}"))
         return result
 
     def start(self, output: str, waveform: Any) -> None:
         self.output(output)
         lines = self.commands_for(waveform)
+        connection = self.driver.connection
         try:
+            connection.errors()  # (an earlier error is not this waveform's)
             for line in lines:
-                self.driver.connection.write(line)
-            self.driver.connection.write(command("afg_output", value="ON"))
-            errors = self.driver.connection.errors()
+                connection.write(line)
+            errors = connection.errors()
+            if errors:
+                connection.write(command("afg_output", value="OFF"))
+                connection.errors()
+            else:
+                connection.write(command("afg_output", value="ON"))
+                errors = connection.errors()
         except ScpiError as error:
             raise InstrumentError(f"the oscilloscope does not answer ({error})") from error
         if errors:

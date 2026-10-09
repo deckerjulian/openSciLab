@@ -399,6 +399,7 @@ STATIC_PROPERTIES = (
 )
 STATIC_METHODS = (
     "capabilities", "acquisition_modes", "has_external_trigger", "pattern_trigger_groups", "edge_trigger_channels",
+    "analog_trigger_channels",
     "analog_channel_names", "supports_state_mode", "state_clock_channels", "supports_stream_state",
 )
 

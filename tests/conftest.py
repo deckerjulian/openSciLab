@@ -34,10 +34,15 @@ def isolated_settings(tmp_path, monkeypatch):
 
 @pytest.fixture(autouse=True)
 def no_usb_devices(monkeypatch):
-    """The tests never touch real USB devices (DSLogic enumeration through libusb)."""
+    """The tests never touch real devices: no DSLogic and no USBTMC instrument through libusb, no
+    oscilloscope whose bridge app announces itself on the network."""
+    from openscilab.driver import usbtmc
     from openscilab.driver.dslogic import usb
+    from openscilab.driver.rigoldho import beacon
 
     monkeypatch.setattr(usb, "list_devices", lambda: [])
+    monkeypatch.setattr(usbtmc, "list_instruments", lambda vendor=None: [])
+    monkeypatch.setattr(beacon, "seen", lambda: [])
 
 
 @pytest.fixture(autouse=True)

@@ -72,7 +72,7 @@ from ...core.instrument import (
     MonitorState,
     PinInfo,
 )
-from ...driver.base import CAPABILITY_RESTART, DeviceConnectionError, facets_of
+from ...driver.base import CAPABILITY_RESTART, CAPABILITY_WEB_CONTROL, DeviceConnectionError, facets_of
 from .. import messages
 from ..devices.hub_bridge import HubBridge
 from ..icons import icon, set_icon
@@ -315,6 +315,16 @@ class DeviceDocument(DocumentWidget):
             self.remote_panel.restart_requested.connect(self._restart_at)
             self.tabs.insertTab(0, self.remote_panel, icon("wifi"), "Remote")
             self.tabs.setCurrentIndex(0)
+        #: the instrument's screen live and its own settings (an oscilloscope)
+        self.front_panel = None
+        from ..devices.front_panel import FrontPanelPage, has_front_panel
+
+        if has_front_panel(instrument):
+            self.front_panel = FrontPanelPage(
+                instrument, self, busy=lambda: self.controller is not None and self.controller.is_capturing)
+            self.tabs.insertTab(0, self.front_panel, icon("eye"), "Front panel")
+            self.tabs.setCurrentIndex(0)
+            self.tabs.currentChanged.connect(self._front_panel_shown)
         #: the time of the samples and how to know it better (instruments that capture)
         self.timing_page = None
         if instrument.capture is not None:
@@ -390,6 +400,15 @@ class DeviceDocument(DocumentWidget):
         self.stream_record_button.setVisible(getattr(self, "controller", None) is not None
                                              and self.controller.can_record())
         header.addWidget(self.stream_record_button)
+        # the device's own web page to control it live (the oscilloscope's Web Control), in the browser
+        self.web_control_button = QPushButton("Web control", self)
+        self.web_control_button.setObjectName("web-control")
+        set_icon(self.web_control_button, "export")
+        self.web_control_button.setToolTip("Open the device's own web page in the browser: its screen and controls, "
+                                           "live")
+        self.web_control_button.clicked.connect(self.open_web_control)
+        self.web_control_button.setVisible(False)
+        header.addWidget(self.web_control_button)
         # the capture profiles of the device: saved settings (and decoders) loaded at a click
         self.profiles_button = QPushButton("Profiles", self)
         set_icon(self.profiles_button, "bookmark")
@@ -548,6 +567,26 @@ class DeviceDocument(DocumentWidget):
             action.setEnabled(connected and not capturing)
         self._update_device_box()
         self._update_names()
+
+    def open_web_control(self) -> Optional[str]:
+        """*Web control*: the device's own web page in the browser; its address, ``None``: none."""
+        driver = self.instrument.capture.driver if self.instrument.capture is not None else None
+        try:
+            url = driver.web_control_url() if driver is not None else None
+        except Exception as error:  # noqa: BLE001 - every way a device can fail to answer
+            log.debug("The web control address could not be read", exc_info=True)
+            self.show_banner(f"{self.instrument.name} did not tell its web address: {error}", "error")
+            return None
+        if not url:
+            self.show_banner(f"{self.instrument.name} has no network address that answers: connect it to the "
+                             "network (its web page is reached over the network, also when it is connected "
+                             "over USB).", "warning")
+            return None
+        from PySide6.QtCore import QUrl
+        from PySide6.QtGui import QDesktopServices
+
+        QDesktopServices.openUrl(QUrl(url))
+        return url
 
     def restart_device(self) -> bool:
         """*Restart device*: asked first; the outputs are released, the card shows the device anew."""
@@ -1308,9 +1347,11 @@ class DeviceDocument(DocumentWidget):
         controller = getattr(self, "controller", None)
         self.stream_record_button.setVisible(controller is not None and controller.can_record())
         self.stream_record_button.setEnabled(controller is not None and not controller.is_capturing)
+        self.web_control_button.setVisible(driver is not None and CAPABILITY_WEB_CONTROL in driver.capabilities())
         self.action_firmware.setVisible(driver is not None and firmware.update_method(driver) is not None)
         connected = instrument in self.hub and instrument.status != InstrumentStatus.DISCONNECTED
-        for widget in (self.data_button, self.disconnect_button, self.safe_button, self.record_button):
+        for widget in (self.data_button, self.disconnect_button, self.safe_button, self.record_button,
+                       self.web_control_button):
             widget.setEnabled(connected)
         self.action_firmware.setEnabled(connected)
         failed = connected and instrument.status == InstrumentStatus.ERROR
@@ -1724,8 +1765,28 @@ class DeviceDocument(DocumentWidget):
         )
         return self._inspector
 
+    def _front_panel_shown(self, _index: int = -1) -> None:
+        if self.front_panel is None:
+            return
+        if self.tabs.currentWidget() is self.front_panel and self.isVisible():
+            self.front_panel.activate()
+        else:
+            self.front_panel.deactivate()
+
+    def showEvent(self, event) -> None:  # noqa: N802 - Qt
+        super().showEvent(event)
+        self._front_panel_shown()
+
+    def hideEvent(self, event) -> None:  # noqa: N802 - Qt
+        super().hideEvent(event)
+        if self.front_panel is not None:
+            self.front_panel.deactivate()
+
     def shutdown(self) -> None:
         from ...core import timing_tools
+
+        if self.front_panel is not None:
+            self.front_panel.shutdown()
 
         timing_tools.stop_sync_output(self.instrument)  # (a sync signal runs while its card is open)
         self.monitor_timer.stop()

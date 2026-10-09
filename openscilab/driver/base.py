@@ -115,6 +115,11 @@ CAPABILITY_TX_I2C = "TX_I2C"
 CAPABILITY_PROGRESSIVE = "PROGRESSIVE"
 #: The device restarts on request (``restart()``): as after power-up, the connection stays
 CAPABILITY_RESTART = "RESTART"
+#: The device has a web page to control it live (``web_control_url``), e.g. the oscilloscope's own
+CAPABILITY_WEB_CONTROL = "WEB_CONTROL"
+#: The device's screen can be shown live and touched (``REMOTE_SCREEN=<kind>``; ``dho``: the screen
+#: and touch servers of the Rigol DHO900's Web Control, ``driver/rigoldho/screen.py``)
+CAPABILITY_REMOTE_SCREEN = "REMOTE_SCREEN="
 
 #: Facet (class name in ``core/instrument.py``) unlocked by each capability (prefix).
 FACET_CAPABILITIES = {
@@ -666,6 +671,16 @@ class AnalyzerDriverBase:
     def edge_trigger_channels(self) -> list[int]:
         """Channels an edge trigger can use; the external trigger input is ``channel_count``."""
         return list(range(self.channel_count))
+
+    def web_control_url(self) -> Optional[str]:
+        """The address of the device's own web page to control it (``CAPABILITY_WEB_CONTROL``);
+        ``None``: none, or it cannot be reached now."""
+        return None
+
+    def analog_trigger_channels(self) -> list[int]:
+        """Analog channels (their numbers) an edge trigger can use with a level in volts
+        (``CaptureSession.trigger_analog_channel``, ``trigger_level``); empty: none."""
+        return []
 
     # ------------------------------------------------------------ board test
     # ---------------------------------------------------------------- analog

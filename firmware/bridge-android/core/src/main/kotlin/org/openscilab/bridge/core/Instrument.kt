@@ -11,13 +11,16 @@ import java.io.InputStream
 import java.io.OutputStream
 import java.net.InetSocketAddress
 import java.net.Socket
+import java.net.SocketTimeoutException
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.locks.ReentrantLock
 
 /**
  * The instrument's own SCPI server (127.0.0.1:5555 on the DHO). One connection, shared by all
  * clients of the bridge and by the snapshot; [exclusive] keeps a sequence of commands together.
- * After an error the connection is closed and opened again with the next command.
+ * After an error the connection is closed and opened again with the next command. The DHO also
+ * closes it by itself (when another client of its server comes or goes): after a pause the
+ * connection is looked at before a command, so the command is not lost on a closed one.
  */
 class Instrument(
     private val host: String,
@@ -32,6 +35,9 @@ class Instrument(
     @Volatile
     var connected = false
         private set
+
+    /** When the connection was last used (System.nanoTime). */
+    private var lastUse = 0L
 
     fun <T> exclusive(block: () -> T): T {
         lock.lock()
@@ -84,11 +90,41 @@ class Instrument(
     override fun close() = exclusive { disconnect() }
 
     private fun send(message: ByteArray) {
+        if (socket != null && System.nanoTime() - lastUse > IDLE_CHECK_NS && closedByInstrument()) disconnect()
         if (socket == null) connect()
         val out = output!!
         out.write(message)
         out.write('\n'.code)
         out.flush()
+        lastUse = System.nanoTime()
+    }
+
+    /** Whether the instrument closed the connection (an end of stream waits to be read). */
+    private fun closedByInstrument(): Boolean {
+        val current = socket ?: return true
+        val stream = input ?: return true
+        if (stream.available() > 0) return false  // (an answer not read yet: still open)
+        current.soTimeout = 1
+        return try {
+            stream.mark(1)
+            val byte = stream.read()
+            if (byte >= 0) stream.reset()
+            byte < 0
+        } catch (_: SocketTimeoutException) {
+            false  // (nothing to read: open)
+        } catch (_: IOException) {
+            true
+        } finally {
+            try {
+                current.soTimeout = timeoutMs
+            } catch (_: IOException) {
+            }
+        }
+    }
+
+    companion object {
+        /** A connection unused this long is looked at before the next command. */
+        const val IDLE_CHECK_NS = 200_000_000L
     }
 
     private fun connect() {

@@ -26,10 +26,11 @@ class BridgeService : Service() {
 
     override fun onCreate() {
         super.onCreate()
-        val manager = getSystemService(NotificationManager::class.java)
-        manager.createNotificationChannel(
-            NotificationChannel(CHANNEL, getString(R.string.app_name), NotificationManager.IMPORTANCE_LOW)
-        )
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            getSystemService(NotificationManager::class.java).createNotificationChannel(
+                NotificationChannel(CHANNEL, getString(R.string.app_name), NotificationManager.IMPORTANCE_LOW)
+            )
+        }
         startForeground(NOTIFICATION, notification("Starting"))
     }
 
@@ -67,7 +68,14 @@ class BridgeService : Service() {
         val open = PendingIntent.getActivity(
             this, 0, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE
         )
-        return Notification.Builder(this, CHANNEL)
+        // (the DHO900 runs Android 7.1: no notification channels there)
+        val builder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            Notification.Builder(this, CHANNEL)
+        } else {
+            @Suppress("DEPRECATION")
+            Notification.Builder(this)
+        }
+        return builder
             .setSmallIcon(R.drawable.ic_bridge)
             .setContentTitle(getString(R.string.app_name))
             .setContentText(text)
@@ -96,12 +104,17 @@ class BridgeService : Service() {
             context.getExternalFilesDir("snapshots") ?: File(context.filesDir, "snapshots")
 
         fun start(context: Context) {
-            preferences(context).edit().putBoolean(ENABLED, true).apply()
-            context.startForegroundService(Intent(context, BridgeService::class.java))
+            preferences(context).edit().putBoolean(ENABLED, true).commit()  // (on disk before a reboot)
+            val intent = Intent(context, BridgeService::class.java)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                context.startForegroundService(intent)
+            } else {
+                context.startService(intent)
+            }
         }
 
         fun stop(context: Context) {
-            preferences(context).edit().putBoolean(ENABLED, false).apply()
+            preferences(context).edit().putBoolean(ENABLED, false).commit()
             context.stopService(Intent(context, BridgeService::class.java))
         }
 

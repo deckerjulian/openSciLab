@@ -12,6 +12,10 @@ again from 0.1.
 
 ### Application
 
+- *Capture settings*: the analog inputs are channels in the list beside the logic ones (with name
+  and colour), no longer a row of small check boxes below it; the logic channels carry the names
+  of the device (the Rigol: D0–D15, so they are not taken for its analog CH1–CH4). A device
+  without a pattern trigger does not offer one.
 - **A tab into a window of its own**: drag it off the tab bar or double-click it (as well as
   *Open in a new window* on its right click); closing the window puts it back.
 - The close button of a tab sits inside the tab, centred on its title.
@@ -229,10 +233,74 @@ again from 0.1.
     has no pre-trigger samples (the trigger mark sat in the wrong place).
 - **Rigol DHO900 over USB** (`rigol:usb`, or `rigol:usb:<serial number>` with several): the same SCPI
   through the instrument's USBTMC interface (`driver/usbtmc.py`, with the libusb of the DSLogic),
-  found in the device list like the oscilloscopes on the network; after a timeout the instrument's
-  buffers are cleared, so a late answer is not taken for the next one. `rigol-sim:usb` simulates it.
-  On Linux it needs `packaging/linux/60-rigol.rules`. Not yet tried on the instrument.
-- Rigol DHO900 (found in a review; not yet tried on the instrument):
+  found in the device list like the oscilloscopes on the network; after a timeout the request for
+  the answer is taken back (`INITIATE_ABORT_BULK_IN`) and a late answer dropped. `rigol-sim:usb`
+  simulates it. On Linux it needs `packaging/linux/60-rigol.rules`.
+- **Rigol DHO900 tried on a DHO924S** (with the modified firmware NK v0.5.2; over the network, through the bridge app
+  and over USB, its generator on CH1 and on the logic analyzers). Before, the driver had only met
+  its simulation, which knew the same wrong commands:
+  - The logic channels are switched with `:LA:ENABle` and `:LA:DIGital:ENABle D<n>,ON` (the
+    commands before do not exist). This firmware's unpatched library does not give out D0–D15
+    (`:WAVeform:SOURce D0` is refused, also with the logic probe): a capture of them says so
+    instead of failing with "Command execute failed", and through the bridge app instead of
+    taking the data of CH1 for D0. D0–D15 still trigger: an edge on a logic channel starts a
+    capture of the analog ones. If D0–D15 are given out, they come as 16 bit words
+    (`:WAVeform:FORMat WORD`; `BYTE` gives only their upper byte, always 0). Their real sample
+    period is twice what `:WAVeform:PREamble?` reports for them alone (measured on a DHO924S from
+    20 µs to 10 ms per division of time base, through a known edge's position - its rate and
+    trigger sample are corrected, both by that factor): captured together with the analog
+    channels, whose rate is not halved, every logic sample is repeated once instead, which lines
+    it up with their finer time axis (the DHO reports its preamble, trigger included, as if it
+    had been sampled at the analog rate there).
+  - **Edge trigger on the analog channels**: CH1–CH4 at a level in volts, rising or falling
+    (*Capture settings*, *Edge*: the analog channels below the logic ones, with *Level*). A level
+    outside the channel's range on the oscilloscope's screen is refused with the reason (the
+    instrument would take another one). The capture settings keep it, and so do capture files.
+  - No pattern trigger, no external trigger and no burst mode are offered: the pattern trigger
+    takes CH1–CH4 only (the programming guide; refused for D0–D15 also with the probe), the DHO924S
+    has no trigger input, and the driver takes one capture per trigger (all three were offered and
+    failed).
+  - **Front panel** tab on its device card: the oscilloscope's screen live (the H.264 stream of
+    its Web Control, some 20 frames a second, decoded with PyAV - a new dependency, `av`; without
+    it the screen images, about 5 a second), touched with the mouse as on the instrument, and beside
+    it its settings: run, stop, single, force, auto setup; time base and delay; on/off, volts per
+    division (◀ ▶ through 1-2-5), offset, coupling, probe and invert of CH1–CH4; source, slope,
+    level, sweep, coupling, holdoff of the edge trigger; acquisition mode, averages, memory depth
+    and sample rate. Read every two seconds while the tab is shown (not during a capture), on the
+    driver's connection (the DHO answers one connection at a time). Without the network (only
+    USB) the screen comes over SCPI (`:DISPlay:DATA?`, about two a second, no touches). Settings
+    of any instrument can be shown so (`SettingsFacet`).
+  - **Web control** on the device card: the instrument's own web page in the browser; over USB at
+    the address its bridge app announces.
+  - The memory depth: this firmware takes a tenth of the depth named up to `10M` and a twentieth
+    above. The driver reads back what each setting gave and keeps the smallest that holds the
+    capture (up to `500M`, the 25 Mpts of one channel; `5M` of the programming guide added);
+    before, every capture failed.
+  - Every sample of the capture arrives, with the trigger in its place: the preamble counts the
+    read window, which the read before left behind (a capture after a larger one had its size and
+    the wrong pre-trigger samples, after a smaller one a few hundred samples). Driver and bridge
+    app open the window over the whole acquisition first.
+  - The generator plays what the instrument has: sine, square (duty 5–95 %), triangle and ramp
+    (`RAMP` with a symmetry), pulse (as a square wave), noise, DC, up to 25 MHz / 15 MHz / 150 kHz
+    and ±2.5 V. Sweep, burst, arbitrary points and too high a frequency (which the instrument cut
+    down silently) are refused with the reason; before, the output was switched on even when the
+    instrument refused a setting, and an error left from before was blamed on the waveform.
+  - A DHO whose `*IDN?` names another maker (this one answers `NK TECHNOLOGIES`) is taken by its
+    model; before, it was refused as "no Rigol instrument".
+  - A failed setup ends the capture with its reason (a trigger level, a depth the instrument
+    does not have) instead of "Device reported an error starting the capture. Restart the device".
+  - USB: no more `INITIATE_CLEAR` after a timeout; on the DHO it stopped the instrument from
+    reading commands over USB until it was restarted. What an earlier program left unread is
+    dropped when the interface is opened.
+  - Bridge app: it runs on the DHO's Android 7.1.2 (it asked for Android 9 and did not install);
+    it starts again after a reboot (the setting is written at once, not in the background). When
+    the DHO closed the app's connection to its SCPI server (it does so when another program
+    connects to it or leaves), the next command was lost and the next query answered
+    "ERR instrument: the instrument closed the connection"; the app now notices it and connects
+    again first.
+  - A connection closed while the samples of a capture still arrived (closing the device during
+    the transfer) ended the transfer thread with a traceback instead of stopping it.
+- Rigol DHO900 (found in a review):
   - A capture without trigger is forced (`:TFORce`) once the oscilloscope waits: `:SINGle` makes
     the sweep SINGLE, so before it waited for a trigger that might never come (up to an hour).
   - A capture counts as done only after the oscilloscope showed that it took it up (`RUN`, `WAIT`,
@@ -253,8 +321,6 @@ again from 0.1.
   - Logic and analog channels sampled at different rates (or with the trigger elsewhere) are
     refused with a clear message, directly and by the bridge app, instead of being shown out of
     step with the rate of one of them.
-  - The memory depth is set by name (`1k` … `50M`) and checked with `:ACQuire:MDEPth?`; a depth
-    the instrument did not take fails the capture (*hardware error*, the reason in the log).
   - Bridge app: an `:OVERview?` or `:TILE?` that fails is answered with `ERR` before the block
     starts (a tile is encoded first); one that breaks off after its header closes the connection,
     where it used to put `ERR` into the block and leave the client out of step.

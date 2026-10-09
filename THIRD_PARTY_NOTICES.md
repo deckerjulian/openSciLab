@@ -56,6 +56,8 @@ The decoders are shipped as source files, including in the packaged applications
 | pyusb | BSD-3-Clause | <https://github.com/pyusb/pyusb> |
 | PyYAML (flow, panel and waveform files) | MIT | <https://pyyaml.org> |
 | libusb (via libusb-package, shared library) | GNU Lesser General Public License v2.1 | <https://libusb.info>, <https://github.com/pyocd/libusb-package> |
+| PyAV (the oscilloscope's screen as H.264) | BSD-3-Clause | <https://github.com/PyAV-Org/PyAV> |
+| FFmpeg (shared libraries bundled with PyAV, built with GPL components such as x264) | GNU General Public License v2 or later (GPL-compatible with this project) | <https://ffmpeg.org> |
 | PyInstaller bootloader | GPL-2.0-or-later with the PyInstaller bootloader exception | <https://pyinstaller.org> |
 
 Qt and PySide6 are included as separate shared libraries, so they can be replaced by other

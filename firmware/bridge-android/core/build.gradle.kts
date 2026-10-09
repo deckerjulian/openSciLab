@@ -1,6 +1,6 @@
 // The Android-free part of the bridge: codec, SCPI, commands, cache, pyramid, server.
 // Everything here runs on a plain JVM, so it is tested with `./gradlew :core:test`.
-// Only Java APIs that Android 9 (API 28) has may be used (no readNBytes, transferTo, Path.of).
+// Only Java APIs that Android 7.1 (API 25) has may be used (no readNBytes, transferTo, java.nio.file).
 
 plugins {
     id("org.jetbrains.kotlin.jvm")

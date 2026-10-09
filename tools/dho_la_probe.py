@@ -44,7 +44,8 @@ QUERIES = [
     ":ACQuire:TYPE?",
     ":TIMebase:MAIN:SCALe?",
     ":TIMebase:MAIN:OFFSet?",
-    ":LA:STATe?",
+    ":LA:ENABle?",
+    ":LA:PROBecal:INSert?",
     ":LA:POD1:THReshold?",
     ":LA:POD2:THReshold?",
     ":TRIGger:MODE?",
@@ -100,6 +101,7 @@ class Probe:
     def waveforms(self, points: int) -> None:
         for source in SOURCES:
             self.tell(scpi.command("wave_source", value=source))
+            self.tell(scpi.command("wave_mode_normal"))  # (opens the window over the acquisition)
             self.tell(scpi.command("wave_mode"))
             self.tell(scpi.command("wave_format"))
             preamble = self.ask(scpi.command("wave_preamble?"))
@@ -120,6 +122,7 @@ class Probe:
 
     def speed(self, source: str, total: int) -> float:
         self.tell(scpi.command("wave_source", value=source))
+        self.tell(scpi.command("wave_mode_normal"))
         self.tell(scpi.command("wave_mode"))
         self.tell(scpi.command("wave_format"))
         points = scpi.parse_depth(self.ask(":ACQuire:MDEPth?")) or total

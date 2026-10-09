@@ -13,8 +13,8 @@ bridge of `docs/protocols.md` ("Bridge", protocol 1):
   `:TILE?` from there. Each channel's own preamble is read; channels sampled at different rates
   or with the trigger at another sample are refused (`ERR`), since a snapshot has one rate.
 
-Kotlin without third-party libraries. `minSdk` 28 (Android 9, assumed for the DHO until
-measured), `targetSdk` 34.
+Kotlin without third-party libraries. `minSdk` 25 (the DHO900 runs Android 7.1.2, measured on a
+DHO924S), `targetSdk` 34.
 
 ## Layout
 
@@ -48,17 +48,19 @@ uninstall the old app first (`adb uninstall org.openscilab.bridge`).
 
 ## Install
 
-Turn on adb on the oscilloscope (on the DHO it is reachable over the LAN), then:
+Turn on adb on the oscilloscope (on the DHO it is reachable over the LAN, port 55555; 5555 is
+its SCPI server), then:
 
 ```bash
-adb connect <scope-ip>:5555        # the adb port of your instrument may differ, see step 3a
+adb connect <scope-ip>:55555
 adb install -r app/build/outputs/apk/debug/app-debug.apk
 adb shell am start -n org.openscilab.bridge/.MainActivity
 ```
 
 ## First run
 
-1. Open *openSciLab Bridge* (the `am start` above, or from the launcher) and press **Start**. The
+1. Open *openSciLab Bridge* (the `am start` above, or from the launcher) and press **Start**
+   (without a touch on the screen: `adb shell input tap 75 148`). The
    status shows the addresses, whether the instrument's SCPI server answers, model and serial,
    clients, beacons and the cache.
 2. Once started, the bridge comes back by itself after the oscilloscope reboots. **Stop** turns

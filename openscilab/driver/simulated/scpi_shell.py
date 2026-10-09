@@ -53,9 +53,37 @@ def _pattern(template: str) -> re.Pattern:
 
 PATTERNS = {name: _pattern(template) for name, template in scpi.COMMANDS.items()}
 #: the memory depths the instrument takes (points)
-DEPTHS = (1_000, 10_000, 100_000, 1_000_000, 10_000_000, 25_000_000, 50_000_000)
-FUNCTIONS = {"SINUSOID": waves.SINE, "SQUARE": waves.SQUARE, "RAMP": waves.TRIANGLE, "PULSE": waves.PULSE,
-             "DC": waves.DC, "NOISE": waves.NOISE, "ARB": waves.ARBITRARY}
+DEPTHS = (1_000, 10_000, 100_000, 1_000_000, 5_000_000, 10_000_000, 25_000_000, 50_000_000)
+#: the functions of the generator (its short and long forms)
+FUNCTIONS = {"SIN": waves.SINE, "SINUSOID": waves.SINE, "SQU": waves.SQUARE, "SQUARE": waves.SQUARE,
+             "RAMP": waves.RAMP, "NOIS": waves.NOISE, "NOISE": waves.NOISE, "DC": waves.DC}
+
+
+#: read-only answers of the front panel the simulator has no state for
+PANEL_TEXTS = {":TRIGGER:MODE?": "EDGE"}
+
+
+def panel_defaults() -> dict[str, str]:
+    """The settings of the front panel (``driver/rigoldho/controls.py``) as a fresh DHO has them."""
+    from ..rigoldho.controls import settings_for
+
+    values = {}
+    for setting in settings_for(4, 16):
+        command, kind = setting["command"].upper(), setting["kind"]
+        if kind == "number":
+            values[command] = "1.000000E-3" if "TIMEBASE:MAIN:SCALE" in command else \
+                "0" if "OFFSET" in command or "LEVEL" in command else "1.000000E0"
+        elif kind == "bool":
+            values[command] = "1" if command == ":CHANNEL1:DISPLAY" else "0"
+        elif kind == "choice":
+            values[command] = "1" if command.endswith(":PROBE") else setting["choices"][0][0]
+    return values
+
+
+def firmware_depth(depth: int) -> int:
+    """What the modified firmware NK v0.5.2 of the DHO924S takes for a depth asked for: a tenth up
+    to 10M, a twentieth above (measured)."""
+    return depth // 10 if depth <= 10_000_000 else depth // 20
 
 
 class _Snapshot:
@@ -77,6 +105,8 @@ class ScpiShell:
         self.device = self.instrument.simulated_driver
         self.device.profile = dict(self.device.profile, progressive=None)  # the instrument has it all at once
         self.lock = threading.RLock()
+        #: the answer to *IDN?
+        self.identity = "RIGOL TECHNOLOGIES,DHO924S,DHO9SIM0001,00.01.02"
         self.errors: list[str] = []
         self.status = "STOP"
         self.la_on = False
@@ -100,6 +130,18 @@ class ScpiShell:
         self.snapshot_delay = 0.0
         self.snapshot_started = threading.Event()
         self.la_rate: Optional[float] = None
+        #: ``:WAVeform:FORMat`` (a logic channel as BYTE gives its upper byte: always 0, as the DHO924S does)
+        self.wave_format = "BYTE"
+        #: D0–D15 can be read (without the logic probe, and on the DHO924S with the modified firmware
+        #: NK v0.5.2 also with it, ``:WAVeform:SOURce D<n>`` is refused)
+        self.probe = True
+        #: volts of the analog channels' range on the screen (± around 0): the edge trigger level
+        #: stays within it
+        self.analog_range = 4.0
+        #: the settings of the front panel (header in capitals → value as sent)
+        self.panel = panel_defaults()
+        #: the memory depths of the modified firmware NK v0.5.2 (:func:`firmware_depth`)
+        self.firmware_depths = False
         #: counts :SINGle, :RUN and :STOP: what a capture started before them reports is dropped
         self.generation = 0
         #: the capture waiting for its trigger: (session, digital channels, generation)
@@ -143,17 +185,31 @@ class ScpiShell:
                     self.errors.append('-113,"Undefined header"')
                     return None
                 return self._bridge(line)
+            header, _, argument = line.strip().partition(" ")
+            key = header.upper()
             for name, pattern in PATTERNS.items():
                 match = pattern.match(line)
                 if match:
+                    if key in self.panel and argument:
+                        self.panel[key] = argument.strip()  # (the front panel shows what a capture set)
                     return self._command(name, match.groups())
+            # the settings of the front panel (driver/rigoldho/controls.py): kept as they were sent
+            if key.endswith("?") and key[:-1] in self.panel:
+                return self.panel[key[:-1]]
+            if key in self.panel and argument:
+                self.panel[key] = argument.strip()
+                return None
+            if key in PANEL_TEXTS:
+                return PANEL_TEXTS[key]
+            if key in (":AUTOSET", ":CLEAR"):
+                return None
             self.errors.append('-113,"Undefined header"')
             return None
 
     def _command(self, name: str, groups: tuple):
         value = groups[-1] if groups else ""
         if name == "identify":
-            return "RIGOL TECHNOLOGIES,DHO924S,DHO9SIM0001,00.01.02"
+            return self.identity
         if name == "error":
             return self.errors.pop(0) if self.errors else '0,"No error"'
         if name == "clear":
@@ -180,12 +236,18 @@ class ScpiShell:
             (self.analog_on.add if value.upper() in ("ON", "1") else self.analog_on.discard)(int(groups[0]) - 1)
         elif name == "memory_depth":
             depth = scpi.parse_depth(value)
-            if depth in DEPTHS:
+            if self.firmware_depths and depth in scpi.MEMORY_DEPTHS:
+                self.depth = firmware_depth(depth)
+            elif not self.firmware_depths and depth in DEPTHS:
                 self.depth = depth
             else:
-                self.errors.append('-224,"Illegal parameter value"')
+                self.errors.append('-222,"Data out of range"')
         elif name == "memory_depth?":
-            return str(self.depth)
+            return f"{self.depth:.4E}"
+        elif name == "screen?":
+            return scpi.block(self._screen())
+        elif name == "lan_address?":
+            return "0.0.0.0"  # (the simulated instrument has no network port)
         elif name == "sample_rate?":
             return f"{self.rate:.6e}"
         elif name == "timebase_scale":
@@ -201,27 +263,68 @@ class ScpiShell:
         elif name == "edge_slope":
             self.trigger["slope"] = value.upper()
         elif name == "edge_level":
-            self.trigger["level"] = value
-        elif name == "pattern":
-            self.trigger["pattern"] = value.upper()
+            # (like the instrument: within the range of the channel on the screen)
+            self.trigger["level"] = f"{min(max(float(value), -self.analog_range), self.analog_range):g}"
+        elif name == "edge_level?":
+            return f"{float(self.trigger.get('level', 0)):.6E}"
         elif name == "wave_source":
-            self.source = value.upper().replace("CHANNEL", "CHAN")
+            if value.upper().startswith("D") and not self.probe:
+                self.errors.append('-200,"Command execute failed"')
+            else:
+                self.source = value.upper().replace("CHANNEL", "CHAN")
+        elif name == "wave_source?":
+            return self.source
+        elif name in ("wave_format", "wave_format_word"):
+            self.wave_format = "WORD" if name == "wave_format_word" else "BYTE"
+        elif name in ("wave_mode", "wave_mode_normal"):
+            self.window = (1, max(self._points(), 1))  # (like the DHO924S: the window over the acquisition)
         elif name == "wave_start":
-            self.window = (int(value), self.window[1])
+            if int(value) > self.window[1]:
+                self.errors.append('-200,"Command execute failed"')
+            else:
+                self.window = (int(value), self.window[1])
         elif name == "wave_stop":
-            self.window = (self.window[0], int(value))
+            if int(value) < self.window[0] or int(value) > max(self._points(), 1):
+                self.errors.append('-200,"Command execute failed"')
+            else:
+                self.window = (self.window[0], int(value))
         elif name == "wave_preamble?":
-            points = self._points()
-            rate = self.la_rate if self.la_rate and self.source.startswith("D") else self.rate
-            return (f"0,2,{points},1,{1 / rate:.9e},{-self.trigger_index / rate:.9e},0,"
+            # (like the DHO924S: the points of the window, the origin that of the acquisition)
+            points = self.window[1] - self.window[0] + 1
+            digital = self.source.startswith("D")
+            rate = self.la_rate if self.la_rate and digital else self.rate
+            # (like the DHO924S: a logic channel's preamble is computed as if it were sampled at
+            # this rate, its real one being half that - LA_PERIOD_FACTOR, applied by the driver)
+            period = 1 / rate
+            return (f"0,2,{points},1,{period:.9e},{-self.trigger_index / rate:.9e},0,"
                     f"{Y_INC:.9e},0,{Y_REF:g}")
         elif name == "wave_data?":
             values = self._source_values()
             first, last = self.window
-            return scpi.block(values[first - 1:last].tobytes())
+            window = values[first - 1:last]
+            if self.source.startswith("D"):
+                # a logic channel: one 16 bit word per sample, or (BYTE) only its upper byte
+                window = window.astype("<u2") if self.wave_format == "WORD" else np.zeros(len(window), np.uint8)
+            return scpi.block(window.tobytes())
         elif name.startswith("afg_"):
             return self._afg(name, value)
         return None
+
+    def _screen(self) -> bytes:
+        """A PNG of the screen (1024 x 600): dark, the trigger status as a coloured bar on top."""
+        import zlib
+
+        width, height = 1024, 600
+        colour = {"STOP": (200, 40, 40), "WAIT": (230, 160, 30)}.get(self.status, (60, 180, 75))
+        dark = b"\x00" + bytes((16, 16, 20)) * width
+        bar = b"\x00" + bytes(colour) * width
+        raw = bar * 24 + dark * (height - 24)
+
+        def chunk(kind: bytes, data: bytes) -> bytes:
+            return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data) & 0xFFFFFFFF)
+
+        return (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0))
+                + chunk(b"IDAT", zlib.compress(raw, 6)) + chunk(b"IEND", b""))
 
     def _points(self) -> int:
         if self.data_digital is not None:
@@ -279,32 +382,14 @@ class ScpiShell:
         session.analog_channels = [AnalogChannel(channel_number=number) for number in sorted(self.analog_on)]
         mode = self.trigger["mode"]
         if mode == "EDGE" and not self.trigger["source"].startswith("D"):
-            # (the instrument triggers on its analog channels too; the simulator does not)
-            self.errors.append(f'-221,"Settings conflict: the simulator triggers on D0-D15 only, not on '
-                               f'{self.trigger["source"]}"')
-            self.status = "STOP"
-            return
+            # an analog channel: its signal repeats, so the simulator takes the capture at once
+            session.trigger_type = TriggerType.IMMEDIATE
         elif mode == "EDGE" and self.trigger["source"].startswith("D"):
             session.trigger_type = TriggerType.EDGE
             session.trigger_channel = int(self.trigger["source"][1:])
             session.trigger_inverted = self.trigger["slope"].startswith("NEG")
             if session.trigger_channel not in numbers:
                 session.capture_channels.append(AnalyzerChannel(channel_number=session.trigger_channel))
-        elif mode.startswith("PATT"):
-            levels = self.trigger.get("pattern", "").split(",")[4:20]
-            used = [index for index, level in enumerate(levels) if level in ("H", "L")]
-            if used:
-                session.trigger_type = TriggerType.COMPLEX
-                session.trigger_channel = min(used)
-                session.trigger_bit_count = max(used) - min(used) + 1
-                session.trigger_pattern = sum(1 << (index - min(used)) for index in used if levels[index] == "H")
-                session.trigger_mask = sum(1 << (index - min(used)) for index in used)  # (X between them)
-                present = {channel.channel_number for channel in session.capture_channels}
-                for index in range(min(used), max(used) + 1):
-                    if index not in present:
-                        session.capture_channels.append(AnalyzerChannel(channel_number=index))
-            else:
-                session.trigger_type = TriggerType.IMMEDIATE
         else:
             session.trigger_type = TriggerType.IMMEDIATE
         self.status = "WAIT"
@@ -376,30 +461,23 @@ class ScpiShell:
             else:
                 generator.stop("GI")
             return None
+        if name == "afg_function" and value.upper() not in FUNCTIONS:
+            self.errors.append('-222,"Data out of range"')
+            return None
         self.afg[name] = value
         return None
 
     def _afg_waveform(self) -> waves.Waveform:
         settings = self.afg
         kind = FUNCTIONS.get(settings.get("afg_function", "SINUSOID").upper(), waves.SINE)
+        if kind == waves.RAMP and float(settings.get("afg_ramp_symmetry", 50)) == 50:
+            kind = waves.TRIANGLE
         options = dict(frequency=float(settings.get("afg_frequency", 1000)),
                        amplitude=float(settings.get("afg_amplitude", 2.0)) / 2,
-                       offset=float(settings.get("afg_offset", 0.0)))
+                       offset=float(settings.get("afg_offset", 0.0)),
+                       phase=float(settings.get("afg_phase", 0.0)))
         if kind == waves.SQUARE and "afg_square_duty" in settings:
             options["duty"] = float(settings["afg_square_duty"]) / 100
-        if kind == waves.PULSE and "afg_duty" in settings:
-            options["duty"] = float(settings["afg_duty"]) / 100
-        if settings.get("afg_sweep", "OFF").upper() == "ON":
-            options.update(modulation=waves.SWEEP, sweep_start=float(settings.get("afg_sweep_start", 100)),
-                           sweep_stop=float(settings.get("afg_sweep_stop", 1e4)),
-                           sweep_time=float(settings.get("afg_sweep_time", 1.0)))
-        if settings.get("afg_burst", "OFF").upper() == "ON":
-            options.update(modulation=waves.BURST, burst_cycles=int(float(settings.get("afg_burst_cycles", 1))),
-                           burst_period=float(settings.get("afg_burst_period", 0.01)))
-        if kind == waves.ARBITRARY:
-            points = [float(item) for item in settings.get("afg_arb", "0").split(",")]
-            return waves.from_points(points, frequency=options.pop("frequency"),
-                                     **{key: value for key, value in options.items() if key == "modulation"})
         return waves.Waveform(kind=kind, **options)
 
     # ---------------------------------------------------------------- bridge
@@ -503,16 +581,16 @@ class ScpiShell:
 
 class ShellTmcPort:
     """The USB device port of the simulated DHO: the USBTMC transfers (``driver/usbtmc.py``) of what
-    :meth:`ScpiShell.handle` answers - messages with their headers, the requests for an answer,
-    INITIATE_CLEAR. ``chunk``: the bytes one bulk read hands over at most (libusb may split a
-    transfer)."""
+    :meth:`ScpiShell.handle` answers - messages with their headers, the requests for an answer (an
+    answer goes to the oldest open one), INITIATE_ABORT_BULK_IN, INITIATE_CLEAR. ``chunk``: the
+    bytes one bulk read hands over at most (libusb may split a transfer)."""
 
     def __init__(self, shell: ScpiShell, chunk: int = 0) -> None:
         self.shell = shell
         self.chunk = chunk
         self._incoming = bytearray()
         self._answers = bytearray()
-        self._request: Optional[tuple[int, int]] = None  # (tag, size) of REQUEST_DEV_DEP_MSG_IN
+        self._requests: list[tuple[int, int]] = []  # (tag, size) of the open REQUEST_DEV_DEP_MSG_IN
         self._pending = bytearray()  # a transfer not handed over completely yet
         self._padding = 0
         self._ready = threading.Condition()
@@ -520,6 +598,7 @@ class ShellTmcPort:
         self.delay = 0.0
         self._available_at = 0.0
         self.cleared = 0
+        self.aborted = 0
 
     def write(self, data: bytes, timeout: float) -> None:
         from .. import usbtmc
@@ -527,7 +606,7 @@ class ShellTmcPort:
         message, tag, _inverse, size, attributes = struct.unpack_from("<BBBxIB", data)
         if message == usbtmc.REQUEST_DEV_DEP_MSG_IN:
             with self._ready:
-                self._request = (tag, size)
+                self._requests.append((tag, size))
                 self._ready.notify_all()
             return
         self._incoming += data[usbtmc.HEADER_SIZE:usbtmc.HEADER_SIZE + size]
@@ -550,13 +629,12 @@ class ShellTmcPort:
         if not self._pending:
             deadline = time.monotonic() + timeout
             with self._ready:
-                while self._request is None or not self._answers or time.monotonic() < self._available_at:
+                while not self._requests or not self._answers or time.monotonic() < self._available_at:
                     remaining = deadline - time.monotonic()
                     if remaining <= 0:
                         raise usbtmc.UsbTmcTimeout("no answer")
                     self._ready.wait(min(remaining, 0.01))
-                tag, limit = self._request
-                self._request = None
+                tag, limit = self._requests.pop(0)
                 data = bytes(self._answers[:limit])
                 del self._answers[:limit]
                 end = usbtmc.EOM if not self._answers else 0
@@ -577,12 +655,27 @@ class ShellTmcPort:
                 self._answers.clear()
                 self._incoming.clear()
                 self._pending.clear()
-                self._request = None
+                self._requests.clear()
             self.cleared += 1
             return bytes([usbtmc.STATUS_SUCCESS])
         if request == usbtmc.CHECK_CLEAR_STATUS:
             return bytes([usbtmc.STATUS_SUCCESS, 0])
         return bytes([0x80])  # (failed: not supported)
+
+    def control_in_endpoint(self, request: int, value: int, length: int, timeout: float) -> bytes:
+        from .. import usbtmc
+
+        if request == usbtmc.INITIATE_ABORT_BULK_IN:
+            with self._ready:
+                found = [item for item in self._requests if item[0] == value]
+                self._requests = [item for item in self._requests if item[0] != value]
+            if not found:
+                return bytes([usbtmc.STATUS_TRANSFER_NOT_IN_PROGRESS, value])
+            self.aborted += 1
+            return bytes([usbtmc.STATUS_SUCCESS, value])
+        if request == usbtmc.CHECK_ABORT_BULK_IN_STATUS:
+            return bytes([usbtmc.STATUS_SUCCESS]) + bytes(7)
+        return bytes([0x80])
 
     def clear_halt(self) -> None:
         pass
@@ -616,6 +709,7 @@ def open_shell(mode: str = "bridge"):
         shell.close()
         raise
     driver.shell = shell
+    driver.web_control_url = lambda: None  # (no web server: its screen comes over SCPI)
     original = driver.dispose
 
     def dispose() -> None:

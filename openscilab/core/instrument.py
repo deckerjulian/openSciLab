@@ -19,6 +19,7 @@ Facet               What it does                                        Capabili
 ``AnalogInFacet``   reads voltages                                      ``ANALOG=<n>``
 ``AnalogOutFacet``  sets voltages (DAC)                                 ``DAC``
 ``GeneratorFacet``  outputs waveforms and patterns                      ``PATTERN_GEN``, ``GEN_*``
+``SettingsFacet``   the instrument's own settings (front panel)         –
 =================== =================================================== ==========================
 
 The existing drivers (:class:`~openscilab.driver.base.AnalyzerDriverBase`) become instruments
@@ -447,6 +448,35 @@ class CacheFacet(Facet):
 
     def set_limit(self, size: int) -> None:
         """The cache keeps at most ``size`` bytes (the oldest entries go first)."""
+        raise NotImplementedError
+
+
+class SettingsFacet(Facet):
+    """The settings of the instrument itself, as on its front panel (an oscilloscope's volts per
+    division, time base, trigger …): described by :meth:`settings`, so one panel shows them for
+    any instrument. Values are plain (``float``, ``str``, ``bool``) so they cross the process
+    boundary of a device process.
+
+    A setting is a ``dict``: ``name``, ``label``, ``group`` (a box of the panel), ``kind``
+    (``number``, ``choice``, ``bool``, ``text`` read only, ``action`` a button), for numbers
+    ``unit``, ``minimum``, ``maximum`` and ``steps`` (``"125"``: steps through 1, 2, 5 × 10ⁿ),
+    for choices ``choices``: ``[[value, label], …]``."""
+
+    title = "Settings"
+
+    def settings(self) -> list[dict]:
+        raise NotImplementedError
+
+    def values(self) -> dict[str, Any]:
+        """The current value of every setting (read from the instrument; actions have none)."""
+        raise NotImplementedError
+
+    def set(self, name: str, value: Any) -> Any:
+        """Set one setting; returns the value the instrument took (it may round or limit it)."""
+        raise NotImplementedError
+
+    def action(self, name: str) -> None:
+        """Run an action (``kind`` ``action``)."""
         raise NotImplementedError
 
 

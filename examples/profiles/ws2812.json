@@ -25,6 +25,8 @@
         "TriggerInverted": false,
         "TriggerBitCount": 0,
         "TriggerPattern": 0,
+        "TriggerAnalogChannel": null,
+        "TriggerLevel": 0.0,
         "AcquisitionMode": "buffer",
         "ThresholdVoltage": null,
         "Continuous": false,

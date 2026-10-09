@@ -9,8 +9,11 @@ import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * A stand-in for the DHO's SCPI server on 5555, as far as the bridge uses it: `*IDN?`,
- * `:WAVeform:SOURce/MODE/FORMat/STARt/STOP/PREamble?/DATA?` (RAW BYTE, as assumed until step
- * 3a measures the real formats), plus two test queries. Rejects STARt behind STOP like Rigol.
+ * `:WAVeform:SOURce/MODE/FORMat/STARt/STOP/PREamble?/DATA?` (RAW, BYTE or WORD), plus two test
+ * queries. Like the DHO924S (firmware 00.05.02) it rejects STARt behind STOP and STOP beyond the
+ * acquisition, the points of its preamble are those of the window, setting the mode opens the
+ * window over the acquisition, and a logic channel read as BYTE gives only its value's upper
+ * byte, always 0 (its real value is a 16 bit word of 0 or 1; the bridge reads it as WORD).
  */
 class FakeDho(val points: Int) : Closeable {
     private val server = ServerSocket(0)
@@ -20,13 +23,26 @@ class FakeDho(val points: Int) : Closeable {
     val connections = AtomicInteger()
     val received = java.util.Collections.synchronizedList(ArrayList<String>())
 
+    /** Like a DHO without the logic probe: D0–D15 are refused as :WAVeform:SOURce. */
+    @Volatile
+    var refuseDigital = false
+
     /** The preamble of the logic channels when it is not that of the analog ones (another rate). */
     @Volatile
     var digitalPreamble: String? = null
 
+    private val clients = ArrayList<java.net.Socket>()
+
+    /** Closes the connections of its clients, as the DHO does when another client comes or goes. */
+    fun dropConnections() = synchronized(clients) {
+        clients.forEach { it.close() }
+        clients.clear()
+    }
+
     private var source = "CHANNEL1"
     private var start = 1L
-    private var stop = 1000L
+    private var stop = 1L
+    private var format = "BYTE"
 
     init {
         Thread({ serve() }, "fake-dho").apply { isDaemon = true }.start()
@@ -42,6 +58,7 @@ class FakeDho(val points: Int) : Closeable {
         while (!server.isClosed) {
             val socket = try { server.accept() } catch (_: IOException) { return }
             connections.incrementAndGet()
+            synchronized(clients) { clients.add(socket) }
             Thread {
                 socket.use {
                     val reader = ProgramMessageReader(BufferedInputStream(it.getInputStream()))
@@ -69,28 +86,49 @@ class FakeDho(val points: Int) : Closeable {
         fun text(value: String) = out.write("$value\n".toByteArray(Charsets.ISO_8859_1))
         when (header) {
             "*IDN?" -> text("RIGOL TECHNOLOGIES,DHO924S,DHO9TEST001,00.01.02")
-            ":WAVEFORM:SOURCE" -> source = argument.uppercase()
-            ":WAVEFORM:MODE", ":WAVEFORM:FORMAT" -> {}
+            ":WAVEFORM:SOURCE" -> if (!(refuseDigital && argument.uppercase().startsWith("D"))) {
+                source = argument.uppercase()
+            }
+            ":WAVEFORM:SOURCE?" -> text(source.replace("CHANNEL", "CHAN"))
+            ":WAVEFORM:MODE" -> { start = 1; stop = points.toLong() }  // (the window over the acquisition)
+            ":WAVEFORM:FORMAT" -> format = argument.uppercase()
             ":WAVEFORM:STARt".uppercase() -> {
                 val value = argument.toLong()
                 if (value > stop) windowErrors.incrementAndGet() else start = value
             }
             ":WAVEFORM:STOP" -> {
                 val value = argument.toLong()
-                if (value < start) windowErrors.incrementAndGet() else stop = value
+                if (value < start || value > points) windowErrors.incrementAndGet() else stop = value
             }
             ":WAVEFORM:PREAMBLE?" -> text(
-                digitalPreamble?.takeIf { source.startsWith("D") }
-                    ?: "0,2,$points,1,1.600000E-09,-8.000000E-06,0,4.000000E-02,0,128",
+                // like the real device: a logic channel's preamble is computed as if it were
+                // sampled at the analog rate (same default as the one below), its real sample
+                // period being LA_PERIOD_FACTOR times that - WaveformReader corrects it, in the
+                // way its capture needs.
+                (digitalPreamble?.takeIf { source.startsWith("D") }
+                    ?: "0,2,$points,1,1.600000E-09,-8.000000E-06,0,4.000000E-02,0,128")
+                    .split(",").toMutableList().also { it[2] = (stop - start + 1).toString() }.joinToString(","),
             )
             ":WAVEFORM:DATA?" -> {
                 dataQueries.incrementAndGet()
                 val first = (start - 1).toInt()
                 val last = minOf(stop.toInt(), points)
-                val data = ByteArray(maxOf(0, last - first)) { i ->
+                val count = maxOf(0, last - first)
+                val digital = source.startsWith("D")
+                val word = format == "WORD"
+                val data = ByteArray(count * if (word) 2 else 1)
+                for (i in 0 until count) {
                     val index = first + i
-                    if (source.startsWith("CHANNEL")) analog(source.removePrefix("CHANNEL").toInt(), index).toByte()
-                    else digitalBit(source.removePrefix("D").toInt(), index).toByte()
+                    val value = if (digital) digitalBit(source.removePrefix("D").toInt(), index)
+                               else analog(source.removePrefix("CHANNEL").toInt(), index)
+                    if (word) {
+                        data[2 * i] = value.toByte()
+                        data[2 * i + 1] = 0
+                    } else {
+                        // BYTE: the upper byte of the instrument's value; for a logic channel (a
+                        // 16 bit word of 0 or 1) that is always 0.
+                        data[i] = if (digital) 0 else value.toByte()
+                    }
                 }
                 out.write(ScpiBlock.header(data.size.toLong()))
                 out.write(data)

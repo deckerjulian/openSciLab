@@ -317,6 +317,10 @@ class CaptureSession:
     #: Bits of ``trigger_pattern`` that count (``None``: all); the others are "don't care" on devices
     #: that know it, 0 on the others
     trigger_mask: Optional[int] = None
+    #: Edge trigger on this analog channel (its number) crossing ``trigger_level`` volts instead of
+    #: on ``trigger_channel`` (devices with ``analog_trigger_channels``); ``None``: a logic channel
+    trigger_analog_channel: Optional[int] = None
+    trigger_level: float = 0.0
     #: ``"buffer"`` or ``"stream"`` (``ACQUISITION_*`` of the driver base), devices with both modes
     acquisition_mode: str = "buffer"
     #: Input threshold in volts for devices with an adjustable threshold, ``None``: device default
@@ -410,7 +414,10 @@ class CaptureSession:
         if self.trigger_type == TriggerType.SEQUENCE:
             return self.trigger_sequence.describe() if self.trigger_sequence else "(empty)"
         if self.trigger_type in (TriggerType.EDGE, TriggerType.BLAST, TriggerType.EDGE_OUT):
-            return "Negative" if self.trigger_inverted else "Positive"
+            edge = "Negative" if self.trigger_inverted else "Positive"
+            if self.trigger_type == TriggerType.EDGE and self.trigger_analog_channel is not None:
+                return f"{edge} at {self.trigger_level:g} V"
+            return edge
         return "".join(
             "X" if self.trigger_mask is not None and not self.trigger_mask & (1 << bit)
             else "1" if self.trigger_pattern & (1 << bit) else "0"

@@ -10,8 +10,11 @@ Instruments with a USB device port (oscilloscopes, generators, multimeters) pres
 class 0xFE, subclass 0x03. Every message goes in a bulk transfer with a 12 byte header
 (USBTMC 1.0, 3.2): ``DEV_DEP_MSG_OUT`` carries a command; an answer is asked for with
 ``REQUEST_DEV_DEP_MSG_IN`` and comes back on the bulk-in endpoint, as many transfers as it takes,
-the last one marked end of message (EOM). After a timeout ``INITIATE_CLEAR`` empties the buffers of
-the instrument, so a late answer is not taken for the next one.
+the last one marked end of message (EOM). After a timeout the request for the answer is taken back
+(``INITIATE_ABORT_BULK_IN``); an answer that still comes late carries the tag of an earlier request
+and is dropped, or it comes with the next request and the SCPI layer (``ScpiConnection``) drops it
+when it gets back in step. Not ``INITIATE_CLEAR``: on a DHO924S (modified firmware NK v0.5.2) it stops the
+instrument from reading commands until it restarts.
 
 :class:`UsbTmcLink` speaks the protocol over a :class:`UsbTmcPort` (pyusb, with the libusb of
 ``libusb-package`` as for the DSLogic); the tests replace the port with a fake instrument.
@@ -39,10 +42,12 @@ EOM = 0x01
 # class requests (USBTMC 1.0, table 15)
 INITIATE_ABORT_BULK_OUT = 1
 INITIATE_ABORT_BULK_IN = 3
+CHECK_ABORT_BULK_IN_STATUS = 4
 INITIATE_CLEAR = 5
 CHECK_CLEAR_STATUS = 6
 STATUS_SUCCESS = 0x01
 STATUS_PENDING = 0x02
+STATUS_TRANSFER_NOT_IN_PROGRESS = 0x81
 
 #: largest answer asked for with one REQUEST_DEV_DEP_MSG_IN (a longer one comes in more transfers)
 READ_SIZE = 1 << 20
@@ -123,6 +128,10 @@ class UsbTmcPort:
         """A class request to the interface (recipient interface, direction in)."""
         raise NotImplementedError
 
+    def control_in_endpoint(self, request: int, value: int, length: int, timeout: float) -> bytes:
+        """A class request to the bulk-in endpoint (recipient endpoint, direction in)."""
+        raise NotImplementedError
+
     def clear_halt(self) -> None:
         """Clears the halt of the bulk-out endpoint (after INITIATE_CLEAR)."""
 
@@ -153,20 +162,58 @@ class UsbTmcLink:
         tag = self._next_tag()
         self.port.write(request_in(tag), timeout)
         deadline = time.monotonic() + timeout
+        while True:
+            try:
+                transfer = self._transfer(deadline)
+            except UsbTmcTimeout:
+                self.abort_in(tag)  # (the request is still open: its late answer would come with the next one)
+                raise
+            message, got_tag = struct.unpack_from("<BB", transfer)
+            if message == DEV_DEP_MSG_IN and got_tag != tag:
+                log.debug("%s: dropped a late answer (tag %d, waiting for %d)", self.name, got_tag, tag)
+                continue
+            data, _end = parse_in(transfer, tag)  # (no EOM: the rest comes with the next request)
+            return data
+
+    def _transfer(self, deadline: float) -> bytes:
+        """One transfer: the header says how much data follows (libusb may hand it over in parts)."""
         transfer = bytearray()
+        while len(transfer) < HEADER_SIZE or len(transfer) < HEADER_SIZE + struct.unpack_from("<I", transfer, 4)[0]:
+            remaining = max(deadline - time.monotonic(), 0.001)
+            transfer += self.port.read(HEADER_SIZE + READ_SIZE + 3, remaining)
+        return bytes(transfer)
+
+    def abort_in(self, tag: int) -> None:
+        """``INITIATE_ABORT_BULK_IN``: the instrument drops the request ``tag`` (and what it was sending)."""
         try:
-            # one transfer: the header says how much data follows (libusb may hand it over in parts)
-            while len(transfer) < HEADER_SIZE or len(transfer) < HEADER_SIZE + struct.unpack_from("<I", transfer, 4)[0]:
-                remaining = max(deadline - time.monotonic(), 0.001)
-                transfer += self.port.read(HEADER_SIZE + READ_SIZE + 3, remaining)
-        except UsbTmcTimeout:
-            self.clear()  # the request is still open: the late answer would come with the next one
-            raise
-        data, _end = parse_in(bytes(transfer), tag)  # (no EOM: the rest comes with the next request)
-        return data
+            status = self.port.control_in_endpoint(INITIATE_ABORT_BULK_IN, tag, 2, 1.0)
+            if status[:1] != bytes([STATUS_SUCCESS]):
+                return  # (STATUS_TRANSFER_NOT_IN_PROGRESS: nothing to drop)
+            deadline = time.monotonic() + 2.0
+            while time.monotonic() < deadline:
+                self.drain()
+                answer = self.port.control_in_endpoint(CHECK_ABORT_BULK_IN_STATUS, 0, 8, 1.0)
+                if answer[:1] != bytes([STATUS_PENDING]):
+                    break
+                time.sleep(0.01)
+        except UsbTmcError as error:
+            log.debug("Taking back the request of %s failed: %s", self.name, error)
+
+    def drain(self, timeout: float = 0.05) -> int:
+        """Reads and drops what the instrument still sends (an answer to an earlier program); bytes."""
+        dropped = 0
+        while True:
+            try:
+                dropped += len(self.port.read(HEADER_SIZE + READ_SIZE + 3, timeout))
+            except UsbTmcTimeout:
+                return dropped
+            except UsbTmcError as error:
+                log.debug("Draining %s failed: %s", self.name, error)
+                return dropped
 
     def clear(self) -> None:
-        """``INITIATE_CLEAR``: the instrument empties its input and output buffers."""
+        """``INITIATE_CLEAR``: the instrument empties its input and output buffers. Not used on its
+        own: the DHO900 stops reading commands after it (see the module)."""
         try:
             status = self.port.control_in(INITIATE_CLEAR, 0, 1, 1.0)
             if status[:1] == bytes([STATUS_SUCCESS]):
@@ -314,6 +361,14 @@ class PyUsbTmcPort(UsbTmcPort):
         except Exception as error:  # noqa: BLE001 - normalised
             raise self._wrap(error) from error
 
+    def control_in_endpoint(self, request: int, value: int, length: int, timeout: float) -> bytes:
+        try:
+            # class request, recipient endpoint (the bulk-in one), device to host
+            return bytes(self._device.ctrl_transfer(0xA2, request, value, self._in.bEndpointAddress, length,
+                                                    int(timeout * 1000)))
+        except Exception as error:  # noqa: BLE001 - normalised
+            raise self._wrap(error) from error
+
     def clear_halt(self) -> None:
         try:
             self._out.clear_halt()
@@ -331,4 +386,6 @@ class PyUsbTmcPort(UsbTmcPort):
 
 
 def open_link(info: UsbTmcInfo) -> UsbTmcLink:
-    return UsbTmcLink(PyUsbTmcPort(info), info.label)
+    link = UsbTmcLink(PyUsbTmcPort(info), info.label)
+    link.drain()  # (what an earlier program left unread would be taken for the first answer)
+    return link
