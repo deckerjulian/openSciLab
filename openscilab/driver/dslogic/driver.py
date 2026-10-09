@@ -648,6 +648,8 @@ class DSLogicDriver(AnalyzerDriverBase):
     ) -> None:
         abort = abort or self._abort
         stream = setup.mode == AcquisitionMode.STREAM
+        #: the disk watch of a capture recorded to disk (it ends the capture like a stop)
+        watch: Optional[DiskWatch] = None
         # Packets are 512 bytes (USB 2) or 1024 bytes (USB 3): read whole packets only.
         packet = 1024 if setup.super_speed else 512
         try:
@@ -683,13 +685,14 @@ class DSLogicDriver(AnalyzerDriverBase):
             stopped = disk_full = False
             # A full disk stops the stream like the user does, keeping what arrived
             watch = DiskWatch(on_low=abort.set) if setup.to_disk else None
+            disk_low = (lambda: watch is not None and watch.low.is_set())
             try:
                 while received < expected and not failures:
                     remaining = (expected - received + packet - 1) // packet * packet
                     data = self._read_some(min(chunk, remaining), STREAM_STALL_TIMEOUT if stream else None, abort)
                     if data is None:
                         stopped = True
-                        disk_full = watch is not None and watch.low.is_set()
+                        disk_full = disk_low()
                         break
                     take = min(len(data), expected - received)
                     part = data if take == len(data) else data[:take]
@@ -697,8 +700,10 @@ class DSLogicDriver(AnalyzerDriverBase):
                         try:
                             chunks.put_nowait(part)
                         except queue.Full:
-                            raise UsbError("this computer cannot keep up with the stream (lower the sample "
-                                           "rate or the number of channels)") from None
+                            error = UsbError("this computer cannot keep up with the stream (lower the sample "
+                                             "rate or the number of channels)")
+                            failures.append(error)  # (the unpacker skips the backlog: reported at once)
+                            raise error from None
                     else:
                         chunks.put(part)  # a buffer capture waits in the device: no hurry
                     received += take
@@ -709,6 +714,8 @@ class DSLogicDriver(AnalyzerDriverBase):
                 unpacker.join()
             if failures:
                 raise failures[0]
+            if stopped and disk_full and not store.total:
+                raise UsbError(DISK_FULL_ERROR)  # (no user stop: said, not ended silently)
             if stopped and not (stream and store.total):
                 return self._finish_aborted(abort)  # a stopped stream keeps what arrived, as in DSView
 
@@ -729,7 +736,7 @@ class DSLogicDriver(AnalyzerDriverBase):
                 completed_handler,
             )
         except Exception as error:  # noqa: BLE001 - reported to the UI
-            if abort.is_set():
+            if abort.is_set() and not (watch is not None and watch.low.is_set()):
                 return self._finish_aborted(abort)
             log.debug("Error reading the capture: %s", error)
             if self._abort is abort:
@@ -776,10 +783,16 @@ class DSLogicDriver(AnalyzerDriverBase):
         total = len(next(iter(samples.values()))) if samples else 0
         for channel in session.capture_channels:
             channel.samples = samples.get(channel.channel_number, np.zeros(total, dtype=np.uint8))
-        if setup.trigger.enabled:
-            pre = min(max(header.real_pos - first_sample, 0), total)
+        position = header.real_pos - first_sample
+        if setup.trigger.enabled and 0 <= position < total:
+            pre = position
         else:
+            # no trigger, or not in the samples kept: it scrolled out of the ring of an endless stream,
+            # or the stream was stopped before it - then no sample is marked as the trigger
             pre = 0
+            if setup.trigger.enabled:
+                log.debug("The trigger (sample %d) is not in the samples kept (%d from %d)",
+                          header.real_pos, total, first_sample)
         session.pre_trigger_samples = pre
         session.post_trigger_samples = total - pre
         session.loop_count = 0
@@ -808,6 +821,10 @@ class DSLogicDriver(AnalyzerDriverBase):
         thread = self._capture_thread
         if thread is not None and thread is not threading.current_thread():
             thread.join(timeout=2.0)
+            if thread.is_alive():
+                # still handing over what a stopped stream received (it says idle when it is done):
+                # idle now, a new capture could start and take this one's result
+                return True
         self._capturing = False
         return True
 

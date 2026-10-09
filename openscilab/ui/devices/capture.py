@@ -287,7 +287,13 @@ class CaptureController(QObject):
 
         # the time of its samples, as the flows keep it (the Timing tab of the device card shows it)
         self.acquisition = timing_tools.begin(self.instrument, session)
-        error = self.driver.start_capture(session)
+        try:
+            error = self.driver.start_capture(session)
+        except Exception as failure:  # noqa: BLE001 - a device that is gone or a device process that ended
+            self.acquisition = None
+            self.connection_lost.emit(str(failure))
+            messages.error(view, "Capture", "The capture could not be started.", str(failure))
+            return False
         if error != CaptureError.NONE:
             self.acquisition = None
             messages.error(view, "Capture", "The capture could not be started.", error.message)

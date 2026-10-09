@@ -440,8 +440,9 @@ class HardwareDocument(DocumentWidget):
             driver = instrument.capture.driver
             if driver.is_capturing or not driver.enter_bootloader():
                 return False
-            if instrument in self.hub:
-                self.hub.remove(self.hub.name_of(instrument))
+            from ..devices import remove_instrument
+
+            remove_instrument(self, self.hub, instrument)
             return True
 
         return restart
@@ -518,8 +519,9 @@ class HardwareDocument(DocumentWidget):
             instrument = open_entries[0].instrument
 
             def release() -> None:
-                if instrument in self.hub:
-                    self.hub.remove(self.hub.name_of(instrument))
+                from ..devices import remove_instrument
+
+                remove_instrument(self, self.hub, instrument)
 
             update_firmware(self, instrument, release)
         else:

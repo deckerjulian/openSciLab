@@ -43,6 +43,16 @@ WORKERS = 8
 BEAT_INTERVAL = 1.0
 
 
+
+class _GoneSession:
+    """A capture session a request names after the device process forgot it (it completed)."""
+
+    def __init__(self, number: int) -> None:
+        self.number = number
+
+    def __getattr__(self, name: str):
+        raise LookupError(f"capture {self.number} has ended")
+
 class _Events:
     """Sends events in order from a thread of its own; a pending progress of a capture is replaced
     by a newer one (its samples are views of the same arrays: nothing is lost)."""
@@ -186,7 +196,8 @@ class Host:
         if kind == "object":
             return self.objects[pid[1]]
         if kind == "session":
-            return self.sessions[pid[1]]
+            # a session the device forgot (its result just went out) - the call fails, not the process
+            return self.sessions.get(pid[1], _GoneSession(pid[1]))
         if kind == "callback":
             number = pid[1]
             with self._lock:
@@ -331,7 +342,11 @@ class Host:
                     data = self.requests.recv_bytes()
                 except (EOFError, OSError):
                     break  # the application went away
-                kind, number, payload = wire.loads(data, self.resolve)
+                try:
+                    kind, number, payload = wire.loads(data, self.resolve)
+                except Exception:  # noqa: BLE001 - one request that cannot be read does not end the device
+                    log.exception("A request of the application could not be read")
+                    continue
                 if kind == "ack":
                     self.sent.release(payload)
                     continue

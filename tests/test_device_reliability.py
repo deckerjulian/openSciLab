@@ -364,3 +364,27 @@ def test_a_wait_that_cannot_be_cancelled_cannot_be_closed(qtbot):
     started = time.monotonic()
     assert background.run(parent, "Saving...", lambda: release.wait(5) and "written", cancellable=False) == "written"
     assert closed == [False] and time.monotonic() - started < 3
+
+
+def test_closing_a_device_that_takes_long_leaves_the_window_alive(shell):
+    """Disconnecting (or reconnecting) a device whose process does not answer took up to ~12 s on the
+    thread of the window: it closes in the background now, the window goes on meanwhile."""
+    import time as clock
+
+    from PySide6.QtCore import QTimer
+
+    from openscilab.driver.simulated import open_simulated
+
+    instrument = open_simulated("pico")
+    shell.hub.add(instrument)
+    original = instrument.close
+    instrument.close = lambda: (clock.sleep(1.0), original())
+    ticks = []
+    timer = QTimer()
+    timer.setInterval(100)
+    timer.timeout.connect(lambda: ticks.append(clock.monotonic()))
+    timer.start()
+    assert shell.disconnect_instrument(instrument, ask=False)
+    timer.stop()
+    assert instrument not in shell.hub
+    assert len(ticks) >= 5  # (the event loop ran while the device closed)

@@ -152,3 +152,20 @@ def backends() -> list[DeviceBackend]:
     own = {backend.id for backend in _added}
     return [*_added, *[KindBackend(kind) for kind in kinds.registered()
                        if kind.detect is not None and kind.kind not in own]]
+
+
+def remove_instrument(parent: Optional[QWidget], hub, instrument: Instrument) -> None:
+    """Takes ``instrument`` out of ``hub`` and closes it while the window stays alive: closing a device
+    process that does not answer takes up to about 12 s (it is waited for, then ended). Out of the
+    hub first, so nothing of the window uses it while it closes."""
+    import logging
+
+    from .. import background
+
+    if instrument not in hub:
+        return
+    hub.remove(hub.name_of(instrument), close=False)
+    try:
+        background.run(parent, f"Closing {instrument.name}...", instrument.close, cancellable=False)
+    except Exception:  # noqa: BLE001 - a device that cannot be closed is gone anyway
+        logging.getLogger(__name__).debug("Closing %s failed", instrument.name, exc_info=True)

@@ -42,6 +42,8 @@ CALL_TIMEOUT = 60.0
 #: the device process sends a sign of life every second (``host.BEAT_INTERVAL``); none for this
 #: long means it hangs (the interpreter stuck, the OS stopped it): it is ended (seconds)
 BEAT_TIMEOUT = 10.0
+#: seconds a stop waits for the result of the capture (a stopped stream completes with what it has)
+STOP_RESULT_WAIT_S = 0.5
 #: "the timeout of the moment" (``CALL_TIMEOUT``, which tests lower)
 DEFAULT_TIMEOUT = object()
 
@@ -398,6 +400,8 @@ class ProcessDriver(AnalyzerDriverBase):
         self._pure: dict = {}
         self._capturing = False
         self._handlers: dict[int, Any] = {}
+        #: captures a stop ended without a result: a result that still comes is not a new one
+        self._dropped: set[int] = set()
         #: ``time.monotonic`` right before the device process told the device to start (the earliest
         #: a sample of the capture can have been taken)
         self.command_time: Optional[float] = None
@@ -483,7 +487,39 @@ class ProcessDriver(AnalyzerDriverBase):
     def stop_capture(self) -> bool:
         if self._connection.ended.is_set():
             return False
-        return bool(self._connection.call(wire.DRIVER, "stop_capture"))
+        try:
+            stopped = bool(self._connection.call(wire.DRIVER, "stop_capture"))
+        except Exception:
+            # the device could not be told (a serial error, a call that timed out): when it is idle
+            # anyway, the capture is over here as well
+            if not self._device_capturing():
+                self._drop_pending()
+            raise
+        # A stopped stream completes with what it has; a stopped buffer capture reports nothing (as
+        # the devices do): once the device is idle and no result came, it is over here as well -
+        # else this driver said "capturing" for ever and the application waited for it
+        deadline = time.monotonic() + STOP_RESULT_WAIT_S
+        while self._capturing and time.monotonic() < deadline:
+            time.sleep(0.02)
+        if self._capturing and not self._device_capturing():
+            self._drop_pending()
+        return stopped
+
+    def _device_capturing(self) -> bool:
+        """Whether the driver in the device process still captures (``True`` when it cannot tell)."""
+        try:
+            return bool(self._connection.get(wire.DRIVER, "is_capturing"))
+        except Exception:  # noqa: BLE001 - a process that does not answer: keep waiting for it
+            log.debug("The device process did not say whether it captures", exc_info=True)
+            return True
+
+    def _drop_pending(self) -> None:
+        """The captures that ended without a result (stopped): forgotten, the driver is idle."""
+        for number in list(self._handlers):
+            self._connection.forget_session(number)
+            self._dropped.add(number)
+        self._handlers.clear()
+        self._capturing = False
 
     def _event(self, kind: str, payload: Any) -> None:
         if kind == "progress":
@@ -496,6 +532,11 @@ class ProcessDriver(AnalyzerDriverBase):
                 self._raise_capture_tile(args)
         elif kind == "completed":
             number, args, state = payload
+            if number in self._dropped:
+                # a stop ended it already (the application went on): not the result of a later capture
+                self._dropped.discard(number)
+                log.debug("A result of capture %d came after it was ended by a stop: dropped", number)
+                return
             session = self._connection.sessions.get(number)
             if session is not None:
                 wire.adopt(session, state)

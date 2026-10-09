@@ -1646,8 +1646,8 @@ class ShellWindow(QMainWindow):
                 return None
 
         def release() -> None:
-            if instrument is not None and instrument in self.hub:
-                self.hub.remove(self.hub.name_of(instrument))
+            if instrument is not None:
+                devices.remove_instrument(self, self.hub, instrument)
 
         port = update_firmware(self, instrument, release)
         self.devices_section.refresh()
@@ -1755,7 +1755,7 @@ class ShellWindow(QMainWindow):
             if reasons and not messages.confirm(self, "Disconnect", f"Disconnect {instrument.name}?", "Disconnect",
                                                 "While " + " and ".join(reasons) + ".", destructive=True):
                 return False
-        self.hub.remove(instrument.name)
+        devices.remove_instrument(self, self.hub, instrument)
         return True
 
     def disconnect_reasons(self, instrument: Instrument) -> list[str]:
@@ -1787,8 +1787,7 @@ class ShellWindow(QMainWindow):
                                     "\n".join(lines) + "\n\n" + note, destructive=True):
                 return False
         for instrument in instruments:
-            if instrument in self.hub:
-                self.hub.remove(instrument.name)
+            devices.remove_instrument(self, self.hub, instrument)
         self.statusBar().showMessage(f"{len(instruments)} device{'s' if len(instruments) > 1 else ''} disconnected",
                                      6000)
         return True
@@ -1806,8 +1805,7 @@ class ShellWindow(QMainWindow):
         from ...lab.engine.devices import open_instrument
 
         old_card = self.device_card(instrument)
-        if instrument in self.hub:
-            self.hub.remove(instrument.name)
+        devices.remove_instrument(self, self.hub, instrument)
         try:
             if instrument.uri.startswith("sim:"):
                 from ..devices.simulated import connect_simulator

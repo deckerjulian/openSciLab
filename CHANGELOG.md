@@ -156,6 +156,19 @@ again from 0.1.
   *Install firmware* takes the image for the board; installing another image there, and a board just
   written with one, ask again. A board used at one's own risk says so on its device card. Flows,
   scripts and the command line refuse it with the reason.
+- A stopped capture of a device in a device process (the DSLogic, a Pico) no longer leaves the
+  application thinking it still captures: a stopped buffer capture reports nothing, and the
+  application waited for it for ever (*Stop* seemed to hang). A result that comes after the stop
+  ended the capture is no longer taken for the result of the next one, a request that names a
+  capture the device process already forgot fails that call instead of ending the device process,
+  and a failed stop or start does not leave the capture state behind.
+- DSLogic: a stopped stream says it is idle only once it handed over what it received; a stream
+  that overflows says so at once instead of unpacking its backlog first; a disk that runs full ends a
+  recording with a message (before, without any when nothing had arrived yet).
+- Disconnecting or reconnecting a device closes it in the background: a device process that does not
+  answer kept the window frozen for up to about 12 s.
+- DSLogic: an endless stream whose trigger scrolled out of the samples kept (or a stream stopped
+  before its trigger) marks no sample as the trigger (before, sample 0 or one past the end).
 
 ### Firmware
 

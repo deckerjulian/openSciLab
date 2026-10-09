@@ -115,6 +115,22 @@ def test_a_capture_that_ends_before_its_start_is_answered_does_not_run_on(pico, 
     assert run(driver, session(1000)).success  # (and the next one starts)
 
 
+def test_a_stopped_buffer_capture_ends_in_the_application_too(pico):
+    """A stopped buffer capture reports nothing (as the devices do): the driver of the application
+    must not say "capturing" for ever (the application waited for it, a DSLogic hung so)."""
+    driver = pico.capture.driver
+    waiting = session(100_000)
+    waiting.trigger_type = TriggerType.EDGE
+    waiting.trigger_channel = 1  # (a channel without a signal: the trigger never comes)
+    results = []
+    assert driver.start_capture(waiting, results.append) == CaptureError.NONE
+    time.sleep(0.3)
+    assert driver.is_capturing
+    assert driver.stop_capture()
+    assert not driver.is_capturing and not results
+    assert run(driver, session(1000)).success  # (and the next one runs)
+
+
 def test_a_device_process_that_dies_fails_its_capture(pico):
     driver = pico.capture.driver
     done = threading.Event()
@@ -341,3 +357,38 @@ def test_a_device_process_without_a_sign_of_life_is_ended(monkeypatch):
             gpio.read("GP16")
     finally:
         instrument.close()
+
+
+def test_a_result_after_a_stop_ended_the_capture_is_not_taken_for_a_new_one():
+    """A stop that found the device idle ended the capture; its result coming late must not reach
+    the application as the result of the next capture (found in a review)."""
+    from openscilab.driver.base import CaptureCompletedArgs
+    from openscilab.driver.process.proxy import ProcessDriver
+
+    class Connection:
+        sessions: dict = {}
+
+        def forget_session(self, number):
+            self.sessions.pop(number, None)
+
+    driver = ProcessDriver.__new__(ProcessDriver)
+    AnalyzerDriverBaseInit = super(ProcessDriver, driver).__init__
+    AnalyzerDriverBaseInit()
+    driver._connection = Connection()
+    driver._handlers = {7: lambda args: None}
+    driver._dropped = set()
+    driver._capturing = True
+    seen = []
+    driver.add_capture_completed_handler(seen.append)
+    driver._drop_pending()
+    assert not driver.is_capturing
+    driver._event("completed", (7, CaptureCompletedArgs(success=True, session=None), {}))
+    assert seen == []
+
+
+def test_a_request_naming_a_forgotten_session_fails_the_call_not_the_process():
+    from openscilab.driver.process import host
+
+    gone = host._GoneSession(3)
+    with pytest.raises(LookupError, match="capture 3 has ended"):
+        gone.capture_channels

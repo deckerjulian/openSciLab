@@ -477,3 +477,105 @@ def test_an_endless_stream_runs_until_stopped_and_keeps_its_end(monkeypatch):
     assert firsts[-1] == 64 * 1024 - 64 * 100 and firsts == sorted(firsts)
     for channel in (0, 1):
         assert np.array_equal(results[0].session.capture_channels[channel].samples, signals[channel][-64 * 100:])
+
+
+def test_a_stop_says_idle_only_once_the_result_of_a_stream_is_handed_over(monkeypatch):
+    """A stream that takes long to hand its samples over after a stop stays "capturing" until then:
+    a capture started meanwhile would take its result (found in a review)."""
+    from openscilab.core import sample_store
+
+    device = FakeDSLogic(info())
+    driver = open_driver(device)
+    signals, chunks = stream_data(64 * 1024)
+    device.bulk_in = [header(real_pos=0)] + chunks[: len(chunks) // 2]
+    slow = threading.Event()
+    original = sample_store.SampleStore.result
+
+    def slow_result(self):
+        slow.wait(3.0)
+        return original(self)
+
+    monkeypatch.setattr(sample_store.SampleStore, "result", slow_result)
+    results = []
+    done = threading.Event()
+    capture = session([0, 1], pre=0, post=64 * 1024, acquisition_mode=ACQUISITION_STREAM,
+                      trigger_type=TriggerType.IMMEDIATE)
+    assert driver.start_capture(capture, lambda args: (results.append(args), done.set())) is CaptureError.NONE
+    time.sleep(0.3)
+    assert driver.stop_capture()
+    assert driver.is_capturing  # (still handing over)
+    assert driver.start_capture(session([0, 1]), lambda args: None) is CaptureError.BUSY
+    slow.set()
+    assert done.wait(5) and results[0].success and not driver.is_capturing
+
+
+def test_an_overflowing_stream_is_reported_without_unpacking_the_backlog(monkeypatch):
+    from openscilab.driver.dslogic import driver as module
+
+    unpacked = []
+    original = module._add_transfer
+
+    def slow_add(store, data):
+        time.sleep(0.05)
+        unpacked.append(len(data))
+        return original(store, data)
+
+    monkeypatch.setattr(module, "_add_transfer", slow_add)
+    device = FakeDSLogic(info())
+    driver = open_driver(device)
+    _signals, chunks = stream_data(64 * 4096)
+    device.bulk_in = [header(real_pos=0)] + chunks
+    results = []
+    done = threading.Event()
+    capture = session([0, 1], pre=0, post=64 * 4096, acquisition_mode=ACQUISITION_STREAM,
+                      trigger_type=TriggerType.IMMEDIATE)
+    # a queue of 40 transfers (each read of the fake board is 1000 bytes): 2 s to unpack them all
+    monkeypatch.setattr(module, "QUEUE_BYTES", 40 * module.protocol.transfer_size(driver.capture_setup(capture)))
+    started = time.monotonic()
+    assert driver.start_capture(capture, lambda args: (results.append(args), done.set())) is CaptureError.NONE
+    assert done.wait(5)
+    assert not results[0].success and "cannot keep up" in results[0].error
+    assert time.monotonic() - started < 1.0  # (the backlog was skipped, not unpacked first)
+
+
+def test_a_full_disk_ends_a_capture_with_a_message(monkeypatch):
+    from openscilab.driver.dslogic import driver as module
+
+    class FullDisk:
+        def __init__(self, on_low):
+            self.low = threading.Event()
+            self.low.set()
+            on_low()
+
+        def stop(self):
+            pass
+
+    monkeypatch.setattr(module, "DiskWatch", FullDisk)
+    device = FakeDSLogic(info())
+    driver = open_driver(device)
+    _signals, chunks = stream_data(64 * 1024)
+    device.bulk_in = [header(real_pos=0)] + chunks
+    results = []
+    done = threading.Event()
+    capture = session([0, 1], pre=0, post=64 * 1024, acquisition_mode=ACQUISITION_STREAM,
+                      trigger_type=TriggerType.IMMEDIATE)
+    capture.to_disk = True
+    assert driver.start_capture(capture, lambda args: (results.append(args), done.set())) is CaptureError.NONE
+    assert done.wait(5) and not driver.is_capturing
+    assert not results[0].success and "disk" in results[0].error.lower()
+
+
+def test_a_trigger_that_is_not_in_the_samples_kept_marks_no_sample():
+    """An endless stream keeps its end: once its trigger scrolled out of the ring (or a stream stopped
+    before its trigger sample) no sample is the trigger (before: sample 0, or one past the end)."""
+    device = FakeDSLogic(info())
+    driver = open_driver(device)
+    capture = session([0, 1], pre=64, post=64 * 64, acquisition_mode=ACQUISITION_STREAM,
+                      trigger_type=TriggerType.EDGE, trigger_channel=0)
+    setup = driver.capture_setup(capture)
+    assert setup.trigger.enabled
+    samples = {0: np.zeros(1000, np.uint8), 1: np.zeros(1000, np.uint8)}
+    for real_pos, first, expected in ((300, 0, 300), (300, 5000, 0), (3000, 0, 0)):
+        trigger = protocol.parse_header(header(real_pos=real_pos))
+        driver._store_samples(capture, setup, trigger, samples, first)
+        assert (capture.pre_trigger_samples, capture.post_trigger_samples) == (expected, 1000 - expected)
