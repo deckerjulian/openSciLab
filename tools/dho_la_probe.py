@@ -122,7 +122,7 @@ class Probe:
         self.tell(scpi.command("wave_source", value=source))
         self.tell(scpi.command("wave_mode"))
         self.tell(scpi.command("wave_format"))
-        points = int(float(self.ask(":ACQuire:MDEPth?")) or total)
+        points = scpi.parse_depth(self.ask(":ACQuire:MDEPth?")) or total
         received = 0
         started = time.monotonic()
         position = 1

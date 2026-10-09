@@ -10,6 +10,7 @@ import java.io.IOException
 import java.io.OutputStream
 import java.math.BigDecimal
 import java.math.MathContext
+import kotlin.math.abs
 import kotlin.math.roundToLong
 
 /**
@@ -52,6 +53,9 @@ data class Preamble(
 /**
  * Reads waveform memory from the instrument block by block (`:WAVeform:STARt/STOP/DATA?`,
  * RAW mode, BYTE format). [chunk] is the most points one `:WAVeform:DATA?` returns.
+ *
+ * BYTE gives the top 8 of the 12 bits of the DHO's ADC. WORD would keep all of them, but the
+ * cache, the overviews (`<BB`) and the tile codec work with 8 bit analog samples, as the driver does.
  */
 class WaveformReader(private val instrument: Instrument, private val chunk: Int) {
     private var start: Long? = null
@@ -125,10 +129,13 @@ class SnapshotWriter(
         val (id, dir) = cache.begin()
         try {
             val reader = WaveformReader(instrument, chunk)
+            // Every source's own preamble: only the channels asked for (the others may be off).
+            val digital = channels.digital.associate { digitalSource(it) to reader.select(digitalSource(it)) }
             val analog = channels.analog.associateWith { reader.select(analogSource(it)) }
-            val digital = channels.digital.firstOrNull()?.let { reader.select(digitalSource(it)) }
-            val first = digital ?: analog.values.first()
-            val points = (analog.values + listOfNotNull(digital)).minOf { it.points }
+            val sources = digital + analog.mapKeys { "CH${it.key}" }
+            val first = sources.values.first()
+            checkSameTiming(sources)
+            val points = sources.values.minOf { it.points }
 
             val meta = LinkedHashMap<String, String>()
             meta["points"] = points.toString()
@@ -196,6 +203,23 @@ class SnapshotWriter(
     companion object {
         fun analogSource(channel: Int) = "CHANnel$channel"
         fun digitalSource(bit: Int) = "D$bit"
+
+        /**
+         * A snapshot has one rate and one trigger sample (META). Sources sampled otherwise (the
+         * logic channels beside the analog ones) would be out of step in it: refused.
+         */
+        fun checkSameTiming(sources: Map<String, Preamble>) {
+            val (firstName, first) = sources.entries.first()
+            for ((name, preamble) in sources) {
+                val rates = abs(preamble.rate - first.rate) <= 1e-6 * maxOf(preamble.rate, first.rate)
+                if (rates && abs(preamble.trigger - first.trigger) <= 1) continue
+                throw BridgeError(
+                    "the channels were sampled at different rates or triggers " +
+                        "($firstName: ${formatNumber(first.rate)} Sa/s, trigger at ${first.trigger}; " +
+                        "$name: ${formatNumber(preamble.rate)} Sa/s, trigger at ${preamble.trigger}); snapshot them separately",
+                )
+            }
+        }
     }
 }
 

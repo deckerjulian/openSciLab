@@ -180,6 +180,18 @@ object Pyramid {
         }
     }
 
+    /**
+     * Throws unless [writeOverview] finds what it needs (the stored level whole): checked before a
+     * block header promises the length of the overview.
+     */
+    fun checkOverview(raw: RawSamples, dir: File, name: String, level: Int) {
+        val points = raw.points
+        if (points == 0L || level < BASE_LEVEL) return
+        val stored = minOf(level, topLevel(points))
+        val file = levelFile(dir, name, stored)
+        if (file.length() != overviewLength(raw.kind, points, stored)) throw IOException("the overview ${file.name} is missing or damaged")
+    }
+
     /** Streams the overview of [raw] at [level] (exactly [overviewLength] bytes) into [out]. */
     fun writeOverview(raw: RawSamples, dir: File, name: String, level: Int, out: OutputStream) {
         require(level in 0..MAX_LEVEL) { "level must be 0..$MAX_LEVEL" }

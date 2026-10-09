@@ -5,6 +5,7 @@ package org.openscilab.bridge.core
 
 import java.io.BufferedInputStream
 import java.io.BufferedOutputStream
+import java.io.ByteArrayOutputStream
 import java.io.Closeable
 import java.io.IOException
 import java.io.OutputStream
@@ -69,6 +70,8 @@ class BridgeHandler(
                 }
                 is BridgeCommand.Invalid -> throw BridgeError(command.message)
             }
+        } catch (error: BlockAborted) {
+            throw error // inside a block: ends the connection (BridgeServer.session)
         } catch (error: BridgeError) {
             line(out, "ERR ${error.message}")
         } catch (error: IOException) {
@@ -85,23 +88,30 @@ class BridgeHandler(
         if (!snapshot.has(command.channel)) throw BridgeError("snapshot ${command.id} has no channel ${command.channel}")
         val raw = snapshot.raw(command.channel)
         val length = Pyramid.overviewLength(raw.kind, raw.points, command.level)
-        out.write(ScpiBlock.header(length))
-        Pyramid.writeOverview(raw, snapshot.dir, command.channel, command.level, out)
-        out.write('\n'.code)
+        Pyramid.checkOverview(raw, snapshot.dir, command.channel, command.level)
+        writeBlock(out, length) { Pyramid.writeOverview(raw, snapshot.dir, command.channel, command.level, it) }
     }
 
-    /** Encodes twice: once to learn the length for the block header, once into the answer. */
+    /**
+     * Encoded into memory first (up to [TILE_BUFFER_SAMPLES]), so a failure is still answered with
+     * `ERR`; a larger tile is encoded twice: once to learn the length for the header, once into the
+     * answer.
+     */
     private fun tile(command: BridgeCommand.Tile, out: OutputStream) {
         val snapshot = snapshot(command.id)
         if (!snapshot.has(command.channel)) throw BridgeError("snapshot ${command.id} has no channel ${command.channel}")
         val raw = snapshot.raw(command.channel)
         if (command.start > raw.points) throw BridgeError("start ${command.start} is behind the ${raw.points} points")
         val count = minOf(command.count, raw.points - command.start)
-        val counter = CountingStream()
-        encodeTile(raw, command.start, count, counter)
-        out.write(ScpiBlock.header(counter.count))
-        encodeTile(raw, command.start, count, out)
-        out.write('\n'.code)
+        if (count <= TILE_BUFFER_SAMPLES) {
+            val encoded = ByteArrayOutputStream()
+            encodeTile(raw, command.start, count, encoded)
+            writeBlock(out, encoded.size().toLong()) { encoded.writeTo(it) }
+        } else {
+            val counter = CountingStream()
+            encodeTile(raw, command.start, count, counter)
+            writeBlock(out, counter.count) { encodeTile(raw, command.start, count, it) }
+        }
     }
 
     private fun encodeTile(raw: RawSamples, start: Long, count: Long, out: OutputStream) {
@@ -119,9 +129,36 @@ class BridgeHandler(
         out.write(text.toByteArray(Charsets.ISO_8859_1))
         out.write('\n'.code)
     }
+
+    companion object {
+        /** Samples of a tile encoded in memory before it is sent (at most 3 bytes each). */
+        const val TILE_BUFFER_SAMPLES = 1L shl 21
+    }
 }
 
 class BridgeError(message: String) : Exception(message)
+
+/**
+ * A block broke off after its header: the client counts on the length the header promised, so an
+ * `ERR` line would be taken for data. The connection is closed instead.
+ */
+class BlockAborted(message: String, cause: Throwable? = null) : IOException(message, cause)
+
+/**
+ * Writes an IEEE block of [length] bytes that [body] produces, and the `\n` after it. Whatever
+ * goes wrong once the header is out (also a body of another length) throws [BlockAborted].
+ */
+fun writeBlock(out: OutputStream, length: Long, body: (OutputStream) -> Unit) {
+    out.write(ScpiBlock.header(length))
+    val counter = CountingStream(out)
+    try {
+        body(counter)
+    } catch (error: Exception) {
+        throw BlockAborted("the block broke off after ${counter.count} of $length bytes: ${error.message}", error)
+    }
+    if (counter.count != length) throw BlockAborted("the block has ${counter.count} bytes instead of $length")
+    out.write('\n'.code)
+}
 
 /** What the status screen shows. */
 data class BridgeStatus(
@@ -247,6 +284,7 @@ class BridgeServer(private val config: BridgeConfig, cache: SnapshotCache) : Clo
                 out.flush()
             }
         } catch (error: IOException) {
+            // (also BlockAborted: the client is inside a block that cannot be finished)
             if (running) lastError = "client: ${error.message}"
         } finally {
             clients.decrementAndGet()

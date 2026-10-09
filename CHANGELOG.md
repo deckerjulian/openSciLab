@@ -227,6 +227,34 @@ again from 0.1.
     interrupts on and the host waits as long as slow transmissions take; the ESP32 refuses PWM
     below 0.5 Hz and the R4 timers below 1 Hz instead of misbehaving; an immediate buffer capture
     has no pre-trigger samples (the trigger mark sat in the wrong place).
+- Rigol DHO900 (found in a review; not yet tried on the instrument):
+  - A capture without trigger is forced (`:TFORce`) once the oscilloscope waits: `:SINGle` makes
+    the sweep SINGLE, so before it waited for a trigger that might never come (up to an hour).
+  - A capture counts as done only after the oscilloscope showed that it took it up (`RUN`, `WAIT`,
+    `TD`) and then `STOP`; before, a `STOP` read 50 ms after `:SINGle` could hand over the capture
+    before. One it never takes up fails after 10 s with what the instrument reported.
+  - After a query timed out the connection gets back in step (`*IDN?`, answers up to it dropped):
+    before, the late answer was taken for the next query's, and every answer after it was one
+    behind.
+  - Stopping a capture while the bridge app reads it returns at once instead of waiting for the
+    connection (up to 10 minutes, the window froze; closing the device as well), and a stopped
+    capture is no longer reported as a capture. A new capture is refused as busy until the
+    reading has ended.
+  - Only the models the driver knows are taken: DHO914, DHO914S, DHO924, DHO924S, with the
+    generator only on the S models; a DHO800 (no logic analyzer) or another Rigol is refused with
+    a message saying so. Before, every Rigol had 16 logic channels, 4 analog ones and a generator.
+  - The bridge app reads only the logic channels of the capture (`:BRIDge:SNAPshot D0,D3,CH2`):
+    before, it was asked for D0-D15, whose channels the driver had switched off.
+  - Logic and analog channels sampled at different rates (or with the trigger elsewhere) are
+    refused with a clear message, directly and by the bridge app, instead of being shown out of
+    step with the rate of one of them.
+  - The memory depth is set by name (`1k` … `50M`) and checked with `:ACQuire:MDEPth?`; a depth
+    the instrument did not take fails the capture (*hardware error*, the reason in the log).
+  - Bridge app: an `:OVERview?` or `:TILE?` that fails is answered with `ERR` before the block
+    starts (a tile is encoded first); one that breaks off after its header closes the connection,
+    where it used to put `ERR` into the block and leave the client out of step.
+  - Analog samples stay 8 bit (`BYTE`, the top 8 of the 12 ADC bits); documented in
+    `docs/protocols.md`.
 
 ### Firmware
 

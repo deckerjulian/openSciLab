@@ -319,18 +319,34 @@ SCPI server (127.0.0.1:5555), answers included. Every two seconds it sends a UDP
 | --- | --- |
 | `:BRIDge:VERSion?` | `OPENSCILAB_BRIDGE,<version>,1` (the last number is this protocol) |
 | `:BRIDge:BENCH? <bytes>` | `<bytes per second>` – how fast the app reads waveform data from the instrument |
-| `:BRIDge:SNAPshot <channels>` | `<id>` once the channels (`D0-D15`, `CH1`…`CH4`, comma separated) of the stopped acquisition are read into the cache |
+| `:BRIDge:SNAPshot <channels>` | `<id>` once the channels (`D0`…`D15` and ranges such as `D0-D3`, `CH1`…`CH4`, comma separated) of the stopped acquisition are read into the cache; only channels that are on can be read (the driver asks for those of its capture), and channels sampled at different rates or with the trigger at another sample (logic beside analog) are refused |
 | `:BRIDge:CACHe:LIST?` | `<id>,<unix time>,<points>;…` (newest first, empty without any) |
 | `:BRIDge:META? <id>` | `key=value;…`: `points`, `rate` (Sa/s), `trigger` (sample of the trigger), `channels` (as in SNAPshot), per analog channel `CH1.yinc`, `CH1.yorig`, `CH1.yref` (volts = (raw − yorig − yref) · yinc) |
-| `:BRIDge:OVERview? <id>,<channel>,<level>` | IEEE block `#<n><length>`: for buckets of 2^level samples, analog: `<BB` min, max raw; digital channel `D`: `<HH` AND and OR of the 16 bits |
+| `:BRIDge:OVERview? <id>,<channel>,<level>` | IEEE block `#<n><length>`: for buckets of 2^level samples, analog: `<BB` min, max raw; digital channel `D`: `<HH` AND and OR of the 16 bits (the bits of channels not in the snapshot are 0) |
 | `:BRIDge:TILE? <id>,<channel>,<start>,<count>` | IEEE block: the samples `start`…`start + count`, compressed: digital `D`: runs of varint count and `<H` levels; analog: the first raw sample, then zigzag varint differences |
 | `:BRIDge:CACHe:DELete <id>\|ALL` | `OK` |
 | `:BRIDge:CACHe:LIMit <bytes>` | `OK` (the oldest snapshots go when the cache grows beyond it) |
 
 A command the app cannot carry out is answered with one line `ERR <reason>` (also when the
-instrument's server cannot be reached for a query). The cache keeps the newest snapshot even when
-it alone is beyond the limit.
+instrument's server cannot be reached for a query). An answer that is a block is checked (and a
+tile encoded) before its header goes out, so an error is still an `ERR` line; should a block break
+off after its header all the same, the app closes the connection instead of sending `ERR` where
+the client expects data. The cache keeps the newest snapshot even when it alone is beyond the
+limit.
+
+Analog samples are 8 bit: the app and the driver read `:WAVeform:FORMat BYTE`, the top 8 of the
+12 bits of the DHO's ADC (WORD would keep all, but the overviews and the codec are 8 bit).
 
 Varints are LEB128 (7 bits per byte, low bits first); zigzag maps 0, −1, 1, −2 … to 0, 1, 2, 3 ….
 `tests/fixtures/bridge_codec.json` has test vectors for the app and `openscilab/driver/rigoldho/codec.py`.
 Without the app the driver talks to port 5555 directly and reads `:WAVeform:DATA?` block by block.
+
+The driver (`openscilab/driver/rigoldho/`) takes the DHO900 models (DHO914, DHO914S, DHO924,
+DHO924S; the generator only on the S models) and refuses others, the DHO800 among them (no logic
+analyzer). A capture: `:STOP`, channels, `:ACQuire:MDEPth` by name (`1k`, `10k`, `100k`, `1M`,
+`10M`, `25M`, `50M`, checked with `:ACQuire:MDEPth?`), time base, trigger, `:SINGle`; then
+`:TRIGger:STATus?` until the instrument shows that it took the capture up (`RUN`, `WAIT`, `TD`) and
+then `STOP` - a `STOP` before that is the capture before, and one that never changes fails after
+10 s. `:SINGle` makes the sweep SINGLE, so a capture without trigger is forced with `:TFORce` while
+it waits. After a query timed out the driver sends `*IDN?` and drops every answer up to its
+answer, so a late answer is not taken for the next one.

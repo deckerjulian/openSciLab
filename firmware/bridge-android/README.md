@@ -7,9 +7,11 @@ bridge of `docs/protocols.md` ("Bridge", protocol 1):
   instrument's own SCPI server on `127.0.0.1:5555`, and its answers (lines or `#` blocks) back.
 * **UDP 5561**: every 2 s a broadcast `OPENSCILAB_BRIDGE <version> <tcp port> <model> <serial>`
   (model and serial from `*IDN?`).
-* **Snapshot cache**: `:BRIDge:SNAPshot` reads the stopped acquisition block by block
-  (`:WAVeform:DATA?`, RAW, BYTE) into files, builds the min/max (analog) and AND/OR (digital)
-  pyramid, and serves `:OVERview?` and compressed `:TILE?` from there.
+* **Snapshot cache**: `:BRIDge:SNAPshot` reads the channels asked for of the stopped acquisition
+  block by block (`:WAVeform:DATA?`, RAW, BYTE: the top 8 of the 12 ADC bits) into files, builds
+  the min/max (analog) and AND/OR (digital) pyramid, and serves `:OVERview?` and compressed
+  `:TILE?` from there. Each channel's own preamble is read; channels sampled at different rates
+  or with the trigger at another sample are refused (`ERR`), since a snapshot has one rate.
 
 Kotlin without third-party libraries. `minSdk` 28 (Android 9, assumed for the DHO until
 measured), `targetSdk` 34.
@@ -81,4 +83,8 @@ storage. The default limit is 1 GiB (`:BRIDge:CACHe:LIMit <bytes>`).
   arguments, missing snapshot or channel, failing instrument), so the client never waits forever.
   A passed-through query that fails because the instrument cannot be reached is answered the same
   way (`ERR instrument: ...`).
+* A block answer (`:OVERview?`, `:TILE?`) is checked first - a tile of up to 2M samples is encoded
+  in memory before its header goes out - so a failure is still an `ERR` line. Should a block
+  break off after its header all the same, the connection is closed: an `ERR` line there would
+  be read as data.
 * The cache always keeps the newest snapshot, even when it alone is larger than the limit.

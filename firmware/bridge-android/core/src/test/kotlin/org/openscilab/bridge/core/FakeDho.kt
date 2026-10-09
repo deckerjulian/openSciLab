@@ -20,6 +20,10 @@ class FakeDho(val points: Int) : Closeable {
     val connections = AtomicInteger()
     val received = java.util.Collections.synchronizedList(ArrayList<String>())
 
+    /** The preamble of the logic channels when it is not that of the analog ones (another rate). */
+    @Volatile
+    var digitalPreamble: String? = null
+
     private var source = "CHANNEL1"
     private var start = 1L
     private var stop = 1000L
@@ -75,7 +79,10 @@ class FakeDho(val points: Int) : Closeable {
                 val value = argument.toLong()
                 if (value < start) windowErrors.incrementAndGet() else stop = value
             }
-            ":WAVEFORM:PREAMBLE?" -> text("0,2,$points,1,1.600000E-09,-8.000000E-06,0,4.000000E-02,0,128")
+            ":WAVEFORM:PREAMBLE?" -> text(
+                digitalPreamble?.takeIf { source.startsWith("D") }
+                    ?: "0,2,$points,1,1.600000E-09,-8.000000E-06,0,4.000000E-02,0,128",
+            )
             ":WAVEFORM:DATA?" -> {
                 dataQueries.incrementAndGet()
                 val first = (start - 1).toInt()

@@ -58,6 +58,9 @@ def test_blocks_preamble_meta():
     assert preamble["points"] == 1000 and preamble["xorig"] == -1e-4 and preamble["yref"] == 128
     assert scpi.parse_meta("points=10;rate=1e6;CH1.yinc=0.04") == {"points": "10", "rate": "1e6", "CH1.yinc": "0.04"}
     assert scpi.command("la_channel", n=3, value="ON") == ":LA:DIGital3:DISPlay ON"
+    assert [scpi.depth_text(value) for value in scpi.MEMORY_DEPTHS] == ["1k", "10k", "100k", "1M", "10M", "25M", "50M"]
+    assert [scpi.parse_depth(text) for text in ("1M", "10k", "1.0000E+06", "25000000", "AUTO")] == [
+        1_000_000, 10_000, 1_000_000, 25_000_000, None]
 
 
 def test_a_server_that_is_no_rigol_is_refused():
@@ -83,6 +86,91 @@ def test_a_server_that_is_no_rigol_is_refused():
     with pytest.raises(DeviceConnectionError, match="no Rigol"):
         discovery.open_device(f"rigol:127.0.0.1:{server.getsockname()[1]}")
     server.close()
+
+
+def fake_scpi(answers: dict):
+    """A SCPI server on a free port that answers one line after the other: ``answers`` maps a
+    header to a text, bytes (sent as they are) or a function of the argument; a header ending in
+    ``@<seconds>`` waits that long first. Returns (port, close)."""
+    server = socket.socket()
+    server.bind(("127.0.0.1", 0))
+    server.listen(4)
+
+    def serve(connection):
+        with connection, connection.makefile("rb") as lines:
+            for raw in lines:
+                header, _, argument = raw.decode().strip().partition(" ")
+                for key, answer in answers.items():
+                    name, _, delay = key.partition("@")
+                    if name == header:
+                        time.sleep(float(delay or 0))
+                        answer = answer(argument) if callable(answer) else answer
+                        connection.sendall(answer if isinstance(answer, bytes) else answer.encode() + b"\n")
+                        break
+
+    def accept():
+        while True:
+            try:
+                connection, _ = server.accept()
+            except OSError:
+                return
+            threading.Thread(target=serve, args=(connection,), daemon=True).start()
+
+    threading.Thread(target=accept, daemon=True).start()
+    return server.getsockname()[1], server.close
+
+
+def test_a_late_answer_is_dropped_and_the_answers_stay_in_step():
+    port, close = fake_scpi({"*IDN?": "RIGOL TECHNOLOGIES,DHO924S,DHO9X,00.01", ":ECHO?": lambda text: text,
+                             ":SLOW?@0.4": "late", ":BLOCK?@0.4": scpi.block(b"a\nb\n") + b"\n"})
+    connection = scpi.ScpiConnection("127.0.0.1", port, timeout=2.0)
+    try:
+        assert connection.query("*IDN?").startswith("RIGOL")
+        with pytest.raises(scpi.ScpiTimeout):
+            connection.query(":SLOW?", timeout=0.1)
+        assert connection.query(":ECHO? 1") == "1"  # not "late"
+        with pytest.raises(scpi.ScpiTimeout):
+            connection.query_block(":BLOCK?", timeout=0.1)
+        assert connection.query(":ECHO? 2") == "2"
+        # the late answer is not there when the next query looks for it either: still out of step
+        with pytest.raises(scpi.ScpiTimeout):
+            connection.query(":SLOW?", timeout=0.1)
+        with pytest.raises(scpi.ScpiTimeout):
+            connection.query(":ECHO? 3", timeout=0.1)
+        assert connection.query(":ECHO? 4") == "4"
+        assert connection.query(":ECHO? 5") == "5"
+    finally:
+        connection.close()
+        close()
+
+
+def test_the_models_the_driver_knows():
+    from openscilab.driver.rigoldho.driver import ModelFeatures, model_features
+
+    assert model_features("DHO924S") == ModelFeatures(analog=4, digital=16, generator=True)
+    assert model_features("DHO914") == ModelFeatures(analog=4, digital=16, generator=False)
+    assert model_features("DHO802") == ModelFeatures(analog=2, digital=0, generator=False)
+    assert model_features("DHO814").analog == 4
+    assert model_features("DS1054Z") is None and model_features("DHO1204") is None
+
+    def open_model(model):
+        port, close = fake_scpi({":BRIDge:VERSion?": "OPENSCILAB_BRIDGE,0.1.0,1",
+                                 "*IDN?": f"RIGOL TECHNOLOGIES,{model},DHOX0001,00.01.02"})
+        try:
+            return discovery.open_device(f"rigol:127.0.0.1:{port}")
+        finally:
+            close()
+
+    driver = open_model("DHO914")  # no generator
+    try:
+        assert "AFG" not in driver.capabilities() and "ANALOG=4" in driver.capabilities()
+        assert [type(facet).__name__ for facet in driver.instrument_facets()] == ["DhoCache"]
+    finally:
+        driver.dispose()
+    with pytest.raises(DeviceConnectionError, match="DHO804 at .* has no logic analyzer"):
+        open_model("DHO804")
+    with pytest.raises(DeviceConnectionError, match="DS1054Z at .* is a model openSciLab does not know"):
+        open_model("DS1054Z")
 
 
 # ------------------------------------------------------------------ direct
@@ -135,6 +223,69 @@ def test_a_capture_without_trigger_can_be_stopped(direct):
     assert direct.stop_capture()
     time.sleep(0.2)
     assert results == [] and not direct.is_capturing
+
+
+@pytest.fixture
+def fresh_direct():
+    driver = open_shell("direct")
+    yield driver
+    driver.dispose()
+
+
+def test_a_capture_without_trigger_is_forced(fresh_direct):
+    from openscilab.driver.simulated.circuit import Constant
+
+    # :SINGle makes the sweep SINGLE: with a trigger set up that never comes (D15 stays low), the
+    # capture waits until the driver forces it
+    shell = fresh_direct.shell
+    shell.device.circuit.drive("D15", Constant(level=0.0))
+    shell.trigger.update(mode="EDGE", source="D15", sweep="NORMAL")
+    result = run(fresh_direct, make_session(channels=(0,), pre=100, post=900), seconds=5.0)
+    assert result.success, result.error
+    assert shell.trigger["sweep"] == "SINGLE"
+    assert len(result.session.capture_channels[0].samples) == 1000
+
+
+def test_a_capture_is_done_only_after_the_instrument_took_it_up(fresh_direct, monkeypatch):
+    from openscilab.driver.rigoldho import driver as module
+
+    shell = fresh_direct.shell
+    assert run(fresh_direct, make_session(channels=(0,), pre=100, post=900)).success
+    # the instrument is slow to take the next capture up: its status stays STOP for a while
+    shell.arm_delay = 0.3
+    result = run(fresh_direct, make_session(channels=(0,), pre=1000, post=9000))
+    assert result.success, result.error
+    assert len(result.session.capture_channels[0].samples) == 10_000  # not the 1000 of the one before
+    # one it never takes up fails instead of giving the samples of the one before
+    shell.arm_delay = 0.0
+    monkeypatch.setattr(module, "ARM_TIMEOUT_S", 0.3)
+    original = shell._take_up
+    shell._take_up = lambda generation: shell.errors.append('-221,"Settings conflict"')
+    try:
+        result = run(fresh_direct, make_session(channels=(0,), pre=100, post=900), seconds=5.0)
+    finally:
+        shell._take_up = original
+    assert not result.success and "did not take the capture up" in result.error and "Settings conflict" in result.error
+
+
+def test_the_memory_depth_is_set_by_name_and_checked(fresh_direct, monkeypatch):
+    shell = fresh_direct.shell
+    sent = []
+    handle = shell.handle
+    monkeypatch.setattr(shell, "handle", lambda line: (sent.append(line), handle(line))[1])
+    assert run(fresh_direct, make_session(channels=(0,), pre=1000, post=99_000)).success
+    assert ":ACQuire:MDEPth 100k" in sent and shell.depth == 100_000
+    # a depth the instrument does not take: the capture is refused, not taken with another depth
+    monkeypatch.setattr(scpi, "MEMORY_DEPTHS", (1_000, 2_000, 10_000))
+    assert fresh_direct.start_capture(make_session(channels=(0,), pre=0, post=1500)) == CaptureError.HARDWARE_ERROR
+    assert ":ACQuire:MDEPth 2k" in sent and shell.depth == 100_000
+
+
+def test_channels_sampled_at_different_rates_are_refused(fresh_direct):
+    fresh_direct.shell.la_rate = 2_000_000.0
+    result = run(fresh_direct, make_session(channels=(0,), analog=(0,), pre=100, post=900))
+    assert not result.success and "CH1 has 1e+06 Sa/s" in result.error and "D0 2e+06 Sa/s" in result.error
+    assert "capture them separately" in result.error
 
 
 # ------------------------------------------------------------------ bridge
@@ -196,6 +347,40 @@ def test_an_interrupted_transfer_resumes(bridge):
         assert session.progressive.complete
     finally:
         fetcher.TILE_SAMPLES = original
+
+
+def test_the_bridge_reads_only_the_channels_of_the_capture(bridge):
+    from openscilab.driver.rigoldho.fetcher import channel_list
+
+    assert channel_list([0, 1, 2, 3, 7, 9, 10], [1]) == "D0-D3,D7,D9-D10,CH2"
+    assert channel_list([], [0, 3]) == "CH1,CH4"
+    # the other logic channels are off on the instrument: the bridge could not read them
+    session = make_session(channels=(3, 0, 5), pre=0, post=1000)
+    assert run(bridge, session).success
+    assert bridge.shell.snapshots[-1].meta["channels"] == "D0,D3,D5"
+
+
+def test_mixed_channels_at_different_rates_are_refused_by_the_bridge(bridge):
+    bridge.shell.la_rate = 2_000_000.0
+    result = run(bridge, make_session(channels=(0,), analog=(0,), pre=100, post=900))
+    assert not result.success and "sampled at different rates" in result.error
+
+
+def test_a_capture_stopped_while_the_bridge_reads_it_is_no_capture(bridge):
+    shell = bridge.shell
+    shell.snapshot_delay = 2.0
+    results = []
+    assert bridge.start_capture(make_session(channels=(0,), pre=0, post=1000), results.append) == CaptureError.NONE
+    assert shell.snapshot_started.wait(5)
+    started = time.monotonic()
+    assert bridge.stop_capture()
+    assert time.monotonic() - started < 1.5  # not until the bridge is done
+    assert not bridge.is_capturing
+    assert bridge.start_capture(make_session(channels=(0,), pre=0, post=1000)) == CaptureError.BUSY
+    bridge._thread.join(10)
+    assert results == []  # stopped: no capture reported
+    shell.snapshot_delay = 0.0
+    assert run(bridge, make_session(channels=(0,), pre=0, post=1000)).success
 
 
 # ---------------------------------------------------------------- generator

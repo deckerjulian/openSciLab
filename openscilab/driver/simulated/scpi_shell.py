@@ -7,13 +7,16 @@
 """A simulated Rigol DHO900 on a local TCP port: its SCPI server and, optionally, the bridge app.
 
 :class:`ScpiShell` answers the commands of :data:`openscilab.driver.rigoldho.scpi.COMMANDS` with
-the device model of the simulator profile ``dho924s``: ``:SINGle`` captures, ``:WAVeform:DATA?``
-returns its samples (digital channels one byte per sample, analog channels 8 bit raw), the
-generator drives CH1. With ``bridge=True`` it also answers the ``:BRIDge`` commands of
-``docs/protocols.md`` (snapshot cache, overviews, compressed tiles). Unknown commands go to the
-error queue and get no answer, as on the instrument. Not simulated: edge triggers on the analog
-channels (refused with a settings conflict) and the logic thresholds (stored and reported only:
-the digital channels read 1 above half of the logic level).
+the device model of the simulator profile ``dho924s``: ``:SINGle`` captures (the sweep becomes
+SINGLE: it waits for the trigger set up, ``:TFORce`` forces it), ``:WAVeform:DATA?`` returns its
+samples (digital channels one byte per sample, analog channels 8 bit raw), the generator drives
+CH1. With ``bridge=True`` it also answers the ``:BRIDge`` commands of ``docs/protocols.md``
+(snapshot cache, overviews, compressed tiles). Unknown commands go to the error queue and get no
+answer, as on the instrument. Not simulated: edge triggers on the analog channels (refused with a
+settings conflict) and the logic thresholds (stored and reported only: the digital channels read 1
+above half of the logic level). For tests: ``arm_delay`` (seconds the trigger status stays as it
+was after ``:SINGle``), ``snapshot_delay`` (seconds the bridge takes to read the acquisition),
+``la_rate`` (a sample rate of the logic channels of their own).
 
 Addresses: ``rigol-sim:direct`` and ``rigol-sim:bridge``.
 """
@@ -48,6 +51,8 @@ def _pattern(template: str) -> re.Pattern:
 
 
 PATTERNS = {name: _pattern(template) for name, template in scpi.COMMANDS.items()}
+#: the memory depths the instrument takes (points)
+DEPTHS = (1_000, 10_000, 100_000, 1_000_000, 10_000_000, 25_000_000, 50_000_000)
 FUNCTIONS = {"SINUSOID": waves.SINE, "SQUARE": waves.SQUARE, "RAMP": waves.TRIANGLE, "PULSE": waves.PULSE,
              "DC": waves.DC, "NOISE": waves.NOISE, "ARB": waves.ARBITRARY}
 
@@ -90,6 +95,14 @@ class ScpiShell:
         self.afg: dict[str, str] = {}
         self.snapshots: list[_Snapshot] = []
         self.cache_limit = 1 << 30
+        self.arm_delay = 0.0
+        self.snapshot_delay = 0.0
+        self.snapshot_started = threading.Event()
+        self.la_rate: Optional[float] = None
+        #: counts :SINGle, :RUN and :STOP: what a capture started before them reports is dropped
+        self.generation = 0
+        #: the capture waiting for its trigger: (session, digital channels, generation)
+        self._waiting: Optional[tuple] = None
         self._numbers = itertools.count(1)
         shell = self
 
@@ -145,11 +158,15 @@ class ScpiShell:
         if name == "clear":
             self.errors.clear()
         elif name in ("run", "stop"):
+            self.generation += 1
+            self._waiting = None
             if name == "stop" and self.device.is_capturing:
                 self.device.stop_capture()
             self.status = "STOP" if name == "stop" else "RUN"
         elif name == "single":
             self._single()
+        elif name == "force":
+            self._force()
         elif name == "status":
             return self.status
         elif name == "la_state":
@@ -161,7 +178,11 @@ class ScpiShell:
         elif name == "channel":
             (self.analog_on.add if value.upper() in ("ON", "1") else self.analog_on.discard)(int(groups[0]) - 1)
         elif name == "memory_depth":
-            self.depth = int(float(value))
+            depth = scpi.parse_depth(value)
+            if depth in DEPTHS:
+                self.depth = depth
+            else:
+                self.errors.append('-224,"Illegal parameter value"')
         elif name == "memory_depth?":
             return str(self.depth)
         elif name == "sample_rate?":
@@ -190,7 +211,8 @@ class ScpiShell:
             self.window = (self.window[0], int(value))
         elif name == "wave_preamble?":
             points = self._points()
-            return (f"0,2,{points},1,{1 / self.rate:.9e},{-self.trigger_index / self.rate:.9e},0,"
+            rate = self.la_rate if self.la_rate and self.source.startswith("D") else self.rate
+            return (f"0,2,{points},1,{1 / rate:.9e},{-self.trigger_index / rate:.9e},0,"
                     f"{Y_INC:.9e},0,{Y_REF:g}")
         elif name == "wave_data?":
             values = self._source_values()
@@ -216,6 +238,33 @@ class ScpiShell:
 
     # --------------------------------------------------------------- capture
     def _single(self) -> None:
+        self.trigger["sweep"] = "SINGLE"  # as on the instrument: whatever the sweep was
+        self.generation += 1
+        self._waiting = None
+        if self.arm_delay > 0:
+            # an instrument slow to take the capture up: the status stays as it was meanwhile
+            timer = threading.Timer(self.arm_delay, self._arm, args=(self.generation,))
+            timer.daemon = True
+            timer.start()
+            return
+        self._arm(self.generation)
+
+    def _arm(self, generation: int) -> None:
+        with self.lock:
+            if generation == self.generation:
+                self._in_thread(self._take_up, generation)
+
+    def _in_thread(self, function, *arguments) -> None:
+        """``function`` in a thread of the shell: an error goes to the error queue, as in :meth:`handle`."""
+        try:
+            function(*arguments)
+        except Exception as error:  # noqa: BLE001 - an error of the simulation: in the queue
+            log.debug("Simulated DHO: %s failed: %s", function.__name__, error)
+            self.errors.append(f'-200,"{error}"')
+            self._waiting = None
+            self.status = "STOP"
+
+    def _take_up(self, generation: int) -> None:
         total = self.depth
         rate = min(total / max(self.scale * scpi.DIVISIONS, 1e-12), float(self.device.max_frequency))
         session = CaptureSession(frequency=max(int(round(rate)), 1))
@@ -228,9 +277,7 @@ class ScpiShell:
         session.capture_channels = [AnalyzerChannel(channel_number=number) for number in numbers]
         session.analog_channels = [AnalogChannel(channel_number=number) for number in sorted(self.analog_on)]
         mode = self.trigger["mode"]
-        if self.trigger["sweep"] == "AUTO":
-            session.trigger_type = TriggerType.IMMEDIATE
-        elif mode == "EDGE" and not self.trigger["source"].startswith("D"):
+        if mode == "EDGE" and not self.trigger["source"].startswith("D"):
             # (the instrument triggers on its analog channels too; the simulator does not)
             self.errors.append(f'-221,"Settings conflict: the simulator triggers on D0-D15 only, not on '
                                f'{self.trigger["source"]}"')
@@ -260,18 +307,49 @@ class ScpiShell:
         else:
             session.trigger_type = TriggerType.IMMEDIATE
         self.status = "WAIT"
+        self._waiting = (session, numbers, generation)
+        self._start(session, numbers, generation)
+
+    def _start(self, session: CaptureSession, numbers: list[int], generation: int) -> None:
         self.rate = session.frequency
-        error = self.device.start_capture(session, lambda args: self._captured(args, numbers))
+        error = self.device.start_capture(session, lambda args: self._captured(args, numbers, generation))
         if error != CaptureError.NONE:
             self.errors.append(f'-221,"Settings conflict: {error.value}"')
+            self._waiting = None
             self.status = "STOP"
 
-    def _captured(self, args, numbers: list[int]) -> None:
+    def _force(self) -> None:
+        """``:TFORce``: the capture waiting for its trigger is taken at once."""
+        if self.status != "WAIT" or self._waiting is None:
+            return
+        session, numbers, generation = self._waiting
+        self._waiting = None
+        self.device.stop_capture()
+        forced = CaptureSession(frequency=session.frequency, pre_trigger_samples=session.pre_trigger_samples,
+                                post_trigger_samples=session.post_trigger_samples)
+        forced.capture_channels = [AnalyzerChannel(channel_number=item.channel_number)
+                                   for item in session.capture_channels]
+        forced.analog_channels = [AnalogChannel(channel_number=item.channel_number) for item in session.analog_channels]
+        forced.trigger_type = TriggerType.IMMEDIATE
+
+        def restart() -> None:
+            deadline = time.monotonic() + 5.0
+            while self.device.is_capturing and time.monotonic() < deadline:
+                time.sleep(0.005)  # (the waiting capture ends)
+            with self.lock:
+                if generation == self.generation and self.status == "WAIT":  # (not done meanwhile)
+                    self._in_thread(self._start, forced, numbers, generation)
+
+        threading.Thread(target=restart, name="openscilab-dho-shell-force", daemon=True).start()
+
+    def _captured(self, args, numbers: list[int], generation: int) -> None:
         with self.lock:
             session = args.session
+            if generation != self.generation:
+                return  # stopped, or another capture since
             if not args.success:
-                self.status = "STOP"
-                return
+                return  # no trigger within the simulator's search: the instrument would still wait
+            self._waiting = None
             words = np.zeros(session.pre_trigger_samples + session.post_trigger_samples, dtype=np.uint16)
             for channel in session.capture_channels:
                 if channel.channel_number in self.digital_on and self.la_on:
@@ -378,8 +456,25 @@ class ScpiShell:
         return item.analog[int(name.upper().replace("CH", "")) - 1]
 
     def _snapshot(self, arguments: list[str]) -> str:
+        self.snapshot_started.set()
+        if self.snapshot_delay > 0:
+            time.sleep(self.snapshot_delay)  # (the app reading a long acquisition)
         if self.status != "STOP" or (self.data_digital is None and not self.data_analog):
             return "ERR no stopped acquisition"
+        bits = []
+        for name in arguments:
+            match = re.fullmatch(r"D(\d+)(?:-D?(\d+))?", name.upper())
+            if match:
+                bits += range(int(match.group(1)), int(match.group(2) or match.group(1)) + 1)
+        off = [bit for bit in bits if not self.la_on or bit not in self.digital_on]
+        if off:
+            # the app reads every channel on its own: one that is off has no data
+            return f"ERR asked for {self._points()} points from 1, got 0 (D{off[0]} is off)"
+        channels = [name.upper() for name in arguments if name.upper().startswith("CH")]
+        if bits and channels and self.la_rate and self.la_rate != self.rate:
+            return (f"ERR the channels were sampled at different rates or triggers (D{bits[0]}: {self.la_rate:g} "
+                    f"Sa/s, trigger at {self.trigger_index}; {channels[0]}: {self.rate:g} Sa/s, trigger at "
+                    f"{self.trigger_index}); snapshot them separately")
         points = self._points()
         meta = {"points": points, "rate": f"{self.rate:g}", "trigger": self.trigger_index,
                 "channels": ",".join(arguments)}
@@ -392,7 +487,8 @@ class ScpiShell:
                     meta[f"CH{number + 1}.yinc"] = f"{Y_INC:.9e}"
                     meta[f"CH{number + 1}.yorig"] = "0"
                     meta[f"CH{number + 1}.yref"] = f"{Y_REF:g}"
-        digital = self.data_digital if any(name.upper().startswith("D") for name in arguments) else None
+        mask = np.uint16(sum(1 << bit for bit in set(bits)))
+        digital = self.data_digital & mask if bits and self.data_digital is not None else None
         item = _Snapshot(next(self._numbers), digital, analog, meta)
         self.snapshots.append(item)
         return item.id

@@ -4,11 +4,13 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""Driver for the Rigol DHO900 oscilloscopes (DHO924S): 16 logic channels D0–D15, four analog
-channels CH1–CH4 and the built-in generator.
+"""Driver for the Rigol DHO900 oscilloscopes (DHO914, DHO914S, DHO924, DHO924S): 16 logic
+channels D0–D15, four analog channels CH1–CH4 and, on the S models, the built-in generator.
 
 A capture: thresholds → channels → memory depth and time base → trigger → ``:SINGle`` → the
-trigger status until ``STOP`` → the data. With the bridge app on the instrument (port 5560,
+trigger status until the instrument has taken the capture up (``WAIT``, ``RUN``, ``TD``) and
+then shows ``STOP`` → the data. ``:SINGle`` makes the sweep SINGLE, so a capture without trigger
+is forced (``:TFORce``) once it waits. With the bridge app on the instrument (port 5560,
 ``docs/protocols.md``) the data arrive progressively: the capture is complete at once with an
 overview of every channel and the samples follow tile by tile (:mod:`.fetcher`). Without it the
 driver reads ``:WAVeform:DATA?`` block by block from the instrument's own server (port 5555).
@@ -17,8 +19,10 @@ driver reads ``:WAVeform:DATA?`` block by block from the instrument's own server
 from __future__ import annotations
 
 import logging
+import re
 import threading
 import time
+from dataclasses import dataclass
 from typing import Optional
 
 import numpy as np
@@ -52,8 +56,59 @@ DEPTH_DIGITAL = 31_250_000
 DEPTH_ANALOG = {1: 25_000_000, 2: 25_000_000, 3: 10_000_000, 4: 10_000_000}
 #: seconds between two looks at the trigger status
 STATUS_INTERVAL_S = 0.05
+#: seconds between two looks while the instrument takes the capture up (``:SINGle``)
+ARM_INTERVAL_S = 0.005
+#: seconds the instrument may take to show that it took a capture up
+ARM_TIMEOUT_S = 10.0
 #: seconds a capture waits for its trigger at most
 TRIGGER_TIMEOUT_S = 3600.0
+#: seconds :meth:`RigolDhoDriver.stop_capture` waits for the connection (busy while data arrive)
+STOP_WAIT_S = 0.5
+#: trigger states of a capture taken up: running, waiting for the trigger, triggered
+ARMED_STATES = ("RUN", "WAIT", "TD", "AUTO")
+#: the DHO900 models this driver knows (see :func:`model_features`)
+KNOWN_MODELS = "DHO914, DHO914S, DHO924, DHO924S"
+
+
+@dataclass(frozen=True)
+class ModelFeatures:
+    analog: int
+    digital: int
+    generator: bool
+
+
+def model_features(model: str) -> Optional[ModelFeatures]:
+    """What a model has: DHO800 (DHO802, DHO804, DHO812, DHO814): 2 or 4 analog channels, no logic
+    analyzer and no generator; DHO900 (DHO914, DHO924): 4 analog and 16 logic channels, the S
+    models also the generator. ``None`` for any other model."""
+    name = model.strip().upper()
+    match = re.fullmatch(r"DHO8[01]([24])", name)
+    if match:
+        return ModelFeatures(analog=int(match.group(1)), digital=0, generator=False)
+    match = re.fullmatch(r"DHO9[12]4(S?)", name)
+    if match:
+        return ModelFeatures(analog=4, digital=16, generator=bool(match.group(1)))
+    return None
+
+
+def same_timing(sources: list[tuple[str, dict[str, float]]]) -> tuple[int, int]:
+    """Points and trigger sample of a capture from the preambles of its sources (name, preamble).
+    One capture has one rate: sources sampled at different rates or with the trigger elsewhere
+    (the logic channels beside the analog ones) are refused rather than shown out of step."""
+    def timing(preamble: dict[str, float]) -> tuple[float, int]:
+        if not preamble["xinc"]:
+            return 0.0, 0
+        return 1.0 / preamble["xinc"], round(preamble["xref"] - preamble["xorig"] / preamble["xinc"])
+
+    first_name, first = sources[0]
+    rate, trigger = timing(first)
+    for name, preamble in sources[1:]:
+        other_rate, other_trigger = timing(preamble)
+        if abs(other_rate - rate) > 1e-6 * max(rate, other_rate) or abs(other_trigger - trigger) > 1:
+            raise ScpiError(f"{name} has {other_rate:g} Sa/s (trigger at sample {other_trigger}), {first_name} "
+                            f"{rate:g} Sa/s (trigger at sample {trigger}): one capture cannot hold both, capture "
+                            "them separately")
+    return min(int(preamble["points"]) for _, preamble in sources), trigger
 
 
 class RigolDhoDriver(AnalyzerDriverBase):
@@ -77,6 +132,13 @@ class RigolDhoDriver(AnalyzerDriverBase):
         self.model = parts[1]
         self.serial = parts[2] if len(parts) > 2 else ""
         self.firmware = parts[3] if len(parts) > 3 else ""
+        features = model_features(self.model)
+        if features is None or not features.digital:
+            self.connection.close()
+            reason = "has no logic analyzer" if features else "is a model openSciLab does not know"
+            raise DeviceConnectionError(f"The Rigol {self.model} at {host} {reason}; openSciLab works with the "
+                                        f"DHO900 series ({KNOWN_MODELS}).")
+        self.features = features
         self._capturing = False
         self._abort = threading.Event()
         self._thread: Optional[threading.Thread] = None
@@ -163,13 +225,15 @@ class RigolDhoDriver(AnalyzerDriverBase):
 
     def capabilities(self) -> frozenset[str]:
         items = {CAPABILITY_IMMEDIATE_TRIGGER, CAPABILITY_THRESHOLD, f"{CAPABILITY_PATTERN_GROUPS}0-15",
-                 f"ANALOG={len(ANALOG)}", CAPABILITY_AFG}
+                 f"ANALOG={self.features.analog}"}
+        if self.features.generator:
+            items.add(CAPABILITY_AFG)
         if self.uses_bridge:
             items.add(CAPABILITY_PROGRESSIVE)
         return frozenset(items)
 
     def analog_channel_names(self) -> list[str]:
-        return list(ANALOG)
+        return ANALOG[:self.features.analog]
 
     def describe(self) -> list[DeviceSection]:
         rows = [("Model", self.model), ("Serial number", self.serial or "-"), ("Firmware", self.firmware or "-"),
@@ -201,12 +265,14 @@ class RigolDhoDriver(AnalyzerDriverBase):
     # --------------------------------------------------------------- capture
     def start_capture(self, session: CaptureSession,
                       completed_handler: Optional[CaptureCompletedHandler] = None) -> CaptureError:
-        if self._capturing:
-            return CaptureError.BUSY
+        thread = self._thread
+        if self._capturing or (self._abort.is_set() and thread is not None and thread.is_alive()
+                               and thread is not threading.current_thread()):
+            return CaptureError.BUSY  # (also a stopped capture whose thread still waits for its data)
         numbers = session.channel_numbers
         analog = sorted({channel.channel_number for channel in session.analog_channels})
-        if (not numbers and not analog) or any(not 0 <= n < 16 for n in numbers) \
-                or any(not 0 <= n < 4 for n in analog) or session.loop_count:
+        if (not numbers and not analog) or any(not 0 <= n < self.features.digital for n in numbers) \
+                or any(not 0 <= n < self.features.analog for n in analog) or session.loop_count:
             return CaptureError.BAD_PARAMS
         total = session.pre_trigger_samples + session.post_trigger_samples
         depth = self.memory_depth(len(numbers), len(analog)) or DEPTH_DIGITAL
@@ -219,12 +285,13 @@ class RigolDhoDriver(AnalyzerDriverBase):
             self._configure(session, numbers, analog, total)
             self.connection.write(command("single"))
         except ScpiError as error:
-            log.debug("Configuring the DHO failed: %s", error)
+            log.warning("Configuring the DHO failed: %s", error)
             return CaptureError.HARDWARE_ERROR
         self._capturing = True
         self._abort = threading.Event()
+        force = session.trigger_type == TriggerType.IMMEDIATE
         self._thread = threading.Thread(target=self._run, args=(session, numbers, analog, completed_handler,
-                                                                self._abort), name="openscilab-dho", daemon=True)
+                                                                self._abort, force), name="openscilab-dho", daemon=True)
         self._thread.start()
         return CaptureError.NONE
 
@@ -237,18 +304,22 @@ class RigolDhoDriver(AnalyzerDriverBase):
         if session.threshold_voltage is not None:
             for pod in (1, 2):
                 write(command("la_threshold", n=pod, value=f"{session.threshold_voltage:g}"))
-        for index in range(4):
+        for index in range(self.features.analog):
             write(command("channel", n=index + 1, value="ON" if index in analog else "OFF"))
         # the instrument has fixed memory depths: the smallest that holds the capture, over the time
         # that gives the rate asked for (the capture then has more samples than asked for)
         depth = next((value for value in scpi.MEMORY_DEPTHS if value >= total), scpi.MEMORY_DEPTHS[-1])
-        write(command("memory_depth", value=depth))
+        write(command("memory_depth", value=scpi.depth_text(depth)))
+        answer = self.connection.query(command("memory_depth?"))
+        if scpi.parse_depth(answer) != depth:
+            raise ScpiError(f"the memory depth is {answer} instead of {scpi.depth_text(depth)}: "
+                            + "; ".join(self.connection.errors() or ["the instrument says nothing more"]))
         write(command("timebase_scale", value=f"{depth / session.frequency / scpi.DIVISIONS:.6e}"))
         # the trigger is at the centre of the screen; the offset moves it to the pre-trigger samples
         write(command("timebase_offset", value=f"{(depth / 2 - session.pre_trigger_samples) / session.frequency:.6e}"))
         kind = session.trigger_type
         if kind == TriggerType.IMMEDIATE:
-            write(command("trigger_sweep", value="AUTO"))
+            pass  # :SINGle makes the sweep SINGLE whatever it was: the capture is forced (_wait_for_trigger)
         elif kind == TriggerType.EDGE:
             write(command("trigger_mode", value="EDGE"))
             write(command("edge_source", value=f"D{session.trigger_channel}"))
@@ -269,18 +340,39 @@ class RigolDhoDriver(AnalyzerDriverBase):
         if errors:
             log.warning("The DHO reported while configuring: %s", "; ".join(errors))
 
-    def _wait_for_trigger(self, abort: threading.Event) -> bool:
-        deadline = time.monotonic() + TRIGGER_TIMEOUT_S
-        while not abort.wait(STATUS_INTERVAL_S):
-            if self.connection.query(command("status")).upper().startswith("STOP"):
-                return True
+    def _wait_for_trigger(self, abort: threading.Event, force: bool = False) -> bool:
+        """``True`` once the capture is done, ``False`` when it was stopped.
+
+        Before ``:SINGle`` the instrument was stopped as well (``_configure``), so ``STOP`` counts
+        only after it showed that it took the capture up (``RUN``, ``WAIT``, ``TD``): it is looked
+        at at once and then every few milliseconds. A capture done before the first look cannot be
+        told from the one before; it fails after :data:`ARM_TIMEOUT_S` instead of returning old
+        data. ``force`` (no trigger): ``:TFORce`` while it waits for the trigger."""
+        now = time.monotonic()
+        deadline, arm_deadline = now + TRIGGER_TIMEOUT_S, now + ARM_TIMEOUT_S
+        armed = False
+        interval = 0.0  # the first look at once: the instrument answers it after :SINGle
+        while not abort.wait(interval):
+            status = self.connection.query(command("status")).strip().upper()
+            if status.startswith(ARMED_STATES):
+                armed = True
+                if force and status.startswith(("WAIT", "RUN")):
+                    self.connection.write(command("force"))  # (again at the next look if it came too early)
+            elif status.startswith("STOP"):
+                if armed:
+                    return True
+                if time.monotonic() > arm_deadline:
+                    found = self.connection.errors()
+                    raise ScpiError("the oscilloscope did not take the capture up (its trigger status stayed STOP"
+                                    + (f": {'; '.join(found)})" if found else ")"))
             if time.monotonic() > deadline:
                 raise ScpiError("no trigger came")
+            interval = STATUS_INTERVAL_S if armed else ARM_INTERVAL_S
         return False
 
-    def _run(self, session, numbers, analog, handler, abort: threading.Event) -> None:
+    def _run(self, session, numbers, analog, handler, abort: threading.Event, force: bool = False) -> None:
         try:
-            if not self._wait_for_trigger(abort):
+            if not self._wait_for_trigger(abort, force):
                 return  # stopped
             rate = float(self.connection.query(command("sample_rate?")))
             session.frequency = int(round(rate))
@@ -289,6 +381,8 @@ class RigolDhoDriver(AnalyzerDriverBase):
 
                 self._fetcher = BridgeFetcher(self, session, numbers, analog)
                 self._fetcher.prepare()
+                if abort.is_set():
+                    return  # stopped while the bridge read the acquisition: not a capture
                 self._capturing = False
                 self._raise_capture_completed(CaptureCompletedArgs(success=True, session=session), handler)
                 self._fetcher.start()
@@ -327,16 +421,21 @@ class RigolDhoDriver(AnalyzerDriverBase):
         return data, preamble
 
     def _read_direct(self, session, numbers, analog, abort) -> None:
-        preamble: dict[str, float] = {}
+        sources = []  # (name, preamble)
         for channel in session.capture_channels:
             values, preamble = self._read_source(f"D{channel.channel_number}", abort)
             channel.samples = (values != 0).astype(np.uint8)
+            sources.append((f"D{channel.channel_number}", preamble))
         for channel in session.analog_channels:
             values, preamble = self._read_source(f"CHANnel{channel.channel_number + 1}", abort)
             self.set_analog(channel, values, preamble["yinc"], preamble["yorig"], preamble["yref"])
-        if preamble:
-            points = int(preamble["points"])
-            trigger = int(round(preamble["xref"] - preamble["xorig"] / preamble["xinc"])) if preamble["xinc"] else 0
+            sources.append((ANALOG[channel.channel_number], preamble))
+        if sources:
+            points, trigger = same_timing(sources)
+            for channel in session.capture_channels:
+                channel.samples = channel.samples[:points]
+            for channel in session.analog_channels:
+                channel.raw = channel.raw[:points]
             session.pre_trigger_samples = min(max(trigger, 0), points)
             session.post_trigger_samples = points - session.pre_trigger_samples
         session.bursts = None
@@ -358,10 +457,19 @@ class RigolDhoDriver(AnalyzerDriverBase):
             return False
         self._abort.set()
         self._capturing = False
+        # While the capture thread waits for the trigger, the connection is free between two looks
+        # at the status. Once the data arrive it is busy for long (through the bridge up to
+        # fetcher.SNAPSHOT_TIMEOUT_S), but the acquisition has stopped by then: no :STOP needed,
+        # and the thread drops what it reads.
+        lock = self.connection.lock
+        if not lock.acquire(timeout=STOP_WAIT_S):
+            return True
         try:
             self.connection.write(command("stop"))
         except ScpiError:
             pass
+        finally:
+            lock.release()
         thread = self._thread
         if thread is not None and thread is not threading.current_thread():
             thread.join(2)
@@ -384,7 +492,8 @@ class RigolDhoDriver(AnalyzerDriverBase):
         if self._facets is None:
             from .generator import DhoCache, DhoGenerator
 
-            self._facets = [DhoGenerator(self)] + ([DhoCache(self)] if self.uses_bridge else [])
+            self._facets = (([DhoGenerator(self)] if self.features.generator else [])
+                            + ([DhoCache(self)] if self.uses_bridge else []))
         return list(self._facets)
 
     def dispose(self) -> None:

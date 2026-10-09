@@ -39,8 +39,18 @@ SNAPSHOT_TIMEOUT_S = 600.0
 
 
 def channel_list(numbers: list[int], analog: list[int]) -> str:
-    items = (["D0-D15"] if numbers else []) + [f"CH{number + 1}" for number in analog]
-    return ",".join(items)
+    """The channels of ``:BRIDge:SNAPshot``: only those of the capture (the others are off on the
+    instrument), digital ones in ranges: ``D0-D3,D7,CH2``."""
+    items = []
+    digital = sorted(set(numbers))
+    index = 0
+    while index < len(digital):
+        end = index
+        while end + 1 < len(digital) and digital[end + 1] == digital[end] + 1:
+            end += 1
+        items.append(f"D{digital[index]}" if end == index else f"D{digital[index]}-D{digital[end]}")
+        index = end + 1
+    return ",".join(items + [f"CH{number + 1}" for number in analog])
 
 
 class BridgeFetcher:

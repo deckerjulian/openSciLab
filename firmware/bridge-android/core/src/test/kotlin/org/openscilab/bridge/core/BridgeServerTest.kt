@@ -2,13 +2,16 @@ package org.openscilab.bridge.core
 
 import java.io.BufferedInputStream
 import java.io.ByteArrayOutputStream
+import java.io.IOException
 import java.io.InputStream
+import java.io.OutputStream
 import java.net.Socket
 import java.nio.file.Files
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 
 /** The whole bridge on a plain JVM: client -> BridgeServer -> FakeDho. */
@@ -115,6 +118,60 @@ class BridgeServerTest {
         assertEquals("OK", query(":BRIDge:CACHe:LIMit 1000000"))
         assertEquals("OK", query(":BRIDge:CACHe:DELete ALL"))
         assertEquals("", query(":BRIDge:CACHe:LIST?"))
+    }
+
+    @Test
+    fun snapshotOfSomeLogicChannels() {
+        // The host asks only for the channels of its capture; the others are off on the instrument.
+        assertEquals("1", query(":BRIDge:SNAPshot D0,D3,D5"))
+        val meta = query(":BRIDge:META? 1").split(';').associate { it.substringBefore('=') to it.substringAfter('=') }
+        assertEquals("D0,D3,D5", meta["channels"])
+        assertEquals("5000", meta["trigger"])
+        val words = IntArray(points) { dho.digitalWord(it, listOf(0, 3, 5)) }
+        assertContentEquals(words, TileCodec.decodeDigital(block(":BRIDge:TILE? 1,D,0,$points")))
+        val sources = dho.received.filter { it.startsWith(":WAVeform:SOURce") }.toSet()
+        assertEquals(setOf(":WAVeform:SOURce D0", ":WAVeform:SOURce D3", ":WAVeform:SOURce D5"), sources)
+    }
+
+    @Test
+    fun logicAndAnalogChannelsAtDifferentRatesAreRefused() {
+        // twice the sample interval, the trigger at the same sample
+        dho.digitalPreamble = "0,2,$points,1,3.200000E-09,-1.600000E-05,0,1,0,0"
+        val answer = query(":BRIDge:SNAPshot D0-D3,CH1")
+        assertTrue(answer.startsWith("ERR the channels were sampled at different rates"), answer)
+        assertTrue("D0: 312500000 Sa/s" in answer && "CH1: 625000000 Sa/s" in answer, answer)
+        assertEquals("", query(":BRIDge:CACHe:LIST?"))
+        assertTrue(query(":BRIDge:SNAPshot D0-D3").toIntOrNull() != null)  // one kind alone is fine
+        assertEquals("hello", query(":TEST:ECHO? hello"))
+    }
+
+    @Test
+    fun aDamagedOverviewIsAnErrorBeforeItsBlock() {
+        assertEquals("1", query(":BRIDge:SNAPshot CH1"))
+        assertTrue(Pyramid.levelFile(java.io.File(root, "1"), "CH1", 9).delete())
+        assertTrue(query(":BRIDge:OVERview? 1,CH1,9").startsWith("ERR "))
+        assertEquals("hello", query(":TEST:ECHO? hello"))  // the connection is still in step
+    }
+
+    @Test
+    fun aBlockThatBreaksOffIsNoErrLine() {
+        val out = ByteArrayOutputStream()
+        assertFailsWith<BlockAborted> { writeBlock(out, 10) { it.write(ByteArray(4)); throw IOException("disk gone") } }
+        assertEquals(8, out.size())  // the header and what came: no ERR inside the block
+        assertFailsWith<BlockAborted> { writeBlock(ByteArrayOutputStream(), 10) { it.write(ByteArray(9)) } }
+        val good = ByteArrayOutputStream()
+        writeBlock(good, 3) { it.write(byteArrayOf(1, 2, 3)) }
+        assertContentEquals("#13".toByteArray() + byteArrayOf(1, 2, 3, '\n'.code.toByte()), good.toByteArray())
+
+        // The handler passes it on, so the session ends the connection.
+        assertEquals("1", query(":BRIDge:SNAPshot CH1"))
+        val failing = object : OutputStream() {
+            var written = 0
+            override fun write(b: Int) {
+                if (++written > 6) throw IOException("the client went away")
+            }
+        }
+        assertFailsWith<BlockAborted> { server.handler.handle(BridgeCommand.Tile(1, "CH1", 0, 100), failing) }
     }
 
     @Test
