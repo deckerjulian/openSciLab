@@ -54,6 +54,7 @@ document, a node or the device card offers follows from these strings and the fa
 | `WEB_CONTROL` | – | The device has a web page to control it live (`web_control_url`): *Web control* on its card. | – | – |
 | `REMOTE_SCREEN=` | `dho` | The screen of the device live, and touches on it (the *Front panel* tab; `dho`: the Web Control servers of the Rigol DHO900, ports 9002/9003). | – | – |
 | `RESTART` | – | The device restarts on request: outputs are released, it answers again on the same connection. | – | – |
+| `DEVICE_SETTINGS` | – | The device captures as set on itself (`CaptureSession.device_settings`): its own channels, rate, length and trigger, e.g. what was set on an oscilloscope's front panel (*Capture with these settings*). | – | – |
 <!-- /capabilities -->
 
 ## Pins
