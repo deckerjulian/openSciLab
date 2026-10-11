@@ -8,7 +8,7 @@ release is created by pushing a tag `v<version>` whose version has a section in 
 The project was called **PiPiLogicAnalyzer** up to version 7.2.0; as **openSciLab** it counts
 again from 0.1.
 
-## [Unreleased]
+## [0.1.0b2] - 2026-10-11
 
 ### Application
 

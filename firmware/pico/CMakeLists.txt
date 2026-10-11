@@ -109,7 +109,7 @@ pico_generate_pio_header(${PROJECT_NAME} ${CMAKE_CURRENT_LIST_DIR}/tx.pio)
 pico_set_program_name(openscilab_pico "openSciLab Pico")
 # openSciLab Pico 8, based on gusmanb's LogicAnalyzer 6.5. The version goes with the version of
 # the application (8.0.0).
-pico_set_program_version(openscilab_pico "0.1.0b1")
+pico_set_program_version(openscilab_pico "0.1.0b2")
 pico_set_program_url(openscilab_pico "https://github.com/deckerjulian/openSciLab")
 add_compile_definitions(FIRMWARE_VERSION="V8_0")
 # Protocol between this firmware and the application (commands, requests, responses). The

@@ -12,5 +12,5 @@ Based on and extending the LogicAnalyzer by Agustín Giménez Bernad (gusmanb),
 https://github.com/gusmanb/logicanalyzer.
 """
 
-__version__ = "0.1.0b1"
+__version__ = "0.1.0b2"
 __all__ = ["__version__"]

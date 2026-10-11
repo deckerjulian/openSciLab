@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "openscilab"
-version = "0.1.0b1"
+version = "0.1.0b2"
 description = "Open measurement and control lab: instruments, flows, panels, reports, a logic analyzer and simulated instruments"
 readme = "README.md"
 requires-python = ">=3.10"
