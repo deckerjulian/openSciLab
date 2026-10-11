@@ -60,6 +60,15 @@ EDIT_GRACE_S = 3.0
 MOVE_INTERVAL_S = 0.03
 
 
+def submit(executor: ThreadPoolExecutor, call: Callable, *arguments) -> None:
+    """``call`` in ``executor``, unless it was shut down (the panel was closed while a reading, a
+    write or a touch was still on its way back)."""
+    try:
+        executor.submit(call, *arguments)
+    except RuntimeError:
+        log.debug("Dropped %s: the panel is closed", getattr(call, "__name__", call))
+
+
 def screen_link(instrument: Instrument):
     """What shows the screen of ``instrument`` (``start``, ``stop``, ``touch``, ``touch_supported``,
     ``problem``), ``None`` when it has none. May ask the device (its address): not in the UI thread."""
@@ -169,7 +178,7 @@ class ScreenView(QWidget):
         point = self._screen_point(position)
         if link is None or not link.touch_supported or point is None:
             return
-        self._sender.submit(link.touch, kind, point[0], point[1])
+        submit(self._sender, link.touch, kind, point[0], point[1])
 
     def mousePressEvent(self, event) -> None:  # noqa: N802 - Qt
         if event.button() == Qt.LeftButton:
@@ -326,7 +335,7 @@ class SettingsPanel(QScrollArea):
                 values = error
             self._values_read.emit(values)
 
-        self._worker.submit(read)
+        submit(self._worker, read)
 
     def _show_values(self, values: Any) -> None:
         self._reading = False
@@ -396,7 +405,7 @@ class SettingsPanel(QScrollArea):
             except Exception as error:  # noqa: BLE001 - every way a device can fail to answer
                 self._value_set.emit(name, None, str(error))
 
-        self._worker.submit(write)
+        submit(self._worker, write)
 
     def _show_set(self, name: str, taken: Any, error: str) -> None:
         if error:
@@ -416,7 +425,7 @@ class SettingsPanel(QScrollArea):
             except Exception as error:  # noqa: BLE001 - every way a device can fail to answer
                 self._value_set.emit(name, None, str(error))
 
-        self._worker.submit(run)
+        submit(self._worker, run)
 
     def start(self) -> None:
         self.refresh()

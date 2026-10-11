@@ -191,9 +191,18 @@ def test_main_window_shows_a_stream_while_it_runs(application, monkeypatch, make
     signals, chunks = stream_data(samples)
     device.bulk_in = [b"\x55\x55\x55\x55" + bytes(508)] + chunks
     read = device.bulk_read
+    seen = []
+    # a stream takes its time; a fast one shows only its end. Not a fixed pace (a slow machine shows
+    # too few updates): after every eighth of the data the device waits until the view showed it
+    pauses = set(range(len(chunks) // 8, len(chunks), len(chunks) // 8))
+    reads = [0]
 
     def paced_read(endpoint, length, timeout_ms):
-        time.sleep(0.005)  # a stream takes its time; a fast one shows only its end
+        reads[0] += 1
+        if reads[0] in pauses:
+            shown, deadline = len(seen), time.monotonic() + 5
+            while len(seen) == shown and time.monotonic() < deadline:
+                time.sleep(0.002)
         return read(endpoint, length, timeout_ms)
 
     device.bulk_read = paced_read
@@ -201,7 +210,6 @@ def test_main_window_shows_a_stream_while_it_runs(application, monkeypatch, make
     window = make_dataview()
     try:
         window.use_instrument(window_shell(window).connect_entry(dslogic_devices.usb_entry(board.location)))
-        seen = []
         window.model.view_changed.connect(
             lambda: window.model.is_live and seen.append(
                 (True, window.model.sample_count, window.model.first_sample + window.model.visible_samples)
@@ -210,7 +218,7 @@ def test_main_window_shows_a_stream_while_it_runs(application, monkeypatch, make
         capture = session([0, 1], frequency=1_000_000, pre=0, post=samples,
                           acquisition_mode=ACQUISITION_STREAM, trigger_type=TriggerType.IMMEDIATE)
         window._begin_capture(capture)
-        deadline = time.monotonic() + 10
+        deadline = time.monotonic() + 60
         while time.monotonic() < deadline:
             application.processEvents()
             if not window.driver.is_capturing and window.model.session is capture:

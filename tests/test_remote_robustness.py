@@ -132,8 +132,8 @@ def test_a_server_that_never_greets_is_given_up_and_stop_ends_the_wait():
         assert wait_for(lambda: len(fake.accepted) >= 2, 5)  # (and tried again)
         dev.stop()
         dev.handshake_timeout = 60.0
+        count = len(fake.accepted)  # (before the start: its connection may be accepted at once)
         dev.start()
-        count = len(fake.accepted)
         assert wait_for(lambda: len(fake.accepted) > count, 5)
         time.sleep(0.05)
         started = time.monotonic()

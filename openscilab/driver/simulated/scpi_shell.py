@@ -139,6 +139,8 @@ class ScpiShell:
         self.snapshots: list[_Snapshot] = []
         self.cache_limit = 1 << 30
         self.arm_delay = 0.0
+        #: a capture was taken up and no status was asked since (see the status query)
+        self._taken_up_unseen = False
         self.snapshot_delay = 0.0
         self.snapshot_started = threading.Event()
         self.la_rate: Optional[float] = None
@@ -241,6 +243,12 @@ class ScpiShell:
         elif name == "force":
             self._force()
         elif name == "status":
+            if self._taken_up_unseen:
+                # the first look after the instrument took a capture up sees that it did (the DHO shows
+                # TD for a while; the simulator may have finished already, on a busy computer before it)
+                self._taken_up_unseen = False
+                if self.status == "STOP":
+                    return "TD"
             return self.status
         elif name == "la_state":
             self.la_on = value.upper() in ("ON", "1")
@@ -371,6 +379,7 @@ class ScpiShell:
         self.trigger["sweep"] = "SINGLE"  # as on the instrument: whatever the sweep was
         self.generation += 1
         self._waiting = None
+        self._taken_up_unseen = False
         if self.arm_delay > 0:
             # an instrument slow to take the capture up: the status stays as it was meanwhile
             timer = threading.Timer(self.arm_delay, self._arm, args=(self.generation,))
@@ -425,6 +434,7 @@ class ScpiShell:
         else:
             session.trigger_type = TriggerType.IMMEDIATE
         self.status = "WAIT"
+        self._taken_up_unseen = True
         self._waiting = (session, numbers, generation)
         self._start(session, numbers, generation)
 
