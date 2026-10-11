@@ -8,7 +8,8 @@
 #   are built when their sources exist (firmware/arduino, firmware/bridge-android).
 # * tag v* and manual runs (Actions -> Build -> Run workflow): everything, including the firmware
 #   and macOS (Intel); a tag creates a release (a pre-release for alpha, beta and rc versions).
-# A push that changes documentation alone starts no run; pull requests always run the tests.
+# A push that changes documentation alone starts no run (except docs/protocols.md, which tests
+# read); pull requests always run the tests.
 
 name: Build
 
@@ -16,7 +17,9 @@ on:
   push:
     branches: [main]
     tags: ["v*"]
-    paths-ignore: ["**/*.md", "docs/**", "LICENSE", ".vscode/**", "firmware/*/.vscode/**"]
+    # Documentation alone does not build - except docs/protocols.md, which tests read
+    # (tests/test_protocol_spec.py): a later pattern overrides an earlier one.
+    paths: ["**", "!**/*.md", "!docs/**", "!LICENSE", "!.vscode/**", "!firmware/*/.vscode/**", "docs/protocols.md"]
   # No paths-ignore here: a pull request that only changes documentation must still report the
   # "tests" check, otherwise it can never pass a required status check.
   pull_request:
