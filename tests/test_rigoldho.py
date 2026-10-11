@@ -14,7 +14,7 @@ import pytest
 from openscilab.core import waveform as waves
 from openscilab.core.instrument import Instrument, InstrumentError
 from openscilab.driver import discovery
-from openscilab.driver.base import CaptureError, DeviceConnectionError
+from openscilab.driver.base import CAPABILITY_DEVICE_SETTINGS, CaptureError, DeviceConnectionError
 from openscilab.driver.models import AnalogChannel, AnalyzerChannel, CaptureSession, TriggerType
 from openscilab.driver.rigoldho import beacon, scpi
 from openscilab.driver.simulated.scpi_shell import open_shell
@@ -193,13 +193,81 @@ def test_a_direct_capture_digital_and_analog(direct):
     assert result.success, result.error
     assert len(session.capture_channels[0].samples) == 10_000
     assert session.pre_trigger_samples == 1000 and session.post_trigger_samples == 9000
-    # D0 toggles every raw sample; captured with CH1, each is repeated once (LA_PERIOD_FACTOR) to
-    # line it up with the analog channels' finer time axis, so every *pair* toggles
-    pairs = session.capture_channels[0].samples[:10].reshape(-1, 2)
+    # the logic channels have half the analog rate (LA_PERIOD_FACTOR): D1 toggles every second analog
+    # sample, so every logic sample toggles, and each is repeated once to line it up with the analog
+    # channels' finer time axis: every *pair* toggles
+    pairs = session.capture_channels[1].samples[:10].reshape(-1, 2)
     assert np.all(pairs[:, 0] == pairs[:, 1]) and np.all(np.diff(pairs[:, 0].astype(int)) != 0)
     volts = session.analog_channels[0].raw * session.analog_channels[0].scale + session.analog_channels[0].offset
     assert volts.max() - volts.min() > 0.5 and -5 <= volts.min() and volts.max() <= 5  # the 1 kHz sine
     assert direct.shell.thresholds == {1: 1.4, 2: 1.4}
+
+
+def test_the_logic_channels_are_moved_in_line_with_the_analog_ones(direct, monkeypatch):
+    """Read out with an analog channel, the DHO924S gives the logic channels a few samples late or
+    early, by rate (scpi.LA_SKEW, measured): the driver moves them back; unmeasured rates stay."""
+    calls = []
+    shift = scpi.shift_samples
+    monkeypatch.setattr(scpi, "shift_samples", lambda samples, skew: calls.append(skew) or shift(samples, skew))
+    monkeypatch.setattr(scpi, "LA_SKEW", {})
+    plain = make_session(analog=(0,))
+    assert run(direct, plain).success
+    assert set(calls) == {0}
+    calls.clear()
+    monkeypatch.setattr(scpi, "LA_SKEW", {plain.frequency: 2})
+    moved = make_session(analog=(0,))
+    assert run(direct, moved).success and moved.frequency == plain.frequency
+    assert calls == [2] * len(moved.capture_channels)
+    assert all(len(channel.samples) == len(moved.analog_channels[0].raw) for channel in moved.capture_channels)
+    # alone, the logic channels are not read beside an analog one: nothing to line up
+    calls.clear()
+    assert run(direct, make_session(channels=(0, 1))).success and calls == []
+
+
+def test_a_capture_as_set_on_the_instrument(direct, monkeypatch):
+    """``session.device_settings``: nothing is set up, the channels that are on, the rate, depth and trigger
+    of the instrument make the capture (a capture after one set up by the driver: it took those over)."""
+    shell = direct.shell
+    for line in (":LA:ENABle ON", ":LA:DIGital:ENABle D1,ON", ":LA:DIGital:ENABle D4,ON", ":CHANnel2:DISPlay ON",
+                 ":CHANnel1:DISPlay OFF", ":ACQuire:MDEPth 100k", ":TIMebase:MAIN:SCALe 1e-3"):
+        shell.handle(line)
+    for index in range(16):
+        if index not in (1, 4):
+            shell.handle(f":LA:DIGital:ENABle D{index},OFF")
+    sent = []
+    handle = shell.handle
+    monkeypatch.setattr(shell, "handle", lambda line: (sent.append(line), handle(line))[1])
+    session = CaptureSession(device_settings=True)
+    session.capture_channels = [AnalyzerChannel(channel_number=4, channel_name="clock")]
+    assert CAPABILITY_DEVICE_SETTINGS in direct.capabilities()
+    assert run(direct, session).success
+    assert session.channel_numbers == [1, 4] and session.capture_channels[1].channel_name == "clock"
+    assert [channel.channel_number for channel in session.analog_channels] == [1]
+    assert session.pre_trigger_samples + session.post_trigger_samples == 100_000
+    assert session.frequency == 10_000_000
+    assert not any(line.startswith((":TIMebase", ":ACQuire:MDEPth ", ":LA:", ":CHANnel", ":TRIGger:"))
+                   and "?" not in line for line in sent)  # (only asked, nothing set)
+    # nothing on: refused with the reason
+    shell.handle(":LA:ENABle OFF")
+    shell.handle(":CHANnel2:DISPlay OFF")
+    result = run(direct, CaptureSession(device_settings=True))
+    assert not result.success and "no channel is on" in result.error
+
+
+def test_device_settings_are_kept_in_a_capture_file():
+    from openscilab.core import capture_io
+
+    session = CaptureSession(device_settings=True)
+    assert capture_io.session_from_dict(capture_io.session_to_dict(session)).device_settings
+    assert "DeviceSettings" not in capture_io.session_to_dict(CaptureSession())
+
+
+def test_shift_samples_and_skew():
+    samples = np.array([0, 0, 1, 1, 1, 0, 0, 0], dtype=np.uint8)
+    assert list(scpi.shift_samples(samples, 2)) == [1, 1, 1, 0, 0, 0, 0, 0]
+    assert list(scpi.shift_samples(samples, -2)) == [0, 0, 0, 0, 1, 1, 1, 0]
+    assert scpi.shift_samples(samples, 0) is samples
+    assert scpi.la_skew(6.25e6) == scpi.LA_SKEW[6_250_000] and scpi.la_skew(12.5e6) == 0
 
 
 def test_an_edge_trigger(direct):
@@ -220,8 +288,12 @@ def test_settings_beyond_the_instrument_are_refused(direct):
     assert direct.start_capture(session) == CaptureError.UNSUPPORTED
 
 
-def test_a_capture_without_trigger_can_be_stopped(direct):
-    session = make_session(channels=(0,), pre=10, post=990, rate=1000)
+def test_a_capture_without_trigger_can_be_stopped(fresh_direct):
+    from openscilab.driver.simulated.circuit import Constant
+
+    direct = fresh_direct
+    direct.shell.device.circuit.drive("D15", Constant(level=0.0))  # (the trigger never comes)
+    session = make_session(channels=(0,), pre=10, post=990, rate=100_000)
     session.trigger_type = TriggerType.EDGE
     session.trigger_channel = 15
     results = []
@@ -250,7 +322,7 @@ def test_a_capture_without_trigger_is_forced(fresh_direct):
     result = run(fresh_direct, make_session(channels=(0,), pre=100, post=900), seconds=5.0)
     assert result.success, result.error
     assert shell.trigger["sweep"] == "SINGLE"
-    assert len(result.session.capture_channels[0].samples) == 1000
+    assert len(result.session.capture_channels[0].samples) == 5000  # (half of the 10k memory that holds 2 x 1000)
 
 
 def test_a_capture_is_done_only_after_the_instrument_took_it_up(fresh_direct, monkeypatch):
@@ -260,9 +332,9 @@ def test_a_capture_is_done_only_after_the_instrument_took_it_up(fresh_direct, mo
     assert run(fresh_direct, make_session(channels=(0,), pre=100, post=900)).success
     # the instrument is slow to take the next capture up: its status stays STOP for a while
     shell.arm_delay = 0.3
-    result = run(fresh_direct, make_session(channels=(0,), pre=1000, post=9000))
+    result = run(fresh_direct, make_session(channels=(0,), pre=1000, post=9000, rate=10_000_000))
     assert result.success, result.error
-    assert len(result.session.capture_channels[0].samples) == 10_000  # not the 1000 of the one before
+    assert len(result.session.capture_channels[0].samples) == 50_000  # not the 5000 of the one before
     # one it never takes up fails instead of giving the samples of the one before
     shell.arm_delay = 0.0
     monkeypatch.setattr(module, "ARM_TIMEOUT_S", 0.3)
@@ -280,15 +352,15 @@ def test_the_memory_depth_is_set_by_name_and_read_back(fresh_direct, monkeypatch
     sent = []
     handle = shell.handle
     monkeypatch.setattr(shell, "handle", lambda line: (sent.append(line), handle(line))[1])
-    assert run(fresh_direct, make_session(channels=(0,), pre=1000, post=99_000)).success
+    assert run(fresh_direct, make_session(channels=(), analog=(0,), pre=1000, post=99_000)).success
     assert ":ACQuire:MDEPth 100k" in sent and shell.depth == 100_000
     # a depth the instrument does not take is skipped: the next larger one holds the capture
     monkeypatch.setattr(scpi, "MEMORY_DEPTHS", (1_000, 2_000, 10_000))
     sent.clear()
-    assert run(fresh_direct, make_session(channels=(0,), pre=0, post=1500)).success
+    assert run(fresh_direct, make_session(channels=(), analog=(0,), pre=0, post=1500)).success
     assert ":ACQuire:MDEPth 2k" in sent and shell.depth == 10_000 and not shell.errors
     # more samples than the instrument holds: refused with the reason
-    result = run(fresh_direct, make_session(channels=(0,), pre=0, post=20_000))
+    result = run(fresh_direct, make_session(channels=(), analog=(0,), pre=0, post=20_000))
     assert not result.success and "20000 samples are more than the 10000" in result.error
 
 
@@ -299,20 +371,42 @@ def test_firmware_that_takes_a_tenth_of_the_memory_depth(fresh_direct, monkeypat
     sent = []
     handle = shell.handle
     monkeypatch.setattr(shell, "handle", lambda line: (sent.append(line), handle(line))[1])
-    session = make_session(channels=(0,), pre=1000, post=99_000)
+    session = make_session(channels=(), analog=(0,), pre=1000, post=99_000)
     assert run(fresh_direct, session).success
     assert shell.depth == 100_000 and ":ACQuire:MDEPth 1M" in sent
-    assert len(session.capture_channels[0].samples) == 100_000
+    assert len(session.analog_channels[0].raw) == 100_000
     sent.clear()  # (the next capture asks only for the depth it needs)
-    assert run(fresh_direct, make_session(channels=(0,), pre=1000, post=99_000)).success
+    assert run(fresh_direct, make_session(channels=(), analog=(0,), pre=1000, post=99_000)).success
     assert [line for line in sent if line.startswith(":ACQuire:MDEPth ")] == [":ACQuire:MDEPth 1M"]
+
+
+def test_the_time_base_is_shortened_until_the_rate_asked_for_is_reached(fresh_direct, monkeypatch):
+    """The DHO924S (NK v0.5.2) spreads the depth over 16 divisions and has steps of rates: 10 MSa/s
+    over 100k points came out as 3 MSa/s (a 1 MHz wave read as a mess). The rate is read back."""
+    shell = fresh_direct.shell
+    shell.firmware_rates = True
+    sent = []
+    handle = shell.handle
+    monkeypatch.setattr(shell, "handle", lambda line: (sent.append(line), handle(line))[1])
+    session = make_session(channels=(), analog=(0,), pre=1000, post=99_000, rate=10_000_000)
+    assert run(fresh_direct, session).success
+    scales = [float(line.split()[-1]) for line in sent if line.startswith(":TIMebase:MAIN:SCALe ")]
+    assert len(scales) > 1  # (the first, 100k / 10 MSa/s / 10, gave less than asked for)
+    assert 10_000_000 <= session.frequency <= 20_000_000  # (a step of the rates, not below what was asked)
+    # the trigger offset is that of the rate the instrument gave
+    offsets = [float(line.split()[-1]) for line in sent if line.startswith(":TIMebase:MAIN:OFFSet ")]
+    assert offsets[-1] == pytest.approx((shell.depth / 2 - 1000) / session.frequency, rel=1e-4)
+    # a rate it gives at once costs no second look
+    sent.clear()
+    assert run(fresh_direct, make_session(channels=(), analog=(0,), pre=1000, post=99_000, rate=12_500_000)).success
+    assert len([line for line in sent if line.startswith(":TIMebase:MAIN:SCALe ")]) <= 2
 
 
 def test_a_small_capture_after_a_large_one(fresh_direct):
     """The read window of the large capture lies beyond the small one (the DHO refuses STARt and
     STOP then, and its preamble counts the window): every sample comes, no error is left."""
     shell = fresh_direct.shell
-    assert run(fresh_direct, make_session(channels=(), analog=(0,), pre=0, post=600_000), seconds=60).success
+    assert run(fresh_direct, make_session(channels=(), analog=(0,), pre=0, post=600_000, rate=10_000_000), seconds=60).success
     session = make_session(channels=(), analog=(0,), pre=100, post=900)
     assert run(fresh_direct, session).success
     assert len(session.analog_channels[0].raw) == 1000 and session.pre_trigger_samples == 100
@@ -335,9 +429,9 @@ def test_a_logic_channel_is_read_as_words(fresh_direct):
     shell = fresh_direct.shell
     session = make_session(channels=(0, 5), analog=(0,), pre=100, post=900)
     assert run(fresh_direct, session).success
-    # D0 toggles every raw sample; captured with CH1 each is repeated once (LA_PERIOD_FACTOR)
-    pairs = session.capture_channels[0].samples[:10].reshape(-1, 2)
-    assert np.all(pairs[:, 0] == pairs[:, 1]) and np.all(np.diff(pairs[:, 0].astype(int)) != 0)
+    # (the logic samples are repeated once, to line them up with the analog channels: in pairs)
+    pairs = session.capture_channels[0].samples[:64].reshape(-1, 2)
+    assert np.all(pairs[:, 0] == pairs[:, 1])
     assert set(np.unique(session.capture_channels[1].samples)) <= {0, 1}
     assert session.analog_channels[0].raw.max() > 0
     assert shell.wave_format == "BYTE"  # (the analog channel was read last)
@@ -347,19 +441,23 @@ def test_a_logic_channel_is_read_as_words(fresh_direct):
     assert not shell.handle(":WAVeform:DATA?")[11:].strip(b"\n").strip(b"\x00")  # BYTE: the upper byte, 0
 
 
-def test_the_sample_period_of_a_logic_channel_alone_is_twice_the_preambles(fresh_direct):
-    """A logic channel's preamble is computed as if it were sampled at the analog rate (measured
-    on the DHO924S): captured alone (no analog channel to line it up with), the rate of its
-    capture is half the preamble's, the real one. Trigger position comes from the same (otherwise
-    unmodified) preamble: its pre-trigger count ends up halved too (a known imprecision of a
-    logic-channel-alone capture - the requested split of pre/post is not exactly honoured, unlike
-    the total, :func:`same_timing`)."""
-    fresh_direct.shell.la_rate = 4_000_000.0
-    session = make_session(channels=(0,), pre=100, post=900)
+def test_logic_channels_alone_are_set_up_for_twice_the_rate_and_samples(fresh_direct):
+    """The DHO924S writes only the first half of the points it names for D0–D15, each at twice the
+    sample period its preamble reports; the other half is old memory (a 1 kHz wave showed 553 of its
+    800 edges and runs of 9299 samples when all of it was read). Captured alone, the instrument is set
+    up for twice the rate and samples, only the written half is read, and the capture has the rate,
+    the samples and the pre-trigger samples that were asked for."""
+    shell = fresh_direct.shell
+    session = make_session(channels=(2,), pre=100, post=900)
     result = run(fresh_direct, session)
     assert result.success, result.error
-    assert session.frequency == 2_000_000
-    assert session.pre_trigger_samples == 50 and len(session.capture_channels[0].samples) == 1000
+    assert shell.depth == 10_000  # (the smallest memory that holds 2 x 1000 points)
+    assert session.frequency == 1_000_000
+    assert session.pre_trigger_samples == 100 and len(session.capture_channels[0].samples) == 5000
+    samples = session.capture_channels[0].samples
+    # no stretch of old memory (the simulated one is all ones) at the end
+    changes = np.flatnonzero(np.diff(samples.astype(int)))
+    assert changes[-1] > len(samples) - 20 and np.diff(changes).max() < 20
 
 
 def test_a_logic_channel_captured_with_an_analog_one_is_not_halved(fresh_direct):
@@ -439,7 +537,7 @@ def test_a_bridge_capture_arrives_progressively(bridge):
         session = make_session(analog=(1,), pre=2000, post=18000)
         result = run(bridge, session)
         assert result.success and session.progressive is not None
-        overview = session.progressive.overviews[("d", 0)]
+        overview = session.progressive.overviews[("d", 1)]  # (D1: D0 toggles faster than a logic channel samples)
         low, high = overview.envelope(0, 20000, 10)
         assert low.min() == 0 and high.max() == 1  # shown at once from the overview
         session.progressive.prioritize(16000, 17000)
@@ -448,7 +546,7 @@ def test_a_bridge_capture_arrives_progressively(bridge):
         assert session.pre_trigger_samples + session.post_trigger_samples == 100_000
         assert session.frequency == 1_000_000 and session.pre_trigger_samples == 2000
         assert session.progressive.complete and len(tiles) == session.progressive.tile_count
-        assert np.all(np.diff(session.capture_channels[0].samples[:20].astype(int)) != 0)  # D0 toggles
+        assert np.all(np.diff(session.capture_channels[1].samples[:40:2].astype(int)) != 0)  # D1 toggles (each sample twice)
         volts = session.analog_channels[0].raw * session.analog_channels[0].scale + session.analog_channels[0].offset
         assert 1.0 < volts.max() - volts.min() < 10.0  # the 10 kHz square of CH2
         assert bridge.connection.query(":BRIDge:CACHe:LIST?").startswith("1,")
@@ -622,7 +720,7 @@ def test_the_device_card_lists_the_bridge_cache(shell):
     assert "Cache" in tabs
     assert run(driver, make_session(channels=(0,), pre=0, post=1000)).success
     card.cache_panel.refresh()
-    assert card.cache_panel.table.rowCount() == 1 and card.cache_panel.table.item(0, 2).text() == "1,000"
+    assert card.cache_panel.table.rowCount() == 1 and card.cache_panel.table.item(0, 2).text() == "5,000"
     card.cache_panel.table.selectRow(0)
     card.cache_panel.delete_selected()
     assert card.cache_panel.table.rowCount() == 0
@@ -648,3 +746,35 @@ def test_a_closed_connection_is_an_error_of_the_connection():
             transport.send(b"*IDN?\n", 0.1)
     finally:
         server.close()
+
+
+def test_a_rate_that_needs_the_roll_mode_is_refused_with_the_reason(direct):
+    # 100 kSa/s over a memory of 100k points is 100 ms/div: the DHO rolls from 50 ms/div and its
+    # trigger status stays STOP after :SINGle (measured), so the capture would only time out
+    result = run(direct, make_session(channels=(), analog=(0,), pre=0, post=100_000, rate=100_000))
+    assert not result.success and "rolls" in result.error and "above 200000 Sa/s" in result.error
+    assert run(direct, make_session(channels=(), analog=(0,), pre=0, post=100_000, rate=1_000_000)).success
+    # the logic channels alone are set up for twice the rate and samples: the same time per division
+    result = run(direct, make_session(channels=(0,), pre=0, post=100_000, rate=100_000))
+    assert not result.success and "rolls" in result.error
+
+
+def test_a_waveform_the_instrument_does_not_give_yet_is_waited_for(fresh_direct, monkeypatch):
+    """Just after the capture the DHO924S says STOP but answers :WAVeform:DATA? with an empty block
+    for a moment: that is no signal of zeros. The read tries again; if the waveform never comes, the
+    capture says so."""
+    from openscilab.driver.rigoldho import driver as module
+
+    shell = fresh_direct.shell
+    monkeypatch.setattr(module, "DATA_RETRY_S", 0.01)
+    shell.empty_reads = 3
+    session = make_session(channels=(), analog=(0,), pre=100, post=900)
+    assert run(fresh_direct, session).success
+    assert len(session.analog_channels[0].raw) == 1000 and session.analog_channels[0].raw.max() > 0
+    session = make_session(channels=(1,), pre=100, post=900)
+    shell.empty_reads = 2
+    assert run(fresh_direct, session).success and session.capture_channels[0].samples.max() == 1
+    monkeypatch.setattr(module, "DATA_ATTEMPTS", 3)
+    shell.empty_reads = 10
+    result = run(fresh_direct, make_session(channels=(), analog=(0,), pre=100, post=900))
+    assert not result.success and "gave 0 of the 1000 bytes of CHANnel1" in result.error

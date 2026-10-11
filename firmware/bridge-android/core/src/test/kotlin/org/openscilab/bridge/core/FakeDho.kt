@@ -31,6 +31,9 @@ class FakeDho(val points: Int) : Closeable {
     @Volatile
     var digitalPreamble: String? = null
 
+    /** The next this many `:WAVeform:DATA?` are answered with an empty block. */
+    val emptyReads = AtomicInteger()
+
     private val clients = ArrayList<java.net.Socket>()
 
     /** Closes the connections of its clients, as the DHO does when another client comes or goes. */
@@ -111,6 +114,12 @@ class FakeDho(val points: Int) : Closeable {
             )
             ":WAVEFORM:DATA?" -> {
                 dataQueries.incrementAndGet()
+                if (emptyReads.getAndUpdate { maxOf(it - 1, 0) } > 0) {
+                    // like the real device just after the capture: STOP, but no waveform yet
+                    out.write(ScpiBlock.header(0))
+                    out.write('\n'.code)
+                    return
+                }
                 val first = (start - 1).toInt()
                 val last = minOf(stop.toInt(), points)
                 val count = maxOf(0, last - first)
@@ -119,7 +128,9 @@ class FakeDho(val points: Int) : Closeable {
                 val data = ByteArray(count * if (word) 2 else 1)
                 for (i in 0 until count) {
                     val index = first + i
-                    val value = if (digital) digitalBit(source.removePrefix("D").toInt(), index)
+                    // like the real device, a logic channel holds its capture in the first half of
+                    // the points the preamble names (LA_PERIOD_FACTOR); the rest is old memory
+                    val value = if (digital) (if (index >= points / LA_PERIOD_FACTOR) 1 else digitalBit(source.removePrefix("D").toInt(), index))
                                else analog(source.removePrefix("CHANNEL").toInt(), index)
                     if (word) {
                         data[2 * i] = value.toByte()

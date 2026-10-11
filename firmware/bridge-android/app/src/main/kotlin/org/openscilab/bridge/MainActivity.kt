@@ -4,6 +4,7 @@
 package org.openscilab.bridge
 
 import android.app.Activity
+import android.content.Intent
 import android.graphics.Typeface
 import android.os.Bundle
 import android.os.Handler
@@ -54,6 +55,17 @@ class MainActivity : Activity() {
         layout.addView(buttons)
         layout.addView(status)
         setContentView(ScrollView(this).apply { addView(layout) })
+        startIfAsked(intent)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        startIfAsked(intent)
+    }
+
+    /** `am start -n org.openscilab.bridge/.MainActivity --ez start true` (openSciLab's installer): Start without a touch. */
+    private fun startIfAsked(intent: Intent?) {
+        if (intent?.getBooleanExtra(EXTRA_START, false) == true) BridgeService.start(this)
     }
 
     override fun onResume() {
@@ -106,5 +118,9 @@ class MainActivity : Activity() {
         )
         lines += "Cache folder: $root"
         return lines.joinToString("\n")
+    }
+
+    companion object {
+        const val EXTRA_START = "start"
     }
 }

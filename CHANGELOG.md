@@ -12,6 +12,14 @@ again from 0.1.
 
 ### Application
 
+- *Front panel* of an oscilloscope: *Open in a window* shows its screen (the Web Control stream) in a window of its
+  own, which keeps running while other tabs are shown; closing it puts the screen back. *Capture with these
+  settings* captures as set on the oscilloscope - the channels that are on, its time base, memory depth and trigger
+  (a new `CaptureSession.device_settings`, capability `DEVICE_SETTINGS`); *Again* repeats it that way.
+- *Device card of a Rigol DHO900*: when the bridge app is not running on the oscilloscope, the card offers to install
+  it (a banner; closed, it does not come back while the card is open), and *Details* has *Install bridge app...*
+  (*Update bridge app...* when it runs). openSciLab connects adb over the network (port 55555), installs the app,
+  starts it without a touch on the screen and connects again through it. Needs adb (Android platform tools).
 - *Capture settings*: the analog inputs are channels in the list beside the logic ones (with name
   and colour), no longer a row of small check boxes below it; the logic channels carry the names
   of the device (the Rigol: D0–D15, so they are not taken for its analog CH1–CH4). A device
@@ -287,6 +295,32 @@ again from 0.1.
     instrument refused a setting, and an error left from before was blamed on the waveform.
   - A DHO whose `*IDN?` names another maker (this one answers `NK TECHNOLOGIES`) is taken by its
     model; before, it was refused as "no Rigol instrument".
+  - Logic channels came out of this firmware with holes (a 1 kHz wave: 553 of its 800 edges, runs of 9299
+    samples): the instrument writes only the first half of the points it names for D0-D15, each at twice the
+    sample period its preamble reports; the other half is old memory. Only the written half is read now (the
+    bridge app too), and captured without analog channels the instrument is set up for twice the rate and
+    samples, so the capture has the rate, the samples and the pre-trigger samples that were asked for.
+    The bridge app on the instrument has to be updated.
+  - Just after a capture the DHO says STOP but answers `:WAVeform:DATA?` with an empty block for a moment: that
+    was read as a signal of zeros ("no data"); the driver and the bridge app try again, and a waveform that never
+    comes is an error with the bytes it gave.
+  - A rate that needs 50 ms/div or more (100 kSa/s over 100k points) is refused with the reason and the
+    lowest rate that works: from 50 ms/div the DHO rolls, `:SINGle` leaves its trigger status at STOP and
+    the capture only timed out ("did not take the capture up").
+  - A capture on the DHO924S (NK v0.5.2) came at a third of the rate asked for (10 MSa/s over 100k points:
+    3.1 MSa/s, a 1 MHz wave read as a mess): the instrument spreads the memory over about 16 divisions
+    instead of 10 (the logic analyzer on: twice that) and its rates are steps. The driver now reads the
+    rate back (``:ACQuire:SRATe?``, right only while the instrument runs) and shortens the time base until
+    it is not below the rate asked for; the trigger offset uses the rate the instrument gave.
+  - Captured together, the logic channels of the DHO924S came a few samples off the analog ones (up to
+    4 samples late at 1.25-6.25 MSa/s, 2 early at 31.25 MSa/s; its own screen shows them in line, aligned in
+    the FPGA's display path that the memory export does not go through). The driver and the bridge app move
+    them back by a measured table per rate; what remains is the instrument's own variation of about one
+    sample from capture to capture. The bridge app on the instrument has to be updated.
+  - The bridge app no longer stops the DHO's scope app right after the instrument starts: its `*IDN?`
+    came while the scope app was still starting, and the scope app ends itself on that (a firmware bug,
+    also in 00.01.05.00.02). The bridge now asks only once the instrument's SCPI port has answered for 30 s.
+    The bridge app on the instrument has to be updated.
   - A failed setup ends the capture with its reason (a trigger level, a depth the instrument
     does not have) instead of "Device reported an error starting the capture. Restart the device".
   - USB: no more `INITIATE_CLEAR` after a timeout; on the DHO it stopped the instrument from

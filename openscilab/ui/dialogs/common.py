@@ -20,6 +20,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QPushButton,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -124,9 +125,27 @@ class Banner(QFrame):
         self.button = QPushButton(self)
         self.button.setVisible(False)
         layout.addWidget(self.button, 0, Qt.AlignVCenter)
+        #: hides the banner (``set_closable``); ``closed`` is called after it
+        self.close_button = QToolButton(self)
+        self.close_button.setAutoRaise(True)
+        self.close_button.setToolTip("Not now")
+        set_icon(self.close_button, "close")
+        self.close_button.setVisible(False)
+        self.close_button.clicked.connect(self._close)
+        layout.addWidget(self.close_button, 0, Qt.AlignVCenter)
+        self.closed = None
 
     def set_message(self, text: str, button_text: Optional[str] = None) -> None:
         self.label.setText(text)
         self.button.setText(button_text or "")
         self.button.setVisible(bool(button_text))
         self.setVisible(bool(text))
+
+    def set_closable(self, closable: bool) -> None:
+        """Whether the banner has a close button (it then hides itself and calls ``closed``)."""
+        self.close_button.setVisible(closable)
+
+    def _close(self) -> None:
+        self.setVisible(False)
+        if self.closed is not None:
+            self.closed()

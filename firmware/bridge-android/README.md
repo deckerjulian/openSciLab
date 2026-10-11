@@ -60,7 +60,8 @@ adb shell am start -n org.openscilab.bridge/.MainActivity
 ## First run
 
 1. Open *openSciLab Bridge* (the `am start` above, or from the launcher) and press **Start**
-   (without a touch on the screen: `adb shell input tap 75 148`). The
+   (without a touch on the screen: `adb shell am start -n org.openscilab.bridge/.MainActivity --ez start true`;
+   openSciLab does this when it installs the app). The
    status shows the addresses, whether the instrument's SCPI server answers, model and serial,
    clients, beacons and the cache.
 2. Once started, the bridge comes back by itself after the oscilloscope reboots. **Stop** turns

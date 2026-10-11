@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import html
 import logging
+import os
 from collections import deque
 from typing import Optional
 
@@ -321,7 +322,8 @@ class DeviceDocument(DocumentWidget):
 
         if has_front_panel(instrument):
             self.front_panel = FrontPanelPage(
-                instrument, self, busy=lambda: self.controller is not None and self.controller.is_capturing)
+                instrument, self, busy=lambda: self.controller is not None and self.controller.is_capturing,
+                capture=self.capture_with_device_settings)
             self.tabs.insertTab(0, self.front_panel, icon("eye"), "Front panel")
             self.tabs.setCurrentIndex(0)
             self.tabs.currentChanged.connect(self._front_panel_shown)
@@ -431,6 +433,9 @@ class DeviceDocument(DocumentWidget):
         self.action_bootloader = QAction(icon("power"), "Restart into the bootloader...", self)
         self.action_bootloader.setToolTip("For a firmware update: the board appears as a USB drive")
         self.action_firmware = QAction(icon("chip"), "Update firmware...", self)
+        self.action_bridge = QAction(icon("import"), "Install bridge app...", self)
+        self.action_bridge.setToolTip("Install the openSciLab bridge app on the oscilloscope (with adb over the "
+                                      "network): captures are read on the instrument and come much faster")
         self.action_reconnect = QAction(icon("plug"), "Reconnect", self)
         self.action_reconnect.setToolTip("Close the connection and open it again (an Arduino restarts when its "
                                          "port is opened)")
@@ -438,7 +443,7 @@ class DeviceDocument(DocumentWidget):
         self.action_copy.setToolTip("Everything on this tab as text, e.g. for a bug report")
         self.device_actions = [self.action_settings, self.action_self_test, self.action_generated,
                                self.action_network, self.action_restart, self.action_bootloader,
-                               self.action_firmware, self.action_reconnect, self.action_copy]
+                               self.action_firmware, self.action_bridge, self.action_reconnect, self.action_copy]
         self.action_restart.triggered.connect(self.restart_device)
         self.action_reconnect.triggered.connect(lambda: self.reconnect_requested.emit(self.instrument))
         self.action_copy.triggered.connect(self.copy_details)
@@ -450,6 +455,7 @@ class DeviceDocument(DocumentWidget):
             self.action_bootloader.triggered.connect(lambda: controller.enter_bootloader(
                 self, release=lambda: self.disconnect_requested.emit(self.instrument)))
         self.action_firmware.triggered.connect(lambda: self.firmware_requested.emit(self.instrument))
+        self.action_bridge.triggered.connect(self.install_bridge_app)
         self.disconnect_button = QPushButton("Disconnect", self)
         set_icon(self.disconnect_button, "unplug")
         self.disconnect_button.clicked.connect(lambda: self.disconnect_requested.emit(self.instrument))
@@ -481,6 +487,19 @@ class DeviceDocument(DocumentWidget):
         self.risk_banner.button.clicked.connect(lambda: self.firmware_requested.emit(self.instrument))
         layout.addWidget(self.risk_banner)
         self._show_board_risk()
+        # an oscilloscope without the bridge app: offered once it is connected (closed: not again while open)
+        self.bridge_banner = Banner("info", self)
+        self.bridge_banner.setObjectName("bridge-offer")
+        self.bridge_banner.setVisible(False)
+        self.bridge_banner.set_closable(True)
+        self.bridge_banner.button.clicked.connect(self.install_bridge_app)
+        self._bridge_offer_closed = False
+
+        def bridge_offer_closed() -> None:
+            self._bridge_offer_closed = True
+
+        self.bridge_banner.closed = bridge_offer_closed
+        layout.addWidget(self.bridge_banner)
 
     def start_capture(self) -> bool:
         """Capture with this device: in its data view (the settings and the start are there)."""
@@ -547,8 +566,9 @@ class DeviceDocument(DocumentWidget):
         self.capture_label.setVisible(controller is not None)
         if controller is None:
             for action in (self.action_settings, self.action_self_test, self.action_generated, self.action_network,
-                           self.action_restart, self.action_bootloader):
+                           self.action_restart, self.action_bootloader, self.action_bridge):
                 action.setVisible(False)
+            self.bridge_banner.setVisible(False)
             self._update_device_box()
             return
         driver = controller.driver
@@ -565,8 +585,90 @@ class DeviceDocument(DocumentWidget):
                                 (self.action_bootloader, bool(driver.supports_bootloader))):
             action.setVisible(visible)
             action.setEnabled(connected and not capturing)
+        self._update_bridge_offer(driver, connected, capturing)
         self._update_device_box()
         self._update_names()
+
+    def capture_with_device_settings(self) -> bool:
+        """*Capture with these settings* (Front panel): a capture as set on the instrument itself
+        (``CaptureSession.device_settings``: its channels, time base, depth and trigger), into the data view."""
+        from ...driver.models import CaptureSession
+
+        controller = self.controller
+        if controller is None or controller.is_capturing:
+            return False
+        return controller.capture(CaptureSession(device_settings=True))
+
+    def _update_bridge_offer(self, driver, connected: bool, capturing: bool) -> None:
+        """*Install bridge app* on the Details tab, and the offer above the tabs while it is missing."""
+        installable = bool(getattr(driver, "bridge_app_installable", False))
+        running = bool(getattr(driver, "uses_bridge", False))
+        self.action_bridge.setVisible(installable)
+        self.action_bridge.setEnabled(connected and not capturing)
+        self.action_bridge.setText("Update bridge app..." if running else "Install bridge app...")
+        if installable and connected and not running and not self._bridge_offer_closed:
+            if not self.bridge_banner.isVisible():
+                self.bridge_banner.set_message(
+                    "<b>The openSciLab bridge app is not running on this oscilloscope.</b> Captures are read "
+                    "over SCPI directly, which is much slower. Install it (adb over the network)?",
+                    "Install bridge app")
+        else:
+            self.bridge_banner.setVisible(False)
+
+    def install_bridge_app(self) -> bool:
+        """Install (or update) the bridge app on the oscilloscope with adb, start it and connect again
+        through it (``driver/rigoldho/bridge_app.py``). Asks first."""
+        from ...driver.rigoldho import bridge_app
+        from .. import background
+
+        controller = self.controller
+        driver = controller.driver if controller is not None else None
+        if driver is None or not getattr(driver, "bridge_app_installable", False):
+            return False
+        title = "Update bridge app" if driver.uses_bridge else "Install bridge app"
+        if driver.is_capturing:
+            messages.info(self, title, f"{self.instrument.name} is capturing; stop it first.")
+            return False
+        try:
+            host = background.run(self, "Looking up the network address...", driver.network_address)
+        except background.Cancelled:
+            return False
+        if host is None:
+            messages.warning(self, title, "The oscilloscope's network address is not known.",
+                             "The bridge app is installed over the network (adb, port 55555): connect the "
+                             "oscilloscope to the network and try again.")
+            return False
+        apk = bridge_app.find_apk()
+        if apk is None:
+            messages.warning(self, title, "The bridge app is not built yet.",
+                             "Run firmware/build_all.sh --bridge (or ./gradlew assembleDebug in "
+                             "firmware/bridge-android) and try again.")
+            return False
+        verb = title.split()[0]
+        if not messages.confirm(
+                self, title, f"{verb} the openSciLab bridge app on {self.instrument.name}?", verb,
+                f"adb connects to {host}:{bridge_app.ADB_PORT} (adb has to be turned on on the oscilloscope), "
+                f"installs {os.path.basename(apk)} and starts it; it then also starts by itself after the "
+                "oscilloscope restarts. Afterwards the device is connected again, through the bridge."):
+            return False
+        replace = False
+        while True:
+            try:
+                version = background.run(self, "Installing the bridge app on the oscilloscope...",
+                                         lambda: bridge_app.install(host, apk, replace=replace), cancellable=False)
+                break
+            except bridge_app.SignatureMismatch as error:
+                if replace or not messages.confirm(self, title, str(error), "Reinstall",
+                                                   "The installed app is removed first.", destructive=True):
+                    return False
+                replace = True
+            except bridge_app.BridgeInstallError as error:
+                messages.error(self, title, "The bridge app could not be installed.", str(error))
+                return False
+        self.bridge_banner.setVisible(False)
+        self.show_banner(f"The bridge app {version} runs on the oscilloscope; connecting through it.", "info")
+        self.reconnect_requested.emit(self.instrument)
+        return True
 
     def open_web_control(self) -> Optional[str]:
         """*Web control*: the device's own web page in the browser; its address, ``None``: none."""

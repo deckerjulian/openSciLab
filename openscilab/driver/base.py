@@ -120,6 +120,9 @@ CAPABILITY_WEB_CONTROL = "WEB_CONTROL"
 #: The device's screen can be shown live and touched (``REMOTE_SCREEN=<kind>``; ``dho``: the screen
 #: and touch servers of the Rigol DHO900's Web Control, ``driver/rigoldho/screen.py``)
 CAPABILITY_REMOTE_SCREEN = "REMOTE_SCREEN="
+#: The device can capture as set on itself (``CaptureSession.device_settings``): its own channels,
+#: rate, length and trigger, e.g. what was set on an oscilloscope's front panel
+CAPABILITY_DEVICE_SETTINGS = "DEVICE_SETTINGS"
 
 #: Facet (class name in ``core/instrument.py``) unlocked by each capability (prefix).
 FACET_CAPABILITIES = {

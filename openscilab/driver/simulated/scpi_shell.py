@@ -80,6 +80,18 @@ def panel_defaults() -> dict[str, str]:
     return values
 
 
+#: Divisions the modified firmware NK v0.5.2 spreads the memory depth over (measured on a DHO924S:
+#: 100k at 100 us/div gave 6.25 MSa/s instead of 10)
+FIRMWARE_SPAN_DIVISIONS = 16.0
+#: its sample rates are steps of 1.25 GSa/s / (1, 2, 2.5, 4, 5, 8 · 10^k)
+FIRMWARE_RATES = sorted({1.25e9 / (m * 10 ** k) for k in range(0, 9) for m in (1, 2, 2.5, 4, 5, 8)}, reverse=True)
+
+
+def firmware_rate(rate: float) -> float:
+    """The largest rate of the firmware's steps that is not above ``rate`` (the smallest below those)."""
+    return next((step for step in FIRMWARE_RATES if step <= rate), FIRMWARE_RATES[-1])
+
+
 def firmware_depth(depth: int) -> int:
     """What the modified firmware NK v0.5.2 of the DHO924S takes for a depth asked for: a tenth up
     to 10M, a twentieth above (measured)."""
@@ -130,6 +142,8 @@ class ScpiShell:
         self.snapshot_delay = 0.0
         self.snapshot_started = threading.Event()
         self.la_rate: Optional[float] = None
+        #: the next this many ``:WAVeform:DATA?`` answer with an empty block
+        self.empty_reads = 0
         #: ``:WAVeform:FORMat`` (a logic channel as BYTE gives its upper byte: always 0, as the DHO924S does)
         self.wave_format = "BYTE"
         #: D0–D15 can be read (without the logic probe, and on the DHO924S with the modified firmware
@@ -142,6 +156,8 @@ class ScpiShell:
         self.panel = panel_defaults()
         #: the memory depths of the modified firmware NK v0.5.2 (:func:`firmware_depth`)
         self.firmware_depths = False
+        #: the rates of the modified firmware: the depth over 16 divisions, in steps (see :func:`firmware_rate`)
+        self.firmware_rates = False
         #: counts :SINGle, :RUN and :STOP: what a capture started before them reports is dropped
         self.generation = 0
         #: the capture waiting for its trigger: (session, digital channels, generation)
@@ -234,6 +250,12 @@ class ScpiShell:
             self.thresholds[int(groups[0])] = float(value)
         elif name == "channel":
             (self.analog_on.add if value.upper() in ("ON", "1") else self.analog_on.discard)(int(groups[0]) - 1)
+        elif name == "la_state?":
+            return "1" if self.la_on else "0"
+        elif name == "la_channel?":
+            return "1" if int(groups[0]) in self.digital_on else "0"
+        elif name == "channel?":
+            return "1" if int(groups[0]) - 1 in self.analog_on else "0"
         elif name == "memory_depth":
             depth = scpi.parse_depth(value)
             if self.firmware_depths and depth in scpi.MEMORY_DEPTHS:
@@ -249,7 +271,7 @@ class ScpiShell:
         elif name == "lan_address?":
             return "0.0.0.0"  # (the simulated instrument has no network port)
         elif name == "sample_rate?":
-            return f"{self.rate:.6e}"
+            return f"{self._screen_rate():.6e}"
         elif name == "timebase_scale":
             self.scale = float(value)
         elif name == "timebase_offset":
@@ -299,6 +321,10 @@ class ScpiShell:
             return (f"0,2,{points},1,{period:.9e},{-self.trigger_index / rate:.9e},0,"
                     f"{Y_INC:.9e},0,{Y_REF:g}")
         elif name == "wave_data?":
+            if self.empty_reads > 0:
+                # (like the DHO924S just after the capture: STOP, but the waveform is not there yet)
+                self.empty_reads -= 1
+                return scpi.block(b"")
             values = self._source_values()
             first, last = self.window
             window = values[first - 1:last]
@@ -368,9 +394,15 @@ class ScpiShell:
             self._waiting = None
             self.status = "STOP"
 
+    def _screen_rate(self) -> float:
+        """The rate the depth and the time base give."""
+        span = FIRMWARE_SPAN_DIVISIONS if self.firmware_rates else scpi.DIVISIONS
+        rate = min(self.depth / max(self.scale * span, 1e-12), float(self.device.max_frequency))
+        return firmware_rate(rate) if self.firmware_rates else rate
+
     def _take_up(self, generation: int) -> None:
         total = self.depth
-        rate = min(total / max(self.scale * scpi.DIVISIONS, 1e-12), float(self.device.max_frequency))
+        rate = self._screen_rate()
         session = CaptureSession(frequency=max(int(round(rate)), 1))
         pre = int(round(total / 2 - self.offset * session.frequency))
         session.pre_trigger_samples = min(max(pre, 0), total - 1)
@@ -436,10 +468,16 @@ class ScpiShell:
             if not args.success:
                 return  # no trigger within the simulator's search: the instrument would still wait
             self._waiting = None
-            words = np.zeros(session.pre_trigger_samples + session.post_trigger_samples, dtype=np.uint16)
+            # (like the DHO924S: the logic channels' words are LA_PERIOD_FACTOR analog samples
+            # long and only the first part of the points the preamble names is the capture's; the
+            # rest is old memory, here all ones)
+            words = np.full(session.pre_trigger_samples + session.post_trigger_samples, 0xFFFF, dtype=np.uint16)
+            valid = len(words) // scpi.LA_PERIOD_FACTOR
+            words[:valid] = 0
             for channel in session.capture_channels:
                 if channel.channel_number in self.digital_on and self.la_on:
-                    words[:len(channel.samples)] |= channel.samples.astype(np.uint16) << np.uint16(channel.channel_number)
+                    held = channel.samples[::scpi.LA_PERIOD_FACTOR][:valid]
+                    words[:len(held)] |= held.astype(np.uint16) << np.uint16(channel.channel_number)
             self.data_digital = words if self.la_on and self.digital_on else None
             scale, offset, _bits = self.device.analog_scale()
             self.data_analog = {}
@@ -555,7 +593,14 @@ class ScpiShell:
                     f"Sa/s, trigger at {self.trigger_index}; {channels[0]}: {self.rate:g} Sa/s, trigger at "
                     f"{self.trigger_index}); snapshot them separately")
         points = self._points()
-        meta = {"points": points, "rate": f"{self.rate:g}", "trigger": self.trigger_index,
+        rate, trigger = self.rate, self.trigger_index
+        alone = not any(name.upper().startswith("CH") for name in arguments)
+        if bits and alone and self.data_digital is not None:
+            # (like the app: only the first part of a logic channel's points is the capture's, at
+            # LA_PERIOD_FACTOR times the period of its preamble)
+            points //= scpi.LA_PERIOD_FACTOR
+            rate, trigger = rate / scpi.LA_PERIOD_FACTOR, round(trigger / scpi.LA_PERIOD_FACTOR)
+        meta = {"points": points, "rate": f"{rate:g}", "trigger": trigger,
                 "channels": ",".join(arguments)}
         analog = {}
         for name in arguments:
@@ -567,7 +612,10 @@ class ScpiShell:
                     meta[f"CH{number + 1}.yorig"] = "0"
                     meta[f"CH{number + 1}.yref"] = f"{Y_REF:g}"
         mask = np.uint16(sum(1 << bit for bit in set(bits)))
-        digital = self.data_digital & mask if bits and self.data_digital is not None else None
+        digital = None
+        if bits and self.data_digital is not None:
+            held = (self.data_digital & mask)[:self._points() // scpi.LA_PERIOD_FACTOR]
+            digital = held if alone else np.repeat(held, scpi.LA_PERIOD_FACTOR)[:points]
         item = _Snapshot(next(self._numbers), digital, analog, meta)
         self.snapshots.append(item)
         return item.id

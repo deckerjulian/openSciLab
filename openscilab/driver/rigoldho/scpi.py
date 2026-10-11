@@ -39,6 +39,9 @@ COMMANDS = {
     "la_channel": ":LA:DIGital:ENABle D{n},{value}",
     "la_threshold": ":LA:POD{n}:THReshold {value}",
     "channel": ":CHANnel{n}:DISPlay {value}",
+    "la_state?": ":LA:ENABle?",
+    "la_channel?": ":LA:DIGital:ENABle? D{n}",
+    "channel?": ":CHANnel{n}:DISPlay?",
     "memory_depth": ":ACQuire:MDEPth {value}",
     "memory_depth?": ":ACQuire:MDEPth?",
     "sample_rate?": ":ACQuire:SRATe?",
@@ -90,19 +93,63 @@ SYNC_QUERY = "*IDN?"
 MAX_POINTS_PER_READ = 250_000
 #: Divisions of the time base
 DIVISIONS = 10
+#: How often the time base is shortened until the sample rate is not below the one asked for, and by
+#: how much more than the ratio of the two rates (the rates are steps: a little more gets to the next)
+RATE_TRIES = 8
+RATE_SHRINK = 0.9
+#: ``:ACQuire:SRATe?`` after a new time base: asked every RATE_SETTLE_S until it gave the same rate
+#: RATE_STABLE_READS times in a row, for at most RATE_SETTLE_TIMEOUT_S (measured: the instrument answers
+#: with the old rate for a while, after a large change well over 0.25 s)
+RATE_SETTLE_S = 0.15
+RATE_STABLE_READS = 3
+RATE_SETTLE_TIMEOUT_S = 2.0
+#: From this time base (seconds per division) the DHO rolls: its trigger status stays STOP after
+#: ``:SINGle`` (measured on a DHO924S: 20 ms/div takes a capture, 50 ms/div does not).
+ROLL_SCALE = 0.05
 #: The logic channels' real sample period is this many times the ``xincrement`` their own
-#: ``:WAVeform:PREamble?`` reports (measured on a DHO924S from 20 µs to 10 ms per division with a
-#: signal of known frequency: real period 3.2 ns at reported ``xincrement`` 1.6 ns): the
-#: instrument computes their preamble as if they were sampled at the analog rate. Captured
-#: without the analog channels, the driver corrects ``xincrement`` by it (the rate the capture
-#: gets is the real one; this also halves the trigger sample the same preamble gives, measured
-#: correct too - a logic-channel-alone capture's pre/post trigger split comes out halved from
-#: what was asked for, unlike its total). Captured with them, their preamble already matches
-#: the analog one's (same ``xincrement``, same trigger sample: measured through a known edge),
-#: since both describe a count of ``:ACQuire:MDEPth`` memory slots, and the driver instead repeats
-#: every logic sample this many times, which lines it up with the analog channels' finer time
-#: axis without changing (or needing to understand) the preamble.
+#: ``:WAVeform:PREamble?`` reports (measured on a DHO924S, alone and with CH1, at 10 rates from
+#: 125 kSa/s to 100 MSa/s of the analog side, with a signal of known frequency: real period 2.00
+#: times the reported one): the instrument computes their preamble as if they were sampled at the
+#: analog rate. For the same reason only the first ``points / LA_PERIOD_FACTOR`` words it gives out
+#: are the capture's; the rest is old memory (stretches of one level that are not in the signal,
+#: which read as holes: a 1 kHz wave showed 553 of its 800 edges and runs of 9299 samples). The
+#: driver reads only those. Captured without the analog channels, it corrects ``xincrement`` by the
+#: factor (this also halves the trigger sample the same preamble gives, measured correct too) and
+#: sets the instrument up for twice the rate and samples, so that the capture has the rate and
+#: samples asked for. Captured with them, their preamble already matches the analog one's (same
+#: ``xincrement``, same trigger sample: measured through a known edge), and the driver instead
+#: repeats every logic sample this many times, which lines it up with the analog channels' finer
+#: time axis without changing (or needing to understand) the preamble.
 LA_PERIOD_FACTOR = 2
+#: Read out together with an analog channel, the logic channels come this many analog samples late
+#: (positive) or early, by the rate of the analog channels (Sa/s). Measured on a DHO924S (NK v0.5.2):
+#: CH1 and D0 on one square wave, three captures per rate at signal frequencies of rate/37.3, /41.7
+#: and /53.1, 200 edges each, the typical value rounded. The instrument's own screen shows them in
+#: line: it aligns them in the FPGA's display path, which the export of the memory does not go
+#: through (also not in Rigol's 00.01.05.00.02). From capture to capture it varies by one sample
+#: (some rates two), which no correction removes. Rates not measured are not corrected.
+LA_SKEW = {1_250_000: 3, 3_125_000: 4, 6_250_000: 3, 15_625_000: 1, 31_250_000: -2, 62_500_000: 0,
+           156_250_000: 0, 312_500_000: -1, 625_000_000: -1}
+
+
+def la_skew(rate: float) -> int:
+    """Analog samples the logic channels come late at this analog rate (:data:`LA_SKEW`; 0 if not measured)."""
+    for known, skew in LA_SKEW.items():
+        if abs(rate - known) <= 0.01 * known:
+            return skew
+    return 0
+
+
+def shift_samples(samples, skew: int):
+    """``samples`` moved ``skew`` samples earlier (later if negative), the ends held at their level."""
+    import numpy as np
+
+    if skew == 0 or len(samples) == 0:
+        return samples
+    skew = max(-len(samples), min(len(samples), skew))
+    if skew > 0:
+        return np.concatenate([samples[skew:], np.repeat(samples[-1:], skew)])
+    return np.concatenate([np.repeat(samples[:1], -skew), samples[:skew]])
 
 
 def command(name: str, **values) -> str:

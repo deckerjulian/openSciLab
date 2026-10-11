@@ -325,6 +325,9 @@ class CaptureSession:
     acquisition_mode: str = "buffer"
     #: Input threshold in volts for devices with an adjustable threshold, ``None``: device default
     threshold_voltage: Optional[float] = None
+    #: Capture as set on the device itself (devices with ``CAPABILITY_DEVICE_SETTINGS``): its channels,
+    #: rate, length and trigger; the session's are replaced with those of the capture
+    device_settings: bool = False
     #: Stream until stopped, keeping only the latest ``pre + post`` samples (devices with
     #: ``CAPABILITY_CONTINUOUS_STREAM``)
     continuous: bool = False

@@ -187,6 +187,44 @@ def test_the_front_panel_of_the_simulated_oscilloscope(shell):
         card.shutdown()
 
 
+def test_the_screen_in_a_window_of_its_own_and_a_capture_as_set_on_the_instrument(shell):
+    driver = open_shell("direct")
+    instrument = Instrument.from_driver(driver, uri=driver.address)
+    shell.hub.add(instrument)
+    card = shell.open_device_card(instrument)
+    try:
+        page = card.front_panel
+        card.tabs.setCurrentWidget(page)
+        page.activate()
+        assert wait(lambda: page.screen_view.frames > 0)
+        # *Open in a window*: the screen moves there and keeps running while another tab is shown
+        window = page.open_screen_window()
+        assert window is not None and page.screen_view.window() is window and not page.window_note.isHidden()
+        card.tabs.setCurrentIndex(card.tabs.count() - 1)
+        page.deactivate()
+        frames = page.screen_view.frames
+        assert wait(lambda: page.screen_view.frames > frames) and page.link.running
+        # closed, it is back in the tab, and stops there while the tab is hidden
+        window.close()
+        assert page.screen_view.window() is not window and page.window_note.isHidden()
+        assert page.screen_window is None and wait(lambda: not page.link.running)
+        # *Capture with these settings*: the channels that are on at the instrument, its time base and depth
+        for line in (":LA:ENABle ON", ":LA:DIGital:ENABle D2,ON", ":LA:DIGital:ENABle D5,ON", ":CHANnel1:DISPlay ON",
+                     ":ACQuire:MDEPth 10k", ":TIMebase:MAIN:SCALe 1e-4"):
+            driver.shell.handle(line)
+        assert page.capture_button is not None and page.capture_button.isEnabled()
+        page.capture_button.click()
+        controller = card.controller
+        session = controller.last_session
+        assert session is not None and session.device_settings
+        assert wait(lambda: not controller.is_capturing, 20)
+        assert session.channel_numbers == [2, 5] and [c.channel_number for c in session.analog_channels] == [0]
+        assert session.pre_trigger_samples + session.post_trigger_samples == 10_000
+        assert session.frequency == 10_000_000  # (10k points over 10 divisions of 100 us in the simulator)
+    finally:
+        card.shutdown()
+
+
 def test_steps_of_one_two_five():
     assert front_panel.step_125(0.2, 1) == 0.5 and front_panel.step_125(0.5, 1) == 1.0
     assert abs(front_panel.step_125(1.0, -1) - 0.5) < 1e-12 and abs(front_panel.step_125(1e-3, -1) - 5e-4) < 1e-15

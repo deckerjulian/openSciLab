@@ -57,7 +57,7 @@ GUIDE = (
     "openSciLab picks the image that fits the board, restarts it into its bootloader, writes the image and "
     "connects the board again. Nothing else is needed.</td></tr></table>"
     f"<span style='color:{TEXT_MUTED}'>Arduino boards are flashed with PlatformIO or avrdude, the bridge app of an "
-    "oscilloscope with adb (see the Firmware page of the wiki). "
+    "oscilloscope from its device card (<i>Install bridge app</i>, adb over the network). "
     "<i>Choose an image...</i> writes any .uf2 file to any board by hand.</span>"
 )
 

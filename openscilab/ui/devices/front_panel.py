@@ -9,7 +9,9 @@ mouse (capability ``REMOTE_SCREEN=``), and beside it its settings (a :class:`Set
 an oscilloscope's run control, time base, channels, trigger, acquisition).
 
 The screen and the settings are read in threads; the panel only shows what arrives. Both stop
-while the tab is not shown.
+while the tab is not shown - except the screen while it is shown in a window of its own
+(*Open in a window*). *Capture with these settings* captures as set on the instrument
+(capability ``DEVICE_SETTINGS``).
 """
 
 from __future__ import annotations
@@ -43,9 +45,10 @@ from PySide6.QtWidgets import (
 
 from ...core import units
 from ...core.instrument import Instrument, SettingsFacet
-from ...driver.base import CAPABILITY_REMOTE_SCREEN, capability_value
+from ...driver.base import CAPABILITY_DEVICE_SETTINGS, CAPABILITY_REMOTE_SCREEN, capability_value
 from ..dialogs.common import InlineMessage, hint
-from ..theme import TEXT_MUTED
+from ..icons import set_icon
+from ..theme import TEXT_MUTED, set_variant
 
 log = logging.getLogger(__name__)
 
@@ -185,6 +188,24 @@ class ScreenView(QWidget):
 
     def close_link(self) -> None:
         self._sender.shutdown(wait=False)
+
+
+class ScreenWindow(QWidget):
+    """The instrument's screen in a window of its own; closing it puts the screen back into the tab."""
+
+    closed = Signal()
+
+    def __init__(self, title: str, parent: Optional[QWidget] = None) -> None:
+        super().__init__(parent, Qt.Window)
+        self.setWindowTitle(title)
+        self.setObjectName("screen-window")
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        self.resize(1024, 620)
+
+    def closeEvent(self, event) -> None:  # noqa: N802 - Qt
+        self.closed.emit()
+        super().closeEvent(event)
 
 
 class SettingsPanel(QScrollArea):
@@ -415,24 +436,64 @@ class FrontPanelPage(QSplitter):
     _link_ready = Signal(object, str)
 
     def __init__(self, instrument: Instrument, parent: Optional[QWidget] = None,
-                 busy: Optional[Callable[[], bool]] = None) -> None:
+                 busy: Optional[Callable[[], bool]] = None, capture: Optional[Callable[[], bool]] = None) -> None:
         super().__init__(Qt.Horizontal, parent)
         self.instrument = instrument
         self.link = None
         self._closed = False
         self._active = False
+        self._busy = busy or (lambda: False)
         self.screen_view: Optional[ScreenView] = None
-        capture = instrument.capture
-        driver = capture.driver if capture is not None else None
+        #: the screen in a window of its own (*Open in a window*), ``None``: in the tab
+        self.screen_window: Optional[ScreenWindow] = None
+        self.window_button: Optional[QToolButton] = None
+        self.capture_button: Optional[QPushButton] = None
+        driver_capture = instrument.capture
+        driver = driver_capture.driver if driver_capture is not None else None
         has_screen = driver is not None and capability_value(driver.capabilities(), CAPABILITY_REMOTE_SCREEN) is not None
-        if has_screen:
+        can_capture = capture is not None and driver is not None and CAPABILITY_DEVICE_SETTINGS in driver.capabilities()
+        if has_screen or can_capture:
             left = QWidget(self)
             column = QVBoxLayout(left)
             column.setContentsMargins(0, 0, 0, 0)
+            header = QHBoxLayout()
+            header.setContentsMargins(0, 0, 0, 4)
+            if can_capture:
+                self.capture_button = QPushButton("Capture with these settings", left)
+                self.capture_button.setObjectName("capture-device-settings")
+                set_icon(self.capture_button, "play")
+                set_variant(self.capture_button, "primary")
+                self.capture_button.setToolTip("Capture as set on the oscilloscope (on its screen or here): the "
+                                               "channels that are on, its time base and memory depth, its trigger. "
+                                               "The capture opens in the data view.")
+                self.capture_button.clicked.connect(lambda: capture())
+                header.addWidget(self.capture_button)
+            header.addStretch(1)
+            if has_screen:
+                self.window_button = QToolButton(left)
+                self.window_button.setObjectName("screen-window-button")
+                self.window_button.setText("Open in a window")
+                self.window_button.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+                set_icon(self.window_button, "detach")
+                self.window_button.setToolTip("Show the screen in a window of its own (it keeps running while "
+                                              "other tabs are shown)")
+                self.window_button.clicked.connect(self.toggle_screen_window)
+                header.addWidget(self.window_button)
+            column.addLayout(header)
+            self._column = column
+        if has_screen:
             self.screen_view = ScreenView(left)
             column.addWidget(self.screen_view, 1)
+            #: in the tab while the screen is in its own window
+            self.window_note = QLabel("The screen is shown in a window of its own.", left)
+            self.window_note.setAlignment(Qt.AlignCenter)
+            self.window_note.setVisible(False)
+            column.addWidget(self.window_note, 1)
             self.screen_hint = hint("Click and drag on the screen as on the instrument's touch screen.", left)
             column.addWidget(self.screen_hint)
+        if has_screen or can_capture:
+            if not has_screen:
+                column.addStretch(1)
             self.addWidget(left)
         facet = instrument.facet(SettingsFacet)
         self.settings_panel = SettingsPanel(facet, self, busy) if facet is not None else None
@@ -446,21 +507,66 @@ class FrontPanelPage(QSplitter):
         self._problem_timer = QTimer(self)
         self._problem_timer.setInterval(1000)
         self._problem_timer.timeout.connect(self._show_problem)
+        self._capture_timer = QTimer(self)
+        self._capture_timer.setInterval(500)
+        self._capture_timer.timeout.connect(self._update_capture_button)
+        self._capture_timer.start()
 
-    # ------------------------------------------------------------ start/stop
-    def activate(self) -> None:
-        """The tab is shown: the screen and the readings start."""
-        if self._closed or self._active:
+    def _update_capture_button(self) -> None:
+        if self.capture_button is not None:
+            self.capture_button.setEnabled(not self._busy())
+
+    # ------------------------------------------------------- own window
+    def toggle_screen_window(self) -> None:
+        """*Open in a window*, or bring the open one to the front."""
+        if self.screen_window is not None:
+            self.screen_window.raise_()
+            self.screen_window.activateWindow()
             return
-        self._active = True
-        if self.settings_panel is not None:
-            self.settings_panel.start()
-        if self.screen_view is None:
+        self.open_screen_window()
+
+    def open_screen_window(self) -> Optional[ScreenWindow]:
+        """The screen into a window of its own: it keeps running there while other tabs are shown."""
+        view = self.screen_view
+        if view is None or self._closed:
+            return None
+        window = ScreenWindow(f"{self.instrument.name} – screen", self.window())
+        self._column.removeWidget(view)
+        window.layout().addWidget(view)
+        view.show()
+        self.window_note.setVisible(True)
+        self.window_button.setText("Show the window")
+        self.screen_window = window
+        window.closed.connect(self._screen_window_closed)
+        window.show()
+        self._start_screen()
+        return window
+
+    def _screen_window_closed(self) -> None:
+        """The window was closed: the screen goes back into the tab (it stops there when the tab is hidden)."""
+        window, view = self.screen_window, self.screen_view
+        self.screen_window = None
+        if window is None or view is None:
+            return
+        window.layout().removeWidget(view)
+        self._column.insertWidget(1, view, 1)
+        view.show()
+        self.window_note.setVisible(False)
+        self.window_button.setText("Open in a window")
+        if not self._active and not self._closed:
+            self._stop_screen()
+
+    def _start_screen(self) -> None:
+        """The screen's link starts (found first, in a thread)."""
+        if self.screen_view is None or self._closed:
             return
         if self.link is not None:
             self.link.start(self.screen_view.deliver)
             self._problem_timer.start()
             return
+        if getattr(self, "_finding", False):
+            return
+        self._finding = True
 
         def find() -> None:
             try:
@@ -471,7 +577,24 @@ class FrontPanelPage(QSplitter):
 
         threading.Thread(target=find, name="openscilab-screen-link", daemon=True).start()
 
+    def _stop_screen(self) -> None:
+        self._problem_timer.stop()
+        link = self.link
+        if link is not None:
+            threading.Thread(target=link.stop, name="openscilab-screen-stop", daemon=True).start()
+
+    # ------------------------------------------------------------ start/stop
+    def activate(self) -> None:
+        """The tab is shown: the screen and the readings start."""
+        if self._closed or self._active:
+            return
+        self._active = True
+        if self.settings_panel is not None:
+            self.settings_panel.start()
+        self._start_screen()
+
     def _use_link(self, link, problem: str) -> None:
+        self._finding = False
         if self._closed:
             return
         self.link = link
@@ -484,7 +607,7 @@ class FrontPanelPage(QSplitter):
         if not link.touch_supported:
             self.screen_hint.setText("The screen over USB, without touches: connect the instrument to the network to "
                                      "touch it here (and to see it faster).")
-        if self._active:
+        if self._active or self.screen_window is not None:
             link.start(view.deliver)
             self._problem_timer.start()
 
@@ -499,15 +622,21 @@ class FrontPanelPage(QSplitter):
         if not self._active:
             return
         self._active = False
-        self._problem_timer.stop()
         if self.settings_panel is not None:
             self.settings_panel.stop()
-        link = self.link
-        if link is not None:
-            threading.Thread(target=link.stop, name="openscilab-screen-stop", daemon=True).start()
+        if self.screen_window is None:  # (in its own window the screen keeps running)
+            self._stop_screen()
 
     def shutdown(self) -> None:
+        self._capture_timer.stop()
+        window = self.screen_window
+        if window is not None:
+            self.screen_window = None
+            window.closed.disconnect(self._screen_window_closed)
+            window.close()
+            window.deleteLater()
         self.deactivate()
+        self._stop_screen()
         self._closed = True
         if self.settings_panel is not None:
             self.settings_panel.close_panel()

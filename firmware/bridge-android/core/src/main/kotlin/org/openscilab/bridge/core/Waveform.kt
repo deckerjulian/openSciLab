@@ -15,19 +15,35 @@ import kotlin.math.roundToLong
 
 /**
  * The logic channels' real sample period is this many times the `xIncrement` their own
- * `:WAVeform:PREamble?` reports (measured on a DHO924S from 20 µs to 10 ms per division with a
- * signal of known frequency: real period 3.2 ns at reported `xIncrement` 1.6 ns): the instrument
- * computes their preamble as if they were sampled at the analog rate. Read alone (no analog
- * channel to line them up with), [SnapshotWriter] corrects `xIncrement` by it (which also
- * corrects the trigger sample the same preamble gives, measured through a known edge's position:
- * both the rate and the pre/post trigger split a capture of logic channels alone gets are, this
- * way, half of what the instrument's preamble would suggest). Read with the analog channels,
- * whose rate is not halved, their preamble already matches the analog one's (same `xIncrement`,
- * same trigger sample), since both describe a count of `:ACQuire:MDEPth` memory slots: there,
- * every logic sample is repeated this many times instead, which lines it up with the analog
- * channels' finer time axis without changing (or needing to understand) the preamble.
+ * `:WAVeform:PREamble?` reports (measured on a DHO924S, alone and with CH1, at 10 rates with a
+ * signal of known frequency: real period 2.00 times the reported one, e.g. 3.2 ns at reported
+ * `xIncrement` 1.6 ns): the instrument computes their preamble as if they were sampled at the
+ * analog rate. For the same reason only the first `points / LA_PERIOD_FACTOR` words it gives out
+ * are the capture's; the rest is old memory (stretches of one level that are not in the signal,
+ * which read as holes), and only those are read. Read alone (no analog channel to line them up
+ * with), [SnapshotWriter] corrects `xIncrement` by the factor (which also corrects the trigger
+ * sample the same preamble gives, measured through a known edge's position). Read with the
+ * analog channels, whose rate is not halved, their preamble already matches the analog one's
+ * (same `xIncrement`, same trigger sample), since both describe a count of `:ACQuire:MDEPth`
+ * memory slots: there, every logic sample is repeated this many times instead, which lines it up
+ * with the analog channels' finer time axis without changing (or needing to understand) the
+ * preamble.
  */
 const val LA_PERIOD_FACTOR = 2
+
+/**
+ * Read out together with an analog channel, the logic channels come this many analog samples late
+ * (positive) or early, by the analog rate (Sa/s): measured on a DHO924S (NK v0.5.2), CH1 and D0 on
+ * one square wave, three captures per rate - the same table as the driver's `scpi.LA_SKEW`. The
+ * instrument's screen aligns them in the FPGA's display path, which the export of the memory does
+ * not go through. From capture to capture it varies by one sample; rates not measured: 0.
+ */
+val LA_SKEW = mapOf(
+    1_250_000.0 to 3, 3_125_000.0 to 4, 6_250_000.0 to 3, 15_625_000.0 to 1, 31_250_000.0 to -2,
+    62_500_000.0 to 0, 156_250_000.0 to 0, 312_500_000.0 to -1, 625_000_000.0 to -1,
+)
+
+fun laSkew(rate: Double): Int = LA_SKEW.entries.firstOrNull { abs(rate - it.key) <= 0.01 * it.key }?.value ?: 0
 
 /**
  * `:WAVeform:PREamble?`: format, type, points, count, xincrement, xorigin, xreference,
@@ -150,8 +166,15 @@ class WaveformReader(private val instrument: Instrument, private val chunk: Int)
 
     /** One `:WAVeform:DATA?` of up to [chunk] points, in the format currently selected. */
     fun readWindow(first: Long, length: Long, out: OutputStream) {
-        setWindow(first + 1, first + length)
-        val received = instrument.queryBlock(":WAVeform:DATA?", out)
+        var received = 0L
+        // The instrument says STOP a moment before the waveform is there to read: it answers
+        // with an empty block ("Wave data is empty" in its log) until then.
+        for (attempt in 0 until EMPTY_READ_ATTEMPTS) {
+            setWindow(first + 1, first + length)
+            received = instrument.queryBlock(":WAVeform:DATA?", out)
+            if (received != 0L || length == 0L) break
+            Thread.sleep(EMPTY_READ_RETRY_MS)
+        }
         val expected = length * bytesPerPoint()
         if (received != expected) {
             throw IOException("asked for $length points from ${first + 1}, got ${received / bytesPerPoint()}")
@@ -180,6 +203,10 @@ class WaveformReader(private val instrument: Instrument, private val chunk: Int)
     }
 }
 
+/** Tries (and milliseconds between them) to read a window the instrument answers with an empty block. */
+const val EMPTY_READ_ATTEMPTS = 40
+const val EMPTY_READ_RETRY_MS = 100L
+
 /** Reads the stopped acquisition into the cache: `:BRIDge:SNAPshot`. */
 class SnapshotWriter(
     private val instrument: Instrument,
@@ -198,7 +225,13 @@ class SnapshotWriter(
             val alone = channels.analog.isEmpty()
             val digital = channels.digital.associate {
                 val raw = reader.select(digitalSource(it))
-                digitalSource(it) to if (alone) raw.copy(xIncrement = raw.xIncrement * LA_PERIOD_FACTOR) else raw
+                // only the first part of the points it names are the capture's (LA_PERIOD_FACTOR)
+                val held = raw.points / LA_PERIOD_FACTOR
+                digitalSource(it) to if (alone) {
+                    raw.copy(points = held, xIncrement = raw.xIncrement * LA_PERIOD_FACTOR)
+                } else {
+                    raw.copy(points = held * LA_PERIOD_FACTOR)
+                }
             }
             val analog = channels.analog.associateWith { reader.select(analogSource(it)) }
             val sources = digital + analog.mapKeys { "CH${it.key}" }
@@ -226,7 +259,10 @@ class SnapshotWriter(
             }
             if (channels.digital.isNotEmpty()) {
                 BufferedOutputStream(FileOutputStream(Snapshot.rawFile(dir, "D")), 1 shl 16).use {
-                    readDigital(reader, channels.digital, points, it, if (alone) 1 else LA_PERIOD_FACTOR)
+                    readDigital(
+                        reader, channels.digital, points, it, if (alone) 1 else LA_PERIOD_FACTOR,
+                        if (alone) 0 else laSkew(first.rate),
+                    )
                 }
             }
             for (name in channels.names) {
@@ -247,9 +283,13 @@ class SnapshotWriter(
      * chunk. [repeat] (1, alone, or [LA_PERIOD_FACTOR] with the analog channels) is how many
      * times each one is written, lining the logic channels up with the analog ones' finer time
      * axis; [outputPoints] is the count after repeating (at most [repeat] fewer raw samples are
-     * read than it, for an [outputPoints] not a multiple of [repeat]).
+     * read than it, for an [outputPoints] not a multiple of [repeat]). [skew] moves them that many
+     * samples earlier (later if negative), the ends held at their level ([LA_SKEW]).
      */
-    private fun readDigital(reader: WaveformReader, bits: List<Int>, outputPoints: Long, out: OutputStream, repeat: Int) {
+    private fun readDigital(
+        reader: WaveformReader, bits: List<Int>, outputPoints: Long, out: OutputStream, repeat: Int, skew: Int = 0,
+    ) {
+        val shifted = SkewedOutput(out, skew.toLong().coerceIn(-outputPoints, outputPoints), outputPoints)
         val rawPoints = (outputPoints + repeat - 1) / repeat
         var position = 0L
         var written = 0L
@@ -278,9 +318,48 @@ class SnapshotWriter(
                 }
             }
             val produced = minOf(length.toLong() * repeat, outputPoints - written)
-            out.write(bytes, 0, (produced * 2).toInt())
+            shifted.write(bytes, (produced * 2).toInt())
             written += produced
             position += length
+        }
+        shifted.finish()
+    }
+
+    /**
+     * Writes 16 bit samples moved [skew] samples earlier (later if negative) into [out], [total] of
+     * them: the first [skew] are dropped and the last one is repeated at the end, or the first one
+     * is repeated [skew] times at the start and the end dropped.
+     */
+    internal class SkewedOutput(private val out: OutputStream, private val skew: Long, private val total: Long) {
+        private var seen = 0L
+        private var written = 0L
+        private val first = ByteArray(2)
+        private val last = ByteArray(2)
+
+        fun write(bytes: ByteArray, length: Int) {
+            var start = 0
+            if (length >= 2) {
+                if (seen == 0L) {
+                    bytes.copyInto(first, 0, 0, 2)
+                    for (i in 0 until -skew) put(first, 0, 2)
+                }
+                bytes.copyInto(last, 0, length - 2, length)
+            }
+            val samples = length / 2
+            if (skew > 0 && seen < skew) start = (minOf(skew - seen, samples.toLong()) * 2).toInt()
+            seen += samples
+            put(bytes, start, length - start)
+        }
+
+        fun finish() {
+            while (written < total) put(last, 0, 2)
+        }
+
+        private fun put(bytes: ByteArray, offset: Int, length: Int) {
+            val room = ((total - written) * 2).coerceAtMost(length.toLong()).toInt()
+            if (room <= 0) return
+            out.write(bytes, offset, room)
+            written += room / 2
         }
     }
 

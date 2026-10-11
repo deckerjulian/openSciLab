@@ -62,9 +62,9 @@ def test_a_capture_over_usb(usb):
     result = run(usb, session)
     assert result.success, result.error
     assert len(session.capture_channels[0].samples) == 10_000
-    # D0 toggles every raw sample; captured with CH1, each is repeated once (LA_PERIOD_FACTOR) to
-    # line it up with the analog channels' finer time axis, so every *pair* toggles
-    pairs = session.capture_channels[0].samples[:10].reshape(-1, 2)
+    # a logic channel has half the analog rate (LA_PERIOD_FACTOR): D1 toggles every second analog sample,
+    # so every logic sample toggles, and each is repeated once to line it up with CH1: every *pair* toggles
+    pairs = session.capture_channels[1].samples[:10].reshape(-1, 2)
     assert np.all(pairs[:, 0] == pairs[:, 1]) and np.all(np.diff(pairs[:, 0].astype(int)) != 0)
     volts = session.analog_channels[0].raw * session.analog_channels[0].scale + session.analog_channels[0].offset
     assert volts.max() - volts.min() > 0.5

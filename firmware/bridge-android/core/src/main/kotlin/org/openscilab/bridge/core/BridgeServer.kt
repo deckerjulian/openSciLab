@@ -37,6 +37,12 @@ data class BridgeConfig(
     /** Model and serial for the beacon until `*IDN?` answered. */
     val fallbackModel: String = "DHO",
     val fallbackSerial: String = "unknown",
+    /**
+     * How long the instrument's SCPI port has to answer before the bridge sends `*IDN?`: the DHO's
+     * app ends itself on an `*IDN?` early in its start (its getIdn cuts the system version before
+     * it is set, an uncaught std::out_of_range; also in firmware 00.01.05.00.02).
+     */
+    val identityDelayMs: Long = 30_000,
 )
 
 /** Answers the `:BRIDge:*` commands. */
@@ -194,6 +200,9 @@ class BridgeServer(private val config: BridgeConfig, cache: SnapshotCache) : Clo
     @Volatile
     private var identity: Pair<String, String>? = null
 
+    /** Since when the instrument's SCPI port answers without a break (System.nanoTime), null: not now. */
+    private var reachableSince: Long? = null
+
     /** The bound port (useful with port 0 in tests). */
     val port: Int get() = server?.localPort ?: config.port
 
@@ -236,14 +245,35 @@ class BridgeServer(private val config: BridgeConfig, cache: SnapshotCache) : Clo
         return "OPENSCILAB_BRIDGE ${config.version} $port $model $serial"
     }
 
-    /** Asks the instrument for model and serial (`*IDN?`) unless known; skipped while busy. */
+    /**
+     * Asks the instrument for model and serial (`*IDN?`) unless known; skipped while busy and until
+     * its SCPI port has answered for [BridgeConfig.identityDelayMs].
+     */
     fun updateIdentity() {
         if (identity != null) return
+        if (!instrumentReachable()) {
+            reachableSince = null
+            return
+        }
+        val now = System.nanoTime()
+        val since = reachableSince ?: now.also { reachableSince = it }
+        if (now - since < config.identityDelayMs * 1_000_000) return
         try {
             val answer = instrument.tryExclusive(100) { instrument.query("*IDN?") } ?: return
             parseIdentity(answer)?.let { identity = it }
         } catch (error: IOException) {
             lastError = "instrument: ${error.message}"
+        }
+    }
+
+    /** Whether the instrument's SCPI port takes a connection (ours, or a short probe). */
+    private fun instrumentReachable(): Boolean {
+        if (instrument.connected) return true
+        return try {
+            Socket().use { it.connect(InetSocketAddress(config.instrumentHost, config.instrumentPort), 500) }
+            true
+        } catch (_: IOException) {
+            false
         }
     }
 

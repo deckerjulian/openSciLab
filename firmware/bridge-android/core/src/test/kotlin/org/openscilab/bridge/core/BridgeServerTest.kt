@@ -16,13 +16,13 @@ import kotlin.test.assertTrue
 
 /** The whole bridge on a plain JVM: client -> BridgeServer -> FakeDho. */
 class BridgeServerTest {
-    private val points = 10_007
+    private val points = 10_008  // (even: a logic channel holds half of them)
     private val dho = FakeDho(points)
     private val root = Files.createTempDirectory("bridge").toFile()
     private val server = BridgeServer(
         BridgeConfig(
             version = "0.1.0", port = 0, beaconPort = 0, instrumentPort = dho.port, chunk = 1000,
-            instrumentTimeoutMs = 5000,
+            instrumentTimeoutMs = 5000, identityDelayMs = 0,
         ),
         SnapshotCache(root),
     ).also { it.start() }
@@ -114,9 +114,11 @@ class BridgeServerTest {
         assertEquals("128", meta["CH3.yref"])
 
         // with the analog channels, every logic sample is repeated (LA_PERIOD_FACTOR) to line it
-        // up with their finer time axis: samples 2i and 2i+1 are both the raw sample i's
+        // up with their finer time axis: samples 2i and 2i+1 are both the raw sample i's; then
+        // moved by LA_SKEW of the rate (625 MSa/s: one sample later, the first one held)
         val bits = (0..15).toList()
-        val words = IntArray(points) { dho.digitalWord(it / 2, bits) }
+        val skew = laSkew(625e6)
+        val words = IntArray(points) { dho.digitalWord((it + skew).coerceIn(0, points - 1) / 2, bits) }
         val ch3 = IntArray(points) { dho.analog(3, it) }
         for (level in listOf(0, 3, 6, 9, 13, 14, 30)) {
             assertContentEquals(TestData.overview(SampleKind.DIGITAL, words, level), block(":BRIDge:OVERview? 1,D,$level"), "D $level")
@@ -143,16 +145,27 @@ class BridgeServerTest {
     }
 
     @Test
+    fun aWaveformTheInstrumentDoesNotGiveYetIsWaitedFor() {
+        // just after the capture the DHO says STOP but answers with an empty block for a moment
+        dho.emptyReads.set(3)
+        assertEquals("1", query(":BRIDge:SNAPshot CH1"))
+        val ch1 = IntArray(points) { dho.analog(1, it) }
+        assertContentEquals(ch1, TileCodec.decodeAnalog(block(":BRIDge:TILE? 1,CH1,0,$points")))
+    }
+
+    @Test
     fun snapshotOfSomeLogicChannels() {
         // The host asks only for the channels of its capture; the others are off on the instrument.
         assertEquals("1", query(":BRIDge:SNAPshot D0,D3,D5"))
         val meta = query(":BRIDge:META? 1").split(';').associate { it.substringBefore('=') to it.substringAfter('=') }
         assertEquals("D0,D3,D5", meta["channels"])
         // alone (no analog channel to line them up with), the trigger sample is corrected like
-        // the rate (LA_PERIOD_FACTOR): half of what the instrument's preamble (unmodified) gives
+        // the rate (LA_PERIOD_FACTOR): half of what the instrument's preamble (unmodified) gives,
+        // and only the first half of its points is the capture's (the rest is old memory)
         assertEquals("2500", meta["trigger"])
-        val words = IntArray(points) { dho.digitalWord(it, listOf(0, 3, 5)) }
-        assertContentEquals(words, TileCodec.decodeDigital(block(":BRIDge:TILE? 1,D,0,$points")))
+        assertEquals("${points / 2}", meta["points"])
+        val words = IntArray(points / 2) { dho.digitalWord(it, listOf(0, 3, 5)) }
+        assertContentEquals(words, TileCodec.decodeDigital(block(":BRIDge:TILE? 1,D,0,${points / 2}")))
         val sources = dho.received.filter { it.startsWith(":WAVeform:SOURce ") }.toSet()
         assertEquals(setOf(":WAVeform:SOURce D0", ":WAVeform:SOURce D3", ":WAVeform:SOURce D5"), sources)
     }
@@ -207,6 +220,22 @@ class BridgeServerTest {
         // 10 windows of 1000 points and one of 7, then from the start again
         assertEquals(27, dho.dataQueries.get() - before)
         assertEquals(0, dho.windowErrors.get())
+    }
+
+    @Test
+    fun identityIsAskedOnlyAfterTheInstrumentAnsweredForTheDelay() {
+        val patient = BridgeServer(
+            BridgeConfig(version = "0.1.0", port = 0, beaconPort = 0, instrumentPort = dho.port, identityDelayMs = 300),
+            SnapshotCache(root),
+        )
+        patient.updateIdentity()
+        assertTrue("*IDN?" !in dho.received)
+        assertEquals("OPENSCILAB_BRIDGE 0.1.0 ${patient.port} DHO unknown", patient.beaconMessage())
+        Thread.sleep(400)
+        patient.updateIdentity()
+        assertTrue("*IDN?" in dho.received)
+        assertEquals("OPENSCILAB_BRIDGE 0.1.0 ${patient.port} DHO924S DHO9TEST001", patient.beaconMessage())
+        patient.close()
     }
 
     @Test

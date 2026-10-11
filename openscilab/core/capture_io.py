@@ -280,6 +280,8 @@ def session_to_dict(session: CaptureSession, include_samples: bool = True, compa
         "StateTimes": None if state_times is None or not compatible
         else [float(value) for value in np.asarray(state_times, dtype=np.float64)],
     }
+    if session.device_settings:
+        data["DeviceSettings"] = True  # (captured as set on the device: "Again" does so too)
     if state_times is not None and not compatible:
         data["StateTimeCount"] = len(state_times)
         data["StateTimesPacked"] = pack_values(np.asarray(state_times, dtype=np.float64), "<f8")
@@ -308,6 +310,7 @@ def session_from_dict(data: dict) -> CaptureSession:
         ),
         continuous=bool(data.get("Continuous", False)),
         to_disk=bool(data.get("ToDisk", False)),
+        device_settings=bool(data.get("DeviceSettings", False)),
         trigger_sequence=sequence_from_dict(data.get("TriggerSequence")),
         software_trigger=bool(data.get("SoftwareTrigger", False)),
         clock_channel=(
