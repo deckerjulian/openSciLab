@@ -2,7 +2,7 @@
 
 Turns an Arduino into an openSciLab instrument: GPIO, PWM, DAC, pulses, a monitor, stream,
 buffer and state captures, a pattern generator, a square wave, an arbitrary waveform (DAC boards)
-and UART/SPI/I²C sending. The protocol (COBS frames with CRC-8, protocol 1) is specified in
+and UART/SPI/I²C sending. The protocol (COBS frames with CRC-8, protocol 2) is specified in
 [`docs/protocols.md`](../../docs/protocols.md), section *Arduino firmware*; the capability strings
 come from [`capabilities.h`](capabilities.h), which `tests/test_protocol_spec.py` checks against it.
 
@@ -10,17 +10,20 @@ come from [`capabilities.h`](capabilities.h), which `tests/test_protocol_spec.py
 
 | Environment | Board | Line | Pins in the table | Capture buffer | Pattern runs | DAC points |
 | --- | --- | --- | --- | --- | --- | --- |
-| `uno` | Arduino Uno R3 | 115200 baud | D0–D13 (D0/D1 reserved), A0–A5 | 448 B | 32 | – |
-| `nano` | Arduino Nano (Optiboot) | 115200 baud | as Uno, plus A6/A7 (analog only) | 448 B | 32 | – |
-| `megaatmega2560` | Arduino Mega 2560 | 115200 baud | full ports: D22–D29, D53–D50/D10–D13, D49–D42, A8–A15 | 4 KiB | 256 | – |
-| `uno_r4_minima` | Arduino Uno R4 Minima | USB | D0–D13, A0–A5 (DAC on A0) | 12 KiB | 512 | 2048 |
-| `esp32dev` | ESP32 DevKitC (WROOM-32) | 2 Mbaud | 26 GPIOs (GPIO1/3 reserved), DAC on GPIO25/26 | 48 KiB | 2048 | 8192 |
-| `esp32-s3` | ESP32-S3 DevKitC-1 | native USB | 31 GPIOs (GPIO19/20 reserved) | 64 KiB | 2048 | – |
+| `uno` | Arduino Uno R3 | 115200 baud | D0–D13 (D0/D1 reserved), A0–A5 | 448 B | 192 B | – |
+| `nano` | Arduino Nano (Optiboot) | 115200 baud | as Uno, plus A6/A7 (analog only) | 448 B | 192 B | – |
+| `megaatmega2560` | Arduino Mega 2560 | 115200 baud | all 70: D0–D53 (D0/D1 reserved), A0–A15 | 4 KiB | 1.5 KiB | – |
+| `uno_r4_minima` | Arduino Uno R4 Minima | USB | D0–D13, A0–A5 (DAC on A0) | 12 KiB | 3 KiB | 2048 |
+| `esp32dev` | ESP32 DevKitC (WROOM-32) | 2 Mbaud | 26 GPIOs (GPIO1/3 reserved), DAC on GPIO25/26 | 48 KiB | 12 KiB | 8192 |
+| `esp32-s3` | ESP32-S3 DevKitC-1 | native USB | 31 GPIOs (GPIO19/20 reserved) | 64 KiB | 12 KiB | – |
 
-Pins on the wire are indexes into the pin table (command `PINS`); bit *n* of a level mask is pin
-*n*. Capture channels (the `channel` field of a `PIN:` line) count the free digital inputs
-without gaps. The levels are 32 bit, so a table has at most 32 pins: the Mega uses whole ports
-(fast to sample) instead of D0–D13.
+Pins on the wire are numbers into the pin table (command `PINS`); masks and levels are
+`FW_PORTS` bytes, bit *b* of byte *k* is pin 8*k*+*b* (`board::Pins`). On the AVR boards byte *k*
+is a port of the chip, so the table follows the ports and has gaps (`GAP`) where a port has no pin;
+reading eight pins is one port read. The other boards gather their pins (`hal::read_port`).
+Capture channels (the `channel` field of a `PIN:` line) count the free digital inputs without
+gaps. A capture sample holds a byte per port of its pins, a pattern run its count and a byte per
+port of the generator's pins.
 
 Rates (`INFO` in `src/arch/*/board_*.cpp`) are estimates until the benchmark (step 2a,
 [`benchmark/`](benchmark/README.md)) measured them.
@@ -62,12 +65,12 @@ need its BOOT button held while the upload starts.
   for the ADC. `ADC_READ` converts at once.
 * Stream: one timer interrupt per sample; digital levels go out as runs, a level that holds is sent
   every 50 ms for the live view. A full ring ends the capture with DONE status 1 (overflow).
-* Buffer: digital only, 1–4 bytes per sample (by the highest pin of the mask: on the Uno D8 and up
-  take 2, on the Mega A8–A15 take 4), at most two seconds behind the trigger. While it waits for
-  the trigger it samples in turns of about 20 ms and the board answers between them (on AVR the
-  GPIO commands answer busy); the trigger and the pre-trigger ring carry on across the turns, the
-  samples of the main loop's time hold the levels before it. A sample taken late while it records
-  ends with DONE status 1.
+* Buffer: digital only, a byte per sample for each port of the mask (Uno: D0–D7, D8–D13, A0–A5;
+  Mega: up to 11 bytes for all 68 channels), at most two seconds behind the trigger. While it
+  waits for the trigger it samples in turns of about 20 ms and the board answers between them (on
+  AVR the GPIO commands answer busy); the trigger and the pre-trigger ring carry on across the
+  turns, the samples of the main loop's time hold the levels before it. A sample taken late while
+  it records ends with DONE status 1.
 * State: a frame per clock edge (`CLOCK`: external interrupt pins, `CLOCK_SW`: pin change or
   other interrupt pins); a full ring loses the edge and counts it in DONE.
 * AVR timers: Timer2 serves either the stream sampling or the pattern generator (the other answers
@@ -76,8 +79,8 @@ need its BOOT button held while the upload starts.
   (490/980 Hz); the actual frequency is in the answer.
 * SQUARE runs on the pins whose `PIN:` line has `SQUARE` (a timer of their own: Uno/Nano D9/D10,
   Mega D11/D12, R4 D9/D10, ESP32 GPIO18); on another pin it uses its PWM at 50 %.
-* HELLO says the limits of the modes: `stream_rate`, `gen_runs` and, with the arbitrary waveform,
-  `arb_rate` and `arb_points`.
+* HELLO says the bytes of a pin mask (`ports`) and the limits of the modes: `stream_rate`,
+  `gen_bytes` and, with the arbitrary waveform, `arb_rate` and `arb_points`.
 * A generator whose timer cannot start leaves its pins inputs. UART sending keeps interrupts on
   below 20 kBd (an interrupt's few µs on an edge, instead of the millis clock and the serial line
   stopping for a whole byte).

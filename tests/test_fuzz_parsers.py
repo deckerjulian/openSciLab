@@ -161,7 +161,9 @@ def test_the_bytes_of_an_arduino_are_frames_or_counted_as_damaged(data):
     except arduino.ProtocolError:
         pass
     arduino.parse_text(data)
-    arduino.unpack_runs(data)
+    for width in (1, 2, 11):
+        arduino.unpack_runs(data, width)
+    arduino.unpack_pins(data)
 
 
 @QUICK

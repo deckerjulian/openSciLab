@@ -5,7 +5,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 // Fast pin access on the ESP32 and ESP32-S3: the GPIO input registers (GPIO 0-31, 32-48) are
-// spread to the pin bits by a table made at start-up; outputs by the set/clear registers. The
+// gathered to the pin bits by a table made at start-up; outputs by the set/clear registers. The
 // counted clock is the CPU cycle counter.
 
 #ifndef ARCH_ESP32_FAST_H
@@ -30,23 +30,23 @@ extern uint8_t pin_count;
 
 static inline cycle_t IRAM_ATTR cycles() { return cpu_hal_get_cycle_count(); }
 
-static inline uint32_t IRAM_ATTR read_levels() {
+// the pins 8k to 8k+7 of the table, gathered from the GPIO input registers
+static inline uint8_t IRAM_ATTR read_port(uint8_t k) {
     uint32_t low = REG_READ(GPIO_IN_REG), high = REG_READ(GPIO_IN1_REG);
-    uint32_t levels = 0;
-    for (uint8_t i = 0; i < esp::pin_count; i++) {
+    uint8_t levels = 0;
+    for (uint8_t b = 0, i = (uint8_t)(8 * k); b < 8 && i < esp::pin_count; b++, i++) {
         uint8_t g = esp::pin_gpio[i];
         uint32_t word = g < 32 ? low : high;
-        if (word & ((uint32_t)1 << (g & 31))) levels |= (uint32_t)1 << i;
+        if (word & ((uint32_t)1 << (g & 31))) levels |= (uint8_t)(1u << b);
     }
     return levels;
 }
 
-static inline void IRAM_ATTR write_levels(uint32_t mask, uint32_t levels) {
+static inline void IRAM_ATTR write_port(uint8_t k, uint8_t mask, uint8_t levels) {
     uint32_t set_low = 0, clear_low = 0, set_high = 0, clear_high = 0;
-    for (uint8_t i = 0; i < esp::pin_count && mask; i++) {
-        uint32_t bit = (uint32_t)1 << i;
+    for (uint8_t b = 0, i = (uint8_t)(8 * k); b < 8 && i < esp::pin_count; b++, i++) {
+        uint8_t bit = (uint8_t)(1u << b);
         if (!(mask & bit)) continue;
-        mask &= ~bit;
         uint8_t g = esp::pin_gpio[i];
         uint32_t gbit = (uint32_t)1 << (g & 31);
         if (g < 32) {

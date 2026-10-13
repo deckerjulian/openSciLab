@@ -40,6 +40,8 @@ const PinDef PIN_TABLE[] = {
     {"A3", 17, IO | PC_ADC, 3, RES_FREE},
     {"A4", 18, IO | PC_ADC, 4, RES_FREE},
     {"A5", 19, IO | PC_ADC, 5, RES_FREE},
+    GAP, GAP,  // numbers without a pin (as on the AVR boards, whose table follows the ports)
+    {"D22", 22, IO, NO_CHANNEL, RES_FREE},
 };
 #undef IO
 const uint8_t PIN_COUNT = sizeof(PIN_TABLE) / sizeof(PIN_TABLE[0]);
@@ -161,7 +163,8 @@ void pin_input(uint8_t pin, uint8_t pull) {
 
 void pin_output(uint8_t pin, bool level) {
     fake::output_mask |= bit(pin);
-    write_levels(bit(pin), level ? bit(pin) : 0);
+    uint8_t mask = (uint8_t)(1u << (pin & 7));
+    write_port((uint8_t)(pin >> 3), mask, level ? mask : 0);
 }
 
 bool pin_read(uint8_t pin) {

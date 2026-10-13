@@ -10,11 +10,11 @@
 #ifndef CAPTURE_H
 #define CAPTURE_H
 
-#include "platform.h"
+#include "board.h"
 
 namespace capture {
 
-// CAPTURE_SETUP: <BIIHIIBIIBB>; answers the actual rate
+// CAPTURE_SETUP: <BIHIIBBB>, then the pin mask, trigger mask and trigger levels; answers the actual rate
 uint8_t setup(const uint8_t *data, uint8_t n, uint32_t *actual);
 // CAPTURE_START
 uint8_t start();
@@ -23,7 +23,7 @@ void abort();
 // a capture runs (or still sends its data)
 bool running();
 // pins of the running capture (channels, trigger, clock)
-uint32_t pins();
+board::Pins pins();
 // analog channels of the running capture
 uint16_t adc_mask();
 // a buffer capture runs on a board whose GPIO commands must wait (AVR)

@@ -7,6 +7,8 @@
 """The wire protocol of the openSciLab Arduino firmware (``docs/protocols.md``, *Arduino firmware*).
 
 Frames are COBS-encoded payloads ended by ``0x00``: ``COBS(type, sequence, payload, crc8)``.
+Pin masks and levels are ``ports`` bytes (HELLO): bit b of byte k is pin 8k+b. A sample of a
+capture is the bytes of the ports its pins are on, in ascending order.
 Everything here is plain Python without I/O, shared by the driver and the simulated Arduino.
 """
 
@@ -16,7 +18,7 @@ import struct
 from dataclasses import dataclass
 from typing import Iterable, Optional
 
-PROTOCOL = 1
+PROTOCOL = 2
 
 REQUEST = 0x01
 ANSWER = 0x02
@@ -218,6 +220,27 @@ def parse_text(data: bytes) -> dict[str, str]:
     return result
 
 
+def pack_pins(pins: Iterable[int], ports: int) -> bytes:
+    """A pin mask (or levels: the pins that are high) of ``ports`` bytes."""
+    mask = 0
+    for pin in pins:
+        if not 0 <= pin < 8 * ports:
+            raise ValueError(f"no pin {pin} in {ports} ports")
+        mask |= 1 << pin
+    return mask.to_bytes(ports, "little")
+
+
+def unpack_pins(data: bytes) -> int:
+    """A pin mask or levels as an integer (bit n: pin n)."""
+    return int.from_bytes(bytes(data), "little")
+
+
+def sample_ports(pins: Iterable[int]) -> list[int]:
+    """The ports (bytes of a mask) of ``pins``, ascending: a sample of a capture of the pins holds
+    a byte of each."""
+    return sorted({pin >> 3 for pin in pins})
+
+
 def runs(levels: Iterable[int]) -> list[tuple[int, int]]:
     """Run lengths ``(count, level)`` of samples, at most 65535 each (the pattern generator)."""
     result: list[tuple[int, int]] = []
@@ -230,12 +253,15 @@ def runs(levels: Iterable[int]) -> list[tuple[int, int]]:
     return result
 
 
-def pack_runs(items: Iterable[tuple[int, int]]) -> bytes:
-    return b"".join(struct.pack("<HI", count, level) for count, level in items)
+def pack_runs(items: Iterable[tuple[int, int]], width: int) -> bytes:
+    """Runs ``(count, sample)``: a count and the ``width`` bytes of the sample (an integer, little endian)."""
+    return b"".join(struct.pack("<H", count) + int(level).to_bytes(width, "little") for count, level in items)
 
 
-def unpack_runs(data: bytes) -> list[tuple[int, int]]:
-    return [struct.unpack_from("<HI", data, offset) for offset in range(0, len(data) - len(data) % 6, 6)]
+def unpack_runs(data: bytes, width: int) -> list[tuple[int, int]]:
+    size = 2 + width
+    return [(struct.unpack_from("<H", data, offset)[0], int.from_bytes(data[offset + 2:offset + size], "little"))
+            for offset in range(0, len(data) - len(data) % size, size)]
 
 
 def error_text(frame: Frame) -> str:

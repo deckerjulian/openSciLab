@@ -244,18 +244,20 @@ def test_more_samples_than_the_board_holds_are_refused(uno):
     assert driver.start_capture(session_of([40])) == CaptureError.BAD_PARAMS
 
 
-def test_the_buffer_depth_follows_the_highest_pin(uno):
-    # the firmware stores 1 to 4 bytes a sample by the highest pin of the mask: D2-D7 (pins 2-7)
-    # fit one byte, D8 (pin 8, channel 6) needs two
+def test_the_buffer_depth_follows_the_ports_of_the_pins(uno):
+    # the firmware stores a byte a sample per port of the mask: D2-D7 (pins 2-7) are port 0, D8
+    # (pin 8, channel 6) port 1
     driver = uno.capture.driver
-    assert [arduino_driver.buffer_width(mask) for mask in (0xFF, 1 << 8, 1 << 23, 1 << 31)] == [1, 2, 3, 4]
+    assert driver.ports == 3 and protocol.sample_ports([2, 7, 8, 23]) == [0, 1, 2]
     assert driver.get_limits([0, 5]).max_post_samples == 448
+    assert driver.get_limits([6]).max_post_samples == 448
     assert driver.get_limits([0, 6]).max_post_samples == 224
-    assert driver.start_capture(session_of([6], post=300)) == CaptureError.BAD_PARAMS
-    result = capture(driver, session_of([6], post=224))
-    assert result.success and len(result.session.capture_channels[0].samples) == 224
+    assert driver.start_capture(session_of([0, 6], post=300)) == CaptureError.BAD_PARAMS
+    result = capture(driver, session_of([0, 6], post=224))
+    assert result.success and len(result.session.capture_channels[1].samples) == 224
     # the simulated board refuses it as the firmware does
-    setup = struct.pack("<BIIHIIBIIBB", protocol.MODE_BUFFER, 1000, 1 << 8, 0, 300, 0, 0, 0, 0, 0xFF, 0)
+    setup = (struct.pack("<BIHIIBBB", protocol.MODE_BUFFER, 1000, 0, 300, 0, 0, 0xFF, 0)
+             + protocol.pack_pins([2, 8], 3) + bytes(6))
     with pytest.raises(ArduinoError) as refused:
         driver.connection.request(protocol.CAPTURE_SETUP, setup)
     assert refused.value.code == protocol.ERR_OVERFLOW
@@ -303,9 +305,9 @@ def _drop_data_frames(shell, which):
 
 def test_a_lost_data_frame_fails_the_capture(uno):
     driver = uno.capture.driver
-    uno.gpio.pwm("D9", 20_000.0, 0.5)  # a change every 2-3 samples: three DATA frames of runs
+    uno.gpio.pwm("D9", 20_000.0, 0.5)  # a change every 2-3 samples: three DATA frames of runs (81 each)
     count = _drop_data_frames(driver.shell, {1})
-    result = capture(driver, session_of([7], rate=100_000, post=224))
+    result = capture(driver, session_of([7], rate=100_000, post=448))
     assert count[0] >= 3  # (the next frame starts after the gap)
     assert not result.success and "lost" in result.error
     # the last frames: only DONE says how many samples there were
@@ -344,9 +346,9 @@ def test_pattern_square_and_transmit(uno):
     generator = uno.generator
     outputs = {output.name: output for output in generator.outputs()}
     assert outputs["PATTERN"].max_rate == 50_000 and "D2" in outputs["PATTERN"].pins
-    # the Uno holds 32 runs (HELLO gen_runs)
-    assert outputs["PATTERN"].max_points == 32 * 0xFFFF
-    with pytest.raises(InstrumentError, match="32"):
+    # the Uno holds 192 bytes of runs (HELLO gen_bytes): 64 runs of the pins of a port
+    assert outputs["PATTERN"].max_points == 64 * 0xFFFF
+    with pytest.raises(InstrumentError, match="64"):
         generator.start("PATTERN", waves.pattern({"D7": [0, 1] * 50}, rate=10_000))
     generator.start("PATTERN", waves.pattern({"D7": [0, 1] * 16}, rate=10_000))
     assert generator.running("PATTERN")

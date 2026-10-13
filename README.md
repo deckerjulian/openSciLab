@@ -11,9 +11,10 @@ view* of the lab. Windows, macOS and Linux; GPL-3.0.
 
 > **Beta (0.1).** The application is covered by about 2100 automated tests and every function
 > works with the simulators. On real hardware it has been tried on a Pico 2 (Pico firmware 8, the
-> logic analyzer and the inputs), a Rigol DHO924S (analog and logic channels, the bridge app) and a
-> DSLogic U2Pro16; the outputs of the Pico firmware and the Arduino firmware have **not been checked
-> on real hardware yet**. Reports of what works on your hardware, and what does not, are very welcome.
+> logic analyzer and the inputs), an Arduino Mega 2560 (inputs, outputs, analog inputs, monitor,
+> captures, pattern generator over loopback wires), a Rigol DHO924S (analog and logic channels, the
+> bridge app) and a DSLogic U2Pro16; the outputs of the Pico firmware and the Arduino firmware on
+> the other boards have **not been checked on real hardware yet**. Reports of what works on your hardware, and what does not, are very welcome.
 
 ![A flow that sweeps a PWM duty cycle and measures the voltage behind an RC low pass](docs/images/flow-editor.png)
 
@@ -50,7 +51,7 @@ view* of the lab. Windows, macOS and Linux; GPL-3.0.
 | Device | Connection | What openSciLab does with it | State |
 | --- | --- | --- | --- |
 | Raspberry Pi Pico, Pico 2, Pico W, Pico 2 W, RP2040-Zero, LogicAnalyzer Interceptor, LogicAnalyzer board V2 of gusmanb (inputs only, behind level shifters) | USB, WiFi; openSciLab Pico firmware | 24 channel logic analyzer (100 MHz, 200 MHz with *Turbo*), streams, trigger sequences, state mode, 2–5 boards as one analyzer; GPIO, PWM, pulses, ADC, monitor, pattern generator, UART/SPI/I²C | version 8 tested on a Pico 2 on gusmanb's LogicAnalyzer board V2: captures, streams, monitor, latency; its outputs (GPIO, PWM, generators, UART/SPI/I²C) not yet tried (inputs only on that board) |
-| Arduino Uno, Nano, Mega 2560, Uno R4 Minima, ESP32, ESP32-S3 | USB; openSciLab Arduino firmware | logic analyzer of its pins (buffer, stream, state), analog inputs, GPIO, PWM, monitor, pattern/square/arbitrary generator, UART/SPI/I²C | not yet tested on hardware |
+| Arduino Uno, Nano, Mega 2560, Uno R4 Minima, ESP32, ESP32-S3 | USB; openSciLab Arduino firmware | logic analyzer of its pins (buffer, stream, state), analog inputs, GPIO, PWM, monitor, pattern/square/arbitrary generator, UART/SPI/I²C | tested on a Mega 2560 (all 70 pins): inputs and outputs, analog inputs, monitor, buffer and stream captures, pattern generator; the other boards not yet |
 | DreamSourceLab DSLogic Plus, U2Pro16, U3Pro16, U3Pro32 | USB; DSView firmware | logic analyzer up to 1 GHz, streams, record to disk | experimental, tested on a U2Pro16 |
 | Rigol DHO900 (DHO924S ...) | network: SCPI, or the bridge app on the instrument; USB (USBTMC) | 4 analog channels, edge trigger on them or on the 16 logic channels, large captures arriving progressively, generator, its screen live with its settings beside it (front panel, also in a window of its own), captures as set on the instrument | tested on a DHO924S (modified firmware NK v0.5.2): network, bridge app (installed from its device card), USB; the logic channels D0–D15 too, together with the analog ones - they need a firmware that gives them out over SCPI (Rigol 00.01.05.00.00 or later by its release notes; the NK mod only with a patch of its library) |
 | Measuring devices on other computers | network; Python package `openscilab_device` | values, streams, outputs and commands with their time | beta |

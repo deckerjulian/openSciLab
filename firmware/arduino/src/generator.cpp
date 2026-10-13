@@ -4,8 +4,8 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// The pattern generator (runs <HI count, levels in RAM, played by a timer interrupt on the
-// pins of a mask), the square wave (a hardware timer) and the arbitrary waveform (DAC points
+// The pattern generator (runs in RAM: <H count, then a byte per port of its pins; played by a
+// timer interrupt), the square wave (a hardware timer) and the arbitrary waveform (DAC points
 // played by a timer interrupt).
 
 #include "generator.h"
@@ -19,8 +19,12 @@ using namespace proto;
 
 namespace gen {
 
-static uint8_t runs[FW_GEN_RUNS * 6];
+static uint8_t runs[FW_GEN_BYTES];
 static uint16_t runs_loaded = 0;
+static board::Pins pattern_mask;  // the pins of the runs (GEN_LOAD)
+static uint8_t pattern_ports = 0;  // the ports of those pins: bytes of a run after its count
+static uint8_t pattern_port[FW_PORTS];
+static uint8_t pattern_bits[FW_PORTS];
 #if FW_ARB_POINTS
 static uint16_t points[FW_ARB_POINTS];
 static uint16_t points_loaded = 0;
@@ -35,26 +39,34 @@ static volatile uint8_t playing = NOTHING;
 static volatile bool finished = false;  // the last pass is over (the timer stops in poll)
 static volatile uint16_t passes_done = 0;
 static uint16_t passes_wanted = 0;
-static uint32_t pattern_mask = 0;
 static uint16_t index_now = 0;
 static uint16_t remaining = 0;
+static const uint8_t *run_now = runs;
 
 static uint8_t square_pin = 0xFF;
+
+// the bytes of a run
+static inline uint8_t run_size() { return (uint8_t)(2 + pattern_ports); }
+
+FW_ISR static inline void play(const uint8_t *run) {
+    remaining = get_u16(run);
+    for (uint8_t i = 0; i < pattern_ports; i++) hal::write_port(pattern_port[i], pattern_bits[i], run[2 + i]);
+}
 
 FW_ISR static void pattern_tick() {
     if (finished) return;
     if (--remaining) return;
+    run_now += run_size();
     if (++index_now == runs_loaded) {
         index_now = 0;
+        run_now = runs;
         passes_done++;
         if (passes_wanted && passes_done >= passes_wanted) {
             finished = true;
             return;
         }
     }
-    const uint8_t *run = runs + (uint32_t)index_now * 6;
-    remaining = get_u16(run);
-    hal::write_levels(pattern_mask, get_u32(run + 2));
+    play(run_now);
 }
 
 #if FW_ARB_POINTS
@@ -73,15 +85,30 @@ FW_ISR static void wave_tick() {
 #endif
 
 uint8_t load(const uint8_t *d, uint8_t n, uint16_t *loaded) {
-    if (n < 2 || (n - 2) % 6) return ERR_ARGUMENTS;
+    const uint8_t head = 2 + FW_PORTS;  // offset, pins
+    if (n < head) return ERR_ARGUMENTS;
     if (playing == PATTERN) return ERR_BUSY;
     uint16_t offset = get_u16(d);
-    uint16_t count = (uint16_t)((n - 2) / 6);
+    board::Pins mask = board::Pins::from(d + 2);
+    if (!mask.any()) return ERR_ARGUMENTS;
     if (offset > runs_loaded) return ERR_ARGUMENTS;  // no gaps
-    if ((uint32_t)offset + count > FW_GEN_RUNS) return ERR_OVERFLOW;
+    if (offset && !(mask == pattern_mask)) return ERR_ARGUMENTS;  // the runs before have other pins
+    uint8_t size = (uint8_t)(2 + mask.ports());
+    if ((n - head) % size) return ERR_ARGUMENTS;
+    uint16_t count = (uint16_t)((n - head) / size);
+    if (((uint32_t)offset + count) * size > FW_GEN_BYTES) return ERR_OVERFLOW;
     for (uint16_t i = 0; i < count; i++)
-        if (get_u16(d + 2 + 6 * i) == 0) return ERR_ARGUMENTS;
-    memcpy(runs + (uint32_t)offset * 6, d + 2, (size_t)count * 6);
+        if (get_u16(d + head + size * i) == 0) return ERR_ARGUMENTS;
+    if (!offset) {
+        pattern_mask = mask;
+        pattern_ports = 0;
+        for (uint8_t k = 0; k < FW_PORTS; k++) {
+            if (!mask.port[k]) continue;
+            pattern_port[pattern_ports] = k;
+            pattern_bits[pattern_ports++] = mask.port[k];
+        }
+    }
+    memcpy(runs + (uint32_t)offset * size, d + head, (size_t)count * size);
     runs_loaded = (uint16_t)(offset + count);
     *loaded = runs_loaded;
     return 0;
@@ -93,34 +120,39 @@ static void halt() {
     finished = false;
 }
 
+// the level of a pin in the first run
+static bool first_level(uint8_t pin) {
+    for (uint8_t i = 0; i < pattern_ports; i++)
+        if (pattern_port[i] == pin >> 3) return (runs[2 + i] >> (pin & 7)) & 1;
+    return false;
+}
+
 uint8_t start(const uint8_t *d, uint8_t n, float *actual) {
-    if (n != 11) return ERR_ARGUMENTS;
+    if (n != 7) return ERR_ARGUMENTS;
     float rate = get_f32(d);
-    uint32_t mask = get_u32(d + 4);
-    uint16_t passes = get_u16(d + 8);
-    uint8_t flags = d[10];
+    uint16_t passes = get_u16(d + 4);
+    uint8_t flags = d[6];
     if (flags & 1) return ERR_UNSUPPORTED;  // no trigger input is defined for the Arduino boards
-    if (!(rate > 0.0f) || rate > (float)board::INFO.generator_max_rate || !mask || !runs_loaded)
-        return ERR_ARGUMENTS;
+    if (!(rate > 0.0f) || rate > (float)board::INFO.generator_max_rate || !runs_loaded) return ERR_ARGUMENTS;
     if (playing != NOTHING) return ERR_BUSY;
-    uint8_t error = app::check_pins(mask, board::PC_DOUT);
+    uint8_t error = app::check_pins(pattern_mask, board::PC_DOUT);
     if (error) return error;
-    pattern_mask = mask;
     passes_wanted = passes;
     passes_done = 0;
     index_now = 0;
+    run_now = runs;
     finished = false;
     remaining = get_u16(runs);
     for (uint8_t i = 0; i < board::PIN_COUNT; i++)
-        if (mask & app::pin_bit(i)) hal::pin_output(i, (get_u32(runs + 2) & app::pin_bit(i)) != 0);
-    app::released(mask);  // the generator owns them now
+        if (pattern_mask.has(i)) hal::pin_output(i, first_level(i));
+    app::released(pattern_mask);  // the generator owns them now
     playing = PATTERN;
     error = hal::timer_start(hal::TIMER_OUTPUT, rate, pattern_tick, actual);
     if (error) {
         // nobody would release the pins (neither SAFE nor the watchdog know them): inputs again
         playing = NOTHING;
         for (uint8_t i = 0; i < board::PIN_COUNT; i++)
-            if (mask & app::pin_bit(i)) hal::pin_input(i, hal::PULL_NONE);
+            if (pattern_mask.has(i)) hal::pin_input(i, hal::PULL_NONE);
         return error;
     }
     return 0;
@@ -128,7 +160,7 @@ uint8_t start(const uint8_t *d, uint8_t n, float *actual) {
 
 void stop() {
     if (playing == PATTERN) app::driving(pattern_mask);  // the pins keep their levels
-    if (playing == WAVE) app::driving(app::pin_bit(board::dac_pin()));
+    if (playing == WAVE) app::driving(board::Pins::of(board::dac_pin()));
     halt();
 }
 
@@ -154,13 +186,13 @@ uint8_t square(uint8_t pin, float frequency, float *actual) {
             uint8_t was = square_pin;
             square_off();
             hal::pin_output(was, false);
-            app::driving(app::pin_bit(was));
+            app::driving(board::Pins::of(was));
         }
         return 0;
     }
     if (!(frequency > 0.0f)) return ERR_ARGUMENTS;
     if (pin >= board::PIN_COUNT) return ERR_ARGUMENTS;
-    uint8_t error = (pin == square_pin) ? 0 : app::check_pins(app::pin_bit(pin), board::PC_DOUT);
+    uint8_t error = (pin == square_pin) ? 0 : app::check_pins(board::Pins::of(pin), board::PC_DOUT);
     if (error) return error;
     uint16_t caps = board::pin(pin).caps;
     if (!(caps & (board::PC_SQUARE | board::PC_PWM))) return ERR_UNSUPPORTED;
@@ -170,7 +202,7 @@ uint8_t square(uint8_t pin, float frequency, float *actual) {
     if (error) return error;
     square_pin = pin;
     square_by_pwm = by_pwm;
-    app::released(app::pin_bit(pin));
+    app::released(board::Pins::of(pin));
     return 0;
 }
 
@@ -210,7 +242,7 @@ uint8_t arb_start(const uint8_t *d, uint8_t n, float *actual) {
     if (!(rate > 0.0f) || rate > (float)board::INFO.arb_max_rate || count == 0 || count > points_loaded)
         return ERR_ARGUMENTS;
     if (playing != NOTHING) return ERR_BUSY;
-    uint8_t error = app::check_pins(app::pin_bit(dac), board::PC_DAC);
+    uint8_t error = app::check_pins(board::Pins::of(dac), board::PC_DAC);
     if (error) return error;
     error = hal::dac_write(dac, points[0]);
     if (error) return error;
@@ -235,23 +267,23 @@ uint8_t arb_start(const uint8_t *d, uint8_t n, float *actual) {
 #endif
 }
 
-uint32_t pins() {
-    uint32_t mask = 0;
-    if (playing == PATTERN) mask |= pattern_mask;
-    if (playing == WAVE) mask |= app::pin_bit(board::dac_pin());
-    if (square_pin != 0xFF) mask |= app::pin_bit(square_pin);
+board::Pins pins() {
+    board::Pins mask = board::Pins::none();
+    if (playing == PATTERN) mask.add(pattern_mask);
+    if (playing == WAVE) mask.add(board::dac_pin());
+    if (square_pin != 0xFF) mask.add(square_pin);
     return mask;
 }
 
 bool driving() { return playing != NOTHING || square_pin != 0xFF; }
 
 void stop_all() {
-    uint32_t mask = pins();
+    board::Pins mask = pins();
     halt();
     square_off();
-    if (board::dac_pin() != board::NO_CHANNEL && (mask & app::pin_bit(board::dac_pin()))) hal::dac_stop(board::dac_pin());
+    if (board::dac_pin() != board::NO_CHANNEL && mask.has(board::dac_pin())) hal::dac_stop(board::dac_pin());
     for (uint8_t i = 0; i < board::PIN_COUNT; i++)
-        if (mask & app::pin_bit(i)) hal::pin_input(i, hal::PULL_NONE);
+        if (mask.has(i)) hal::pin_input(i, hal::PULL_NONE);
 }
 
 void poll() {

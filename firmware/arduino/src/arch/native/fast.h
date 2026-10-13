@@ -26,14 +26,18 @@ extern uint16_t dac_value;                  // the value of the first DAC
 void record_write(uint32_t mask, uint32_t levels);
 }  // namespace fake
 
+// the levels of all pins (bit n: pin n)
 static inline uint32_t read_levels() {
     uint32_t input = fake::input_source ? fake::input_source() : fake::input_levels;
     return (input & ~fake::output_mask) | (fake::output_levels & fake::output_mask);
 }
 
-static inline void write_levels(uint32_t mask, uint32_t levels) {
-    fake::output_levels = (fake::output_levels & ~mask) | (levels & mask);
-    fake::record_write(mask, levels);
+static inline uint8_t read_port(uint8_t k) { return (uint8_t)(read_levels() >> (8 * k)); }
+
+static inline void write_port(uint8_t k, uint8_t mask, uint8_t levels) {
+    uint32_t m = (uint32_t)mask << (8 * k), l = (uint32_t)levels << (8 * k);
+    fake::output_levels = (fake::output_levels & ~m) | (l & m);
+    fake::record_write(m, l);
 }
 
 static inline cycle_t cycles() { return fake::cycle_counter += fake::cycle_step; }

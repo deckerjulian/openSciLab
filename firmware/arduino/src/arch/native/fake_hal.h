@@ -5,7 +5,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 // The fake board of the native tests: an Uno-like pin table (D0/D1 reserved, PWM, A0-A5 with a
-// DAC on A0, square wave on D9/D10, clock pins), time and timers driven by the test.
+// DAC on A0, square wave on D9/D10, clock pins, a gap at 20 and 21, D22), time and timers driven
+// by the test.
 
 #ifndef ARCH_NATIVE_FAKE_HAL_H
 #define ARCH_NATIVE_FAKE_HAL_H

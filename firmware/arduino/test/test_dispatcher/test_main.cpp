@@ -30,6 +30,12 @@ struct Got {
     uint16_t u16(size_t at) const { return get_u16(&payload[at]); }
     uint32_t u32(size_t at) const { return get_u32(&payload[at]); }
     float f32(size_t at) const { return get_f32(&payload[at]); }
+    // a pin mask or levels (FW_PORTS bytes) as bits of pin numbers
+    uint32_t pins(size_t at) const {
+        uint32_t mask = 0;
+        for (uint8_t k = 0; k < FW_PORTS; k++) mask |= (uint32_t)payload[at + k] << (8 * k);
+        return mask;
+    }
 };
 
 struct Data {
@@ -38,7 +44,28 @@ struct Data {
     Data &u16(uint16_t x) { u8((uint8_t)x); return u8((uint8_t)(x >> 8)); }
     Data &u32(uint32_t x) { u16((uint16_t)x); return u16((uint16_t)(x >> 16)); }
     Data &f32(float f) { uint32_t r; memcpy(&r, &f, 4); return u32(r); }
+    // a pin mask or levels: FW_PORTS bytes (bit n: pin n)
+    Data &pins(uint32_t mask) {
+        for (uint8_t k = 0; k < FW_PORTS; k++) u8((uint8_t)(mask >> (8 * k)));
+        return *this;
+    }
 };
+
+// the ports (bytes of the masks) with a pin of mask: a sample holds a byte for each
+static std::vector<uint8_t> ports_of(uint32_t mask) {
+    std::vector<uint8_t> ports;
+    for (uint8_t k = 0; k < FW_PORTS; k++)
+        if ((mask >> (8 * k)) & 0xFF) ports.push_back(k);
+    return ports;
+}
+
+// a sample of a capture of mask (its bytes at p) as bits of pin numbers
+static uint32_t sample_at(const std::vector<uint8_t> &payload, size_t at, uint32_t mask) {
+    uint32_t levels = 0;
+    std::vector<uint8_t> ports = ports_of(mask);
+    for (size_t i = 0; i < ports.size(); i++) levels |= (uint32_t)payload[at + i] << (8 * ports[i]);
+    return levels;
+}
 
 static uint8_t sequence = 0;
 static Decoder line_decoder;
@@ -117,8 +144,8 @@ void test_hello_answers_key_value_text() {
     Got got = request(CMD_HELLO);
     ok(got);
     TEST_ASSERT_EQUAL_STRING(
-        "board=native;version=" FIRMWARE_VERSION ";protocol=1;rate=1000000;clock=16000000;buffer=600;adc_bits=10;"
-        "dac_bits=12;vref_mv=5000;stream_rate=50000;gen_runs=16;arb_rate=100000;arb_points=64",
+        "board=native;version=" FIRMWARE_VERSION ";protocol=2;ports=3;rate=1000000;clock=16000000;buffer=600;"
+        "adc_bits=10;dac_bits=12;vref_mv=5000;stream_rate=50000;gen_bytes=96;arb_rate=100000;arb_points=64",
         got.text().c_str());
 }
 
@@ -127,7 +154,7 @@ void test_caps_lists_what_the_board_can() {
     ok(got);
     TEST_ASSERT_EQUAL_STRING(
         "GPIO,PWM,MONITOR,ANALOG=6,DAC,AFG,IMMEDIATE_TRIGGER,CONTINUOUS_STREAM,STREAM=11520,STATE_MODE,"
-        "STREAM_STATE,PATTERN_GEN=100000,18,GEN_SQUARE,TX_UART,TX_SPI,TX_I2C",
+        "STREAM_STATE,PATTERN_GEN=100000,19,GEN_SQUARE,TX_UART,TX_SPI,TX_I2C",
         got.text().c_str());
 }
 
@@ -141,7 +168,10 @@ void test_pins_answers_one_line_per_index_then_nothing() {
     // the pins with a timer of their own for the square wave say so
     TEST_ASSERT_EQUAL_STRING("PIN:D9,DIN/DOUT/PULLUP/PWM/CLOCK_SW/SQUARE,7,5000,-",
                              request(CMD_PINS, Data().u8(9)).text().c_str());
-    Got end = request(CMD_PINS, Data().u8(20));
+    // a number without a pin, then the pins go on
+    TEST_ASSERT_EQUAL_STRING("-", request(CMD_PINS, Data().u8(20)).text().c_str());
+    TEST_ASSERT_EQUAL_STRING("PIN:D22,DIN/DOUT/PULLUP,18,5000,-", request(CMD_PINS, Data().u8(22)).text().c_str());
+    Got end = request(CMD_PINS, Data().u8(23));
     ok(end);
     TEST_ASSERT_EQUAL_size_t(1, end.payload.size());
 }
@@ -167,7 +197,7 @@ void test_events_and_answers_ignore_frames_that_are_no_requests() {
 
 void test_write_answers_as_the_fixture_and_drives_the_pins() {
     // the request and answer of tests/fixtures/arduino_frames.json (sequence 8, WRITE D13 high)
-    const uint8_t request_wire[] = {0x04, 0x01, 0x08, 0x11, 0x02, 0x20, 0x01, 0x01, 0x02, 0x20, 0x01, 0x02, 0x48, 0x00};
+    const uint8_t request_wire[] = {0x04, 0x01, 0x08, 0x11, 0x02, 0x20, 0x01, 0x02, 0x20, 0x02, 0x27, 0x00};
     const uint8_t answer_wire[] = {0x05, 0x02, 0x08, 0x11, 0x09, 0x00};
     to_app(request_wire, sizeof(request_wire));
     TEST_ASSERT_EQUAL_size_t(sizeof(answer_wire), fake::line.size());
@@ -175,20 +205,28 @@ void test_write_answers_as_the_fixture_and_drives_the_pins() {
     fake::line.clear();
     TEST_ASSERT_TRUE(fake::output_mask & bit(13));
     TEST_ASSERT_TRUE(fake::output_levels & bit(13));
-    Got read = request(CMD_READ, Data().u32(bit(13) | bit(12)));
+    Got read = request(CMD_READ, Data().pins(bit(13) | bit(12)));
     ok(read);
-    TEST_ASSERT_EQUAL_HEX32(bit(13), read.u32(1));
+    TEST_ASSERT_EQUAL_size_t(1 + FW_PORTS, read.payload.size());
+    TEST_ASSERT_EQUAL_HEX32(bit(13), read.pins(1));
+    // pins of another port in the same request
+    ok(request(CMD_WRITE, Data().pins(bit(22) | bit(3)).pins(bit(22))));
+    TEST_ASSERT_EQUAL_HEX32(bit(22), request(CMD_READ, Data().pins(bit(22) | bit(3))).pins(1));
 }
 
 void test_reserved_and_unsuitable_pins_are_refused() {
-    error(ERR_RESERVED, request(CMD_WRITE, Data().u32(bit(1)).u32(0)));
+    error(ERR_RESERVED, request(CMD_WRITE, Data().pins(bit(1)).pins(0)));
+    error(ERR_ARGUMENTS, request(CMD_WRITE, Data().pins(bit(21)).pins(0)));  // a gap
+    error(ERR_ARGUMENTS, request(CMD_PIN_MODE, Data().u8(20).u8(MODE_INPUT)));
     error(ERR_RESERVED, request(CMD_PIN_MODE, Data().u8(0).u8(MODE_OUTPUT)));
     error(ERR_UNSUPPORTED, request(CMD_PIN_MODE, Data().u8(2).u8(MODE_INPUT_PULLDOWN)));
     ok(request(CMD_PIN_MODE, Data().u8(4).u8(MODE_INPUT_PULLDOWN)));
     TEST_ASSERT_TRUE(fake::pulldowns & bit(4));
     error(ERR_UNSUPPORTED, request(CMD_PWM, Data().u8(2).f32(1000).u16(100)));
     error(ERR_UNSUPPORTED, request(CMD_DAC, Data().u8(15).u16(100)));
-    error(ERR_ARGUMENTS, request(CMD_READ, Data().u32(bit(25))));
+    error(ERR_ARGUMENTS, request(CMD_READ, Data().pins(bit(20))));
+    error(ERR_ARGUMENTS, request(CMD_READ, Data().pins(bit(23))));  // beyond the table
+    error(ERR_ARGUMENTS, request(CMD_READ, Data().u32(bit(2))));   // a mask of the wrong length
 }
 
 void test_pwm_dac_and_pulse() {
@@ -227,26 +265,26 @@ void test_adc_read_answers_per_mask_bit() {
 void test_monitor_reports_state_events() {
     fake::input_levels = bit(5);
     fake::adc_values[1] = 777;
-    ok(request(CMD_MONITOR, Data().u32(100000).u32(bit(5) | bit(6)).u16(0b10)));  // 100 Hz
+    ok(request(CMD_MONITOR, Data().u32(100000).pins(bit(5) | bit(6)).u16(0b10)));  // 100 Hz
     std::vector<Got> states;
     for (int ms = 0; ms < 50; ms++) {
         fake::now_us += 1000;
         for (const Got &g : events(poll(), EVENT_STATE)) states.push_back(g);
     }
     TEST_ASSERT_TRUE(states.size() >= 4 && states.size() <= 6);
-    TEST_ASSERT_EQUAL_size_t(11, states[0].payload.size());
-    TEST_ASSERT_EQUAL_HEX32(bit(5), states[0].u32(5));
-    TEST_ASSERT_EQUAL_UINT16(777, states[0].u16(9));
-    ok(request(CMD_MONITOR, Data().u32(0).u32(0).u16(0)));
+    TEST_ASSERT_EQUAL_size_t(7 + FW_PORTS, states[0].payload.size());
+    TEST_ASSERT_EQUAL_HEX32(bit(5), states[0].pins(5));
+    TEST_ASSERT_EQUAL_UINT16(777, states[0].u16(5 + FW_PORTS));
+    ok(request(CMD_MONITOR, Data().u32(0).pins(0).u16(0)));
     fake::now_us += 100000;
     TEST_ASSERT_EQUAL_size_t(0, events(poll(), EVENT_STATE).size());
-    error(ERR_ARGUMENTS, request(CMD_MONITOR, Data().u32(2000000).u32(1).u16(0)));  // above 1 kHz
+    error(ERR_ARGUMENTS, request(CMD_MONITOR, Data().u32(2000000).pins(bit(5)).u16(0)));  // above 1 kHz
 }
 
 // ------------------------------------------------------------------- watchdog, safe
 
 void test_watchdog_releases_outputs_after_a_second_without_frames() {
-    ok(request(CMD_WRITE, Data().u32(bit(8)).u32(bit(8))));
+    ok(request(CMD_WRITE, Data().pins(bit(8)).pins(bit(8))));
     fake::now_us += 600000;
     TEST_ASSERT_EQUAL_size_t(0, poll().size());
     ok(request(CMD_HEARTBEAT));  // keeps it satisfied
@@ -268,7 +306,7 @@ void test_no_watchdog_without_outputs() {
 }
 
 void test_safe_releases_everything() {
-    ok(request(CMD_WRITE, Data().u32(bit(8)).u32(bit(8))));
+    ok(request(CMD_WRITE, Data().pins(bit(8)).pins(bit(8))));
     ok(request(CMD_PWM, Data().u8(3).f32(500.0f).u16(1000)));
     ok(request(CMD_SQUARE, Data().u8(9).f32(10000.0f)));
     ok(request(CMD_SAFE));
@@ -282,18 +320,21 @@ void test_safe_releases_everything() {
 static Data setup_data(uint8_t mode, uint32_t rate, uint32_t mask, uint16_t adc, uint32_t samples, uint32_t pre,
                        uint8_t trigger = 0, uint32_t tmask = 0, uint32_t tlevels = 0, uint8_t clock = 0,
                        uint8_t edge = 0) {
-    return Data().u8(mode).u32(rate).u32(mask).u16(adc).u32(samples).u32(pre).u8(trigger).u32(tmask).u32(tlevels)
-        .u8(clock).u8(edge);
+    return Data().u8(mode).u32(rate).u16(adc).u32(samples).u32(pre).u8(trigger).u8(clock).u8(edge)
+        .pins(mask).pins(tmask).pins(tlevels);
 }
 
-// the levels per sample from DATA kind 0 events (checks that the indexes follow each other)
-static std::vector<uint32_t> samples_of(const std::vector<Got> &frames) {
+// the levels per sample from DATA kind 0 events of a capture of mask (checks that the indexes
+// follow each other and that a run holds a byte per port of the mask)
+static std::vector<uint32_t> samples_of(const std::vector<Got> &frames, uint32_t mask) {
     std::vector<uint32_t> levels;
+    size_t size = 2 + ports_of(mask).size();
     for (const Got &g : events(frames, EVENT_DATA)) {
         if (g.payload[1] != DATA_DIGITAL) continue;
         TEST_ASSERT_EQUAL_UINT32(levels.size(), g.u32(2));
-        for (size_t at = 6; at + 6 <= g.payload.size(); at += 6)
-            levels.insert(levels.end(), g.u16(at), g.u32(at + 2));
+        TEST_ASSERT_EQUAL_size_t(0, (g.payload.size() - 6) % size);
+        for (size_t at = 6; at + size <= g.payload.size(); at += size)
+            levels.insert(levels.end(), g.u16(at), sample_at(g.payload, at + 2, mask));
     }
     return levels;
 }
@@ -323,12 +364,12 @@ void test_stream_capture_sends_runs_and_done() {
         std::vector<Got> got = poll();
         all.insert(all.end(), got.begin(), got.end());
     }
-    error(ERR_BUSY, request(CMD_WRITE, Data().u32(bit(2)).u32(0)));  // a capture pin
+    error(ERR_BUSY, request(CMD_WRITE, Data().pins(bit(2)).pins(0)));  // a capture pin
     error(ERR_BUSY, request(CMD_CAPTURE_SETUP, setup_data(MODE_STREAM, 1000, bit(2), 0, 0, 0)));
     ok(request(CMD_CAPTURE_ABORT));
     std::vector<Got> rest = until_done();
     all.insert(all.end(), rest.begin(), rest.end());
-    TEST_ASSERT_EQUAL_UINT32_ARRAY(expected.data(), samples_of(all).data(), expected.size());
+    TEST_ASSERT_EQUAL_UINT32_ARRAY(expected.data(), samples_of(all, bit(2) | bit(3)).data(), expected.size());
     std::vector<Got> done = events(all, EVENT_DONE);
     TEST_ASSERT_EQUAL_size_t(1, done.size());
     TEST_ASSERT_EQUAL_UINT8(DONE_STOPPED, done[0].payload[1]);
@@ -344,7 +385,7 @@ void test_stream_capture_with_samples_and_trigger_completes() {
     fake::input_levels = bit(6);
     fake::tick(hal::TIMER_SAMPLE, 10);
     std::vector<Got> all = until_done();
-    std::vector<uint32_t> levels = samples_of(all);
+    std::vector<uint32_t> levels = samples_of(all, bit(4));
     const uint32_t expected[] = {bit(4), bit(4), 0, 0, 0};
     TEST_ASSERT_EQUAL_size_t(5, levels.size());
     TEST_ASSERT_EQUAL_UINT32_ARRAY(expected, levels.data(), 5);
@@ -364,7 +405,7 @@ void test_stream_capture_reports_overflow() {
     std::vector<Got> done = events(all, EVENT_DONE);
     TEST_ASSERT_EQUAL_size_t(1, done.size());
     TEST_ASSERT_EQUAL_UINT8(DONE_OVERFLOW, done[0].payload[1]);
-    TEST_ASSERT_EQUAL_UINT32(samples_of(all).size(), done[0].u32(2));
+    TEST_ASSERT_EQUAL_UINT32(samples_of(all, bit(2)).size(), done[0].u32(2));
     TEST_ASSERT_TRUE(done[0].u32(2) > 50 && done[0].u32(2) < 300);
 }
 
@@ -398,7 +439,7 @@ void test_state_capture_takes_a_frame_per_clock_edge_and_counts_losses() {
         fake::edge();
     }
     std::vector<Got> all = poll(3);
-    for (int i = 0; i < 80; i++) fake::edge();  // the ring holds 74 frames
+    for (int i = 0; i < 130; i++) fake::edge();  // the ring holds 119 frames
     ok(request(CMD_CAPTURE_ABORT));
     std::vector<Got> rest = until_done();
     all.insert(all.end(), rest.begin(), rest.end());
@@ -406,9 +447,9 @@ void test_state_capture_takes_a_frame_per_clock_edge_and_counts_losses() {
     for (const Got &g : events(all, EVENT_DATA)) {
         TEST_ASSERT_EQUAL_UINT8(DATA_STATE, g.payload[1]);
         TEST_ASSERT_EQUAL_UINT32(times.size(), g.u32(2));
-        for (size_t at = 6; at + 8 <= g.payload.size(); at += 8) {
+        for (size_t at = 6; at + 5 <= g.payload.size(); at += 5) {  // time, a port
             times.push_back(g.u32(at));
-            levels.push_back(g.u32(at + 4));
+            levels.push_back(sample_at(g.payload, at + 4, bit(4) | bit(5)));
         }
     }
     TEST_ASSERT_EQUAL_UINT32(1100, times[0]);
@@ -417,7 +458,7 @@ void test_state_capture_takes_a_frame_per_clock_edge_and_counts_losses() {
     std::vector<Got> done = events(all, EVENT_DONE);
     TEST_ASSERT_EQUAL_UINT8(DONE_STOPPED, done[0].payload[1]);
     TEST_ASSERT_EQUAL_UINT32(times.size(), done[0].u32(2));
-    TEST_ASSERT_EQUAL_UINT32(3 + 80 - times.size(), done[0].u32(6));  // edges lost
+    TEST_ASSERT_EQUAL_UINT32(3 + 130 - times.size(), done[0].u32(6));  // edges lost
     TEST_ASSERT_TRUE(done[0].u32(6) > 0);
 }
 
@@ -436,7 +477,7 @@ void test_buffer_capture_with_pre_trigger() {
     fake::input_source = buffer_input;
     ok(request(CMD_CAPTURE_START));
     std::vector<Got> all = until_done();
-    std::vector<uint32_t> levels = samples_of(all);
+    std::vector<uint32_t> levels = samples_of(all, bit(2) | bit(3));
     TEST_ASSERT_EQUAL_size_t(100, levels.size());
     for (size_t i = 0; i < 10; i++) TEST_ASSERT_FALSE(levels[i] & bit(3));
     for (size_t i = 10; i < 100; i++) TEST_ASSERT_TRUE(levels[i] & bit(3));
@@ -452,14 +493,37 @@ void test_buffer_capture_waiting_for_its_trigger_locks_gpio_and_aborts() {
                setup_data(MODE_BUFFER, 1000, bit(2), 0, 50, 0, TRIGGER_PATTERN, bit(4), bit(4))));
     ok(request(CMD_CAPTURE_START));
     TEST_ASSERT_EQUAL_size_t(0, poll(2).size());  // waits
-    error(ERR_BUSY, request(CMD_WRITE, Data().u32(bit(8)).u32(0)));  // AVR-like: GPIO waits
+    error(ERR_BUSY, request(CMD_WRITE, Data().pins(bit(8)).pins(0)));  // AVR-like: GPIO waits
     ok(request(CMD_HEARTBEAT));
     ok(request(CMD_CAPTURE_ABORT));
     std::vector<Got> done = events(until_done(), EVENT_DONE);
     TEST_ASSERT_EQUAL_size_t(1, done.size());
     TEST_ASSERT_EQUAL_UINT8(DONE_STOPPED, done[0].payload[1]);
     TEST_ASSERT_EQUAL_UINT32(0, done[0].u32(2));
-    ok(request(CMD_WRITE, Data().u32(bit(8)).u32(0)));
+    ok(request(CMD_WRITE, Data().pins(bit(8)).pins(0)));
+}
+
+static uint32_t across_ports() {
+    uint32_t sample = fake::cycle_counter / 16000;  // 1 kHz
+    return ((sample & 1) ? bit(3) : 0) | ((sample & 2) ? bit(22) : 0) | (sample >= 40 ? bit(12) : 0);
+}
+
+void test_buffer_capture_reads_the_ports_of_its_pins() {
+    // D3 (port 0) and D22 (port 2): two bytes a sample; the trigger on D12 (port 1) is read, not kept
+    uint32_t mask = bit(3) | bit(22);
+    error(ERR_OVERFLOW, request(CMD_CAPTURE_SETUP, setup_data(MODE_BUFFER, 1000, mask, 0, 301, 0)));
+    ok(request(CMD_CAPTURE_SETUP, setup_data(MODE_BUFFER, 1000, mask, 0, 40, 8, TRIGGER_RISING, bit(12), 0)));
+    fake::input_source = across_ports;
+    ok(request(CMD_CAPTURE_START));
+    std::vector<uint32_t> levels = samples_of(until_done(), mask);
+    TEST_ASSERT_EQUAL_size_t(40, levels.size());
+    for (size_t i = 1; i < 40; i++) {
+        TEST_ASSERT_EQUAL_HEX32(0, levels[i] & ~mask);
+        TEST_ASSERT_NOT_EQUAL(levels[i - 1] & bit(3), levels[i] & bit(3));
+    }
+    // the trigger sample (40) is the ninth: samples 32 to 39 before it
+    TEST_ASSERT_EQUAL_HEX32(0, levels[0]);              // sample 32
+    TEST_ASSERT_EQUAL_HEX32(bit(3) | bit(22), levels[7]); // sample 39
 }
 
 // a pulse or a level the test sets between two turns of the main loop
@@ -480,7 +544,7 @@ void test_buffer_trigger_sees_an_edge_between_two_turns() {
     TEST_ASSERT_EQUAL_size_t(0, events(poll(), EVENT_DATA).size());  // one turn, no edge
     between_turns = bit(3);  // rises while the main loop runs
     std::vector<Got> all = until_done();
-    std::vector<uint32_t> levels = samples_of(all);
+    std::vector<uint32_t> levels = samples_of(all, bit(3));
     TEST_ASSERT_EQUAL_size_t(30, levels.size());
     TEST_ASSERT_EQUAL_HEX32(bit(3), levels[0]);
     TEST_ASSERT_EQUAL_UINT8(DONE_COMPLETE, events(all, EVENT_DONE)[0].payload[1]);
@@ -498,7 +562,7 @@ void test_buffer_trigger_catches_a_pulse_in_a_later_turn() {
                setup_data(MODE_BUFFER, 1000, bit(2) | bit(3), 0, 300, 200, TRIGGER_RISING, bit(3), 0)));
     ok(request(CMD_CAPTURE_START));
     std::vector<Got> all = until_done(100);
-    std::vector<uint32_t> levels = samples_of(all);
+    std::vector<uint32_t> levels = samples_of(all, bit(2) | bit(3));
     TEST_ASSERT_EQUAL_size_t(1, events(all, EVENT_DONE).size());
     TEST_ASSERT_EQUAL_size_t(300, levels.size());
     for (size_t i = 0; i < 200; i++) TEST_ASSERT_EQUAL_HEX32(0, levels[i]);
@@ -522,7 +586,7 @@ void test_buffer_turns_at_a_slow_rate_return_at_once() {
     }
     between_turns = bit(3);
     std::vector<Got> all = until_done();
-    std::vector<uint32_t> levels = samples_of(all);
+    std::vector<uint32_t> levels = samples_of(all, bit(3));
     TEST_ASSERT_EQUAL_size_t(10, levels.size());
     for (size_t i = 0; i < 5; i++) TEST_ASSERT_EQUAL_HEX32(0, levels[i]);
     TEST_ASSERT_EQUAL_HEX32(bit(3), levels[5]);
@@ -541,7 +605,7 @@ void test_buffer_samples_the_main_loop_missed_hold_the_levels() {
     fake::cycle_counter += 5 * 16000; // the main loop took 5 ms
     fake::now_us += 5000;
     between_turns = bit(3);
-    std::vector<uint32_t> levels = samples_of(until_done());
+    std::vector<uint32_t> levels = samples_of(until_done(), bit(2) | bit(3));
     TEST_ASSERT_EQUAL_size_t(30, levels.size());
     // the last 16 samples of the turn toggle, the 4 missed hold the last level, then the trigger
     for (size_t i = 1; i < 16; i++) TEST_ASSERT_NOT_EQUAL(levels[i - 1], levels[i]);
@@ -553,26 +617,32 @@ void test_buffer_samples_the_main_loop_missed_hold_the_levels() {
 
 // ------------------------------------------------------------------------- generator
 
-static Data runs_data(uint16_t offset, std::vector<std::pair<uint16_t, uint32_t>> runs) {
+// GEN_LOAD: the runs carry a byte per port of mask
+static Data runs_data(uint16_t offset, uint32_t mask, std::vector<std::pair<uint16_t, uint32_t>> runs) {
     Data d;
-    d.u16(offset);
-    for (auto &r : runs) d.u16(r.first).u32(r.second);
+    d.u16(offset).pins(mask);
+    for (auto &r : runs) {
+        d.u16(r.first);
+        for (uint8_t k : ports_of(mask)) d.u8((uint8_t)(r.second >> (8 * k)));
+    }
     return d;
 }
 
 void test_pattern_generator_plays_runs() {
-    Got load = request(CMD_GEN_LOAD, runs_data(0, {{2, bit(4)}, {1, bit(5)}}));
+    uint32_t mask = bit(4) | bit(5);
+    Got load = request(CMD_GEN_LOAD, runs_data(0, mask, {{2, bit(4)}, {1, bit(5)}}));
     ok(load);
     TEST_ASSERT_EQUAL_UINT16(2, load.u16(1));
-    load = request(CMD_GEN_LOAD, runs_data(2, {{3, 0}}));
+    load = request(CMD_GEN_LOAD, runs_data(2, mask, {{3, 0}}));
     TEST_ASSERT_EQUAL_UINT16(3, load.u16(1));
-    error(ERR_ARGUMENTS, request(CMD_GEN_LOAD, runs_data(9, {{1, 0}})));  // a gap
-    error(ERR_ARGUMENTS, request(CMD_GEN_LOAD, runs_data(3, {{0, 0}})));  // a run of 0 samples
-    Got start = request(CMD_GEN_START, Data().f32(1000.0f).u32(bit(4) | bit(5)).u16(2).u8(0));
+    error(ERR_ARGUMENTS, request(CMD_GEN_LOAD, runs_data(9, mask, {{1, 0}})));     // a gap
+    error(ERR_ARGUMENTS, request(CMD_GEN_LOAD, runs_data(3, mask, {{0, 0}})));     // a run of 0 samples
+    error(ERR_ARGUMENTS, request(CMD_GEN_LOAD, runs_data(3, bit(4), {{1, 0}})));   // other pins than before
+    Got start = request(CMD_GEN_START, Data().f32(1000.0f).u16(2).u8(0));
     ok(start);
     TEST_ASSERT_EQUAL_FLOAT(1000.0f, start.f32(1));
-    error(ERR_BUSY, request(CMD_WRITE, Data().u32(bit(4)).u32(0)));
-    error(ERR_BUSY, request(CMD_GEN_LOAD, runs_data(0, {{1, 0}})));
+    error(ERR_BUSY, request(CMD_WRITE, Data().pins(bit(4)).pins(0)));
+    error(ERR_BUSY, request(CMD_GEN_LOAD, runs_data(0, mask, {{1, 0}})));
     // levels per sample: 2 x D4, 1 x D5, 3 x none; two passes
     const uint32_t expected[] = {bit(4), bit(4), bit(5), 0, 0, 0, bit(4), bit(4), bit(5), 0, 0, 0};
     std::vector<uint32_t> levels;
@@ -586,17 +656,37 @@ void test_pattern_generator_plays_runs() {
     TEST_ASSERT_EQUAL_UINT16(2, status.u16(2));
     poll();
     TEST_ASSERT_NULL(fake::timer_handler[hal::TIMER_OUTPUT]);
-    ok(request(CMD_WRITE, Data().u32(bit(4)).u32(0)));
+    ok(request(CMD_WRITE, Data().pins(bit(4)).pins(0)));
+}
+
+void test_pattern_generator_drives_pins_of_two_ports() {
+    uint32_t mask = bit(6) | bit(22);
+    ok(request(CMD_GEN_LOAD, runs_data(0, mask, {{1, bit(6)}, {2, bit(22)}, {1, mask}})));
+    ok(request(CMD_GEN_START, Data().f32(1000.0f).u16(1).u8(0)));
+    const uint32_t expected[] = {bit(6), bit(22), bit(22), mask};
+    std::vector<uint32_t> levels;
+    for (int i = 0; i < 4; i++) {
+        levels.push_back(fake::output_levels & mask);
+        fake::tick(hal::TIMER_OUTPUT, 1);
+    }
+    TEST_ASSERT_EQUAL_UINT32_ARRAY(expected, levels.data(), 4);
 }
 
 void test_pattern_generator_limits() {
-    std::vector<std::pair<uint16_t, uint32_t>> many(17, {1, 0});
-    error(ERR_OVERFLOW, request(CMD_GEN_LOAD, runs_data(0, many)));
-    ok(request(CMD_GEN_LOAD, runs_data(0, {{1, 0}, {1, bit(4)}})));
-    error(ERR_UNSUPPORTED, request(CMD_GEN_START, Data().f32(1000.0f).u32(bit(4)).u16(0).u8(1)));
-    error(ERR_ARGUMENTS, request(CMD_GEN_START, Data().f32(200000.0f).u32(bit(4)).u16(0).u8(0)));
-    error(ERR_RESERVED, request(CMD_GEN_START, Data().f32(1000.0f).u32(bit(1)).u16(0).u8(0)));
-    ok(request(CMD_GEN_START, Data().f32(1000.0f).u32(bit(4)).u16(0).u8(0)));
+    // 96 bytes: 32 runs of a port, 24 of two ports
+    std::vector<std::pair<uint16_t, uint32_t>> many(33, {1, 0});
+    error(ERR_OVERFLOW, request(CMD_GEN_LOAD, runs_data(0, bit(4), many)));
+    many.resize(32);
+    ok(request(CMD_GEN_LOAD, runs_data(0, bit(4), many)));
+    many.resize(25);
+    error(ERR_OVERFLOW, request(CMD_GEN_LOAD, runs_data(0, bit(4) | bit(22), many)));
+    error(ERR_ARGUMENTS, request(CMD_GEN_LOAD, runs_data(0, 0, {{1, 0}})));  // no pins
+    ok(request(CMD_GEN_LOAD, runs_data(0, bit(1), {{1, 0}})));
+    error(ERR_RESERVED, request(CMD_GEN_START, Data().f32(1000.0f).u16(0).u8(0)));
+    ok(request(CMD_GEN_LOAD, runs_data(0, bit(4), {{1, 0}, {1, bit(4)}})));
+    error(ERR_UNSUPPORTED, request(CMD_GEN_START, Data().f32(1000.0f).u16(0).u8(1)));
+    error(ERR_ARGUMENTS, request(CMD_GEN_START, Data().f32(200000.0f).u16(0).u8(0)));
+    ok(request(CMD_GEN_START, Data().f32(1000.0f).u16(0).u8(0)));
     fake::tick(hal::TIMER_OUTPUT, 7);
     Got status = request(CMD_GEN_STATUS);
     TEST_ASSERT_EQUAL_UINT8(1, status.payload[1]);
@@ -610,14 +700,14 @@ void test_pattern_generator_limits() {
 void test_a_generator_that_cannot_start_leaves_no_outputs() {
     // the timer belongs to another user: the pins go back to inputs (SAFE would not know them)
     fake::timer_refuses[hal::TIMER_OUTPUT] = true;
-    ok(request(CMD_GEN_LOAD, runs_data(0, {{1, bit(4)}, {1, bit(5)}})));
-    error(ERR_BUSY, request(CMD_GEN_START, Data().f32(1000.0f).u32(bit(4) | bit(5)).u16(0).u8(0)));
+    ok(request(CMD_GEN_LOAD, runs_data(0, bit(4) | bit(5), {{1, bit(4)}, {1, bit(5)}})));
+    error(ERR_BUSY, request(CMD_GEN_START, Data().f32(1000.0f).u16(0).u8(0)));
     TEST_ASSERT_EQUAL_HEX32(0, fake::output_mask & (bit(4) | bit(5)));
     ok(request(CMD_ARB_LOAD, Data().u16(0).u16(100).u16(200)));
     error(ERR_BUSY, request(CMD_ARB_START, Data().f32(100.0f).u16(2).u8(0)));
     TEST_ASSERT_EQUAL_HEX32(0, fake::dac_pins);
     fake::timer_refuses[hal::TIMER_OUTPUT] = false;
-    ok(request(CMD_WRITE, Data().u32(bit(4)).u32(0)));  // free again
+    ok(request(CMD_WRITE, Data().pins(bit(4)).pins(0)));  // free again
 }
 
 void test_square_and_arbitrary_waveform() {
@@ -723,11 +813,13 @@ int main() {
     RUN_TEST(test_state_capture_takes_a_frame_per_clock_edge_and_counts_losses);
     RUN_TEST(test_buffer_capture_with_pre_trigger);
     RUN_TEST(test_buffer_capture_waiting_for_its_trigger_locks_gpio_and_aborts);
+    RUN_TEST(test_buffer_capture_reads_the_ports_of_its_pins);
     RUN_TEST(test_buffer_trigger_sees_an_edge_between_two_turns);
     RUN_TEST(test_buffer_trigger_catches_a_pulse_in_a_later_turn);
     RUN_TEST(test_buffer_turns_at_a_slow_rate_return_at_once);
     RUN_TEST(test_buffer_samples_the_main_loop_missed_hold_the_levels);
     RUN_TEST(test_pattern_generator_plays_runs);
+    RUN_TEST(test_pattern_generator_drives_pins_of_two_ports);
     RUN_TEST(test_pattern_generator_limits);
     RUN_TEST(test_a_generator_that_cannot_start_leaves_no_outputs);
     RUN_TEST(test_square_and_arbitrary_waveform);

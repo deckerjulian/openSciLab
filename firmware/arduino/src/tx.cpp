@@ -22,7 +22,7 @@ static const uint32_t SLOW_BAUD = 20000;  // and below: UART bytes with interrup
 
 static uint8_t check_pin(uint8_t pin, uint16_t caps) {
     if (pin >= board::PIN_COUNT) return ERR_ARGUMENTS;
-    return app::check_pins(app::pin_bit(pin), caps);
+    return app::check_pins(board::Pins::of(pin), caps);
 }
 
 uint8_t uart(const uint8_t *d, uint8_t n) {
@@ -40,10 +40,10 @@ uint8_t uart(const uint8_t *d, uint8_t n) {
         hal::clock_end();
         return ERR_ARGUMENTS;
     }
-    uint32_t mask = app::pin_bit(pin);
+    uint8_t port = (uint8_t)(pin >> 3), bit = (uint8_t)(1u << (pin & 7));
     bool idle = hal::pin_read(pin);
     hal::pin_output(pin, true);
-    app::driving(mask);
+    app::driving(board::Pins::of(pin));
     if (!idle) hal::delay_us(10000000u / baud + 1);  // a frame of idle line first
     // Interrupts off for a byte keep its edges exact; at a slow rate that would stop the millis
     // clock and the serial line for long (33 ms a byte at 300 Bd), and an interrupt's few µs on
@@ -54,7 +54,7 @@ uint8_t uart(const uint8_t *d, uint8_t n) {
         uint32_t state = quiet ? hal::irq_save() : 0;
         hal::cycle_t next = hal::cycles();
         for (uint8_t b = 0; b < 10; b++) {
-            hal::write_levels(mask, (frame & 1) ? mask : 0);
+            hal::write_port(port, bit, (frame & 1) ? bit : 0);
             frame >>= 1;
             next += bit_time;
             while ((hal::cycle_t)(hal::cycles() - next) >= HALF) {
@@ -77,7 +77,9 @@ uint8_t spi(const uint8_t *d, uint8_t n, Writer &out) {
     if (error) return error;
     if (frequency == 0 || sck == mosi || (miso != 0xFF && (miso == sck || miso == mosi))) return ERR_ARGUMENTS;
     uint32_t half_us = 500000u / frequency;
-    uint32_t outputs = app::pin_bit(sck) | app::pin_bit(mosi) | (cs != 0xFF ? app::pin_bit(cs) : 0);
+    board::Pins outputs = board::Pins::of(sck);
+    outputs.add(mosi);
+    if (cs != 0xFF) outputs.add(cs);
     hal::pin_output(sck, false);
     hal::pin_output(mosi, false);
     if (miso != 0xFF) hal::pin_input(miso, hal::PULL_NONE);
@@ -187,7 +189,9 @@ uint8_t i2c(const uint8_t *d, uint8_t n, Writer &out) {
     scl_pin = scl;
     i2c_half_us = 500000u / frequency;
     if (!i2c_half_us) i2c_half_us = 1;
-    app::released(app::pin_bit(sda) | app::pin_bit(scl));
+    board::Pins lines = board::Pins::of(sda);
+    lines.add(scl);
+    app::released(lines);
     uint8_t to_write = (uint8_t)(n - 8);
     if (to_write || !to_read) {
         i2c_start();

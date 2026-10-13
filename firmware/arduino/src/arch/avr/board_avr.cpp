@@ -25,61 +25,106 @@ using namespace board;
 namespace board {
 
 #define IO (PC_DIN | PC_DOUT | PC_PULLUP)
+#define SW PC_CLOCK_SW
 
+// Pin 8k+b is bit b of the chip port of byte k (fast.h); GAP where a port has no pin.
 #if defined(FW_BOARD_MEGA2560)
 
 const PinDef PIN_TABLE[] FW_FLASH = {
-    // PORTA
+    // 0: PORTA
     {"D22", 22, IO, NO_CHANNEL, RES_FREE}, {"D23", 23, IO, NO_CHANNEL, RES_FREE},
     {"D24", 24, IO, NO_CHANNEL, RES_FREE}, {"D25", 25, IO, NO_CHANNEL, RES_FREE},
     {"D26", 26, IO, NO_CHANNEL, RES_FREE}, {"D27", 27, IO, NO_CHANNEL, RES_FREE},
     {"D28", 28, IO, NO_CHANNEL, RES_FREE}, {"D29", 29, IO, NO_CHANNEL, RES_FREE},
-    // PORTB (pin change interrupts PCINT0-7)
-    {"D53", 53, IO | PC_CLOCK_SW, NO_CHANNEL, RES_FREE}, {"D52", 52, IO | PC_CLOCK_SW, NO_CHANNEL, RES_FREE},
-    {"D51", 51, IO | PC_CLOCK_SW, NO_CHANNEL, RES_FREE}, {"D50", 50, IO | PC_CLOCK_SW, NO_CHANNEL, RES_FREE},
-    {"D10", 10, IO | PC_PWM | PC_CLOCK_SW, NO_CHANNEL, RES_FREE},
-    {"D11", 11, IO | PC_PWM | PC_SQUARE | PC_CLOCK_SW, NO_CHANNEL, RES_FREE},
-    {"D12", 12, IO | PC_PWM | PC_SQUARE | PC_CLOCK_SW, NO_CHANNEL, RES_FREE},
-    {"D13", 13, IO | PC_PWM | PC_CLOCK_SW, NO_CHANNEL, RES_FREE},
-    // PORTL
+    // 8: PORTB (pin change interrupts PCINT0-7)
+    {"D53", 53, IO | SW, NO_CHANNEL, RES_FREE}, {"D52", 52, IO | SW, NO_CHANNEL, RES_FREE},
+    {"D51", 51, IO | SW, NO_CHANNEL, RES_FREE}, {"D50", 50, IO | SW, NO_CHANNEL, RES_FREE},
+    {"D10", 10, IO | PC_PWM | SW, NO_CHANNEL, RES_FREE},
+    {"D11", 11, IO | PC_PWM | PC_SQUARE | SW, NO_CHANNEL, RES_FREE},  // OC1A
+    {"D12", 12, IO | PC_PWM | PC_SQUARE | SW, NO_CHANNEL, RES_FREE},  // OC1B
+    {"D13", 13, IO | PC_PWM | SW, NO_CHANNEL, RES_FREE},
+    // 16: PORTC
+    {"D37", 37, IO, NO_CHANNEL, RES_FREE}, {"D36", 36, IO, NO_CHANNEL, RES_FREE},
+    {"D35", 35, IO, NO_CHANNEL, RES_FREE}, {"D34", 34, IO, NO_CHANNEL, RES_FREE},
+    {"D33", 33, IO, NO_CHANNEL, RES_FREE}, {"D32", 32, IO, NO_CHANNEL, RES_FREE},
+    {"D31", 31, IO, NO_CHANNEL, RES_FREE}, {"D30", 30, IO, NO_CHANNEL, RES_FREE},
+    // 24: PORTD (INT0-3)
+    {"D21", 21, IO | PC_CLOCK, NO_CHANNEL, RES_FREE}, {"D20", 20, IO | PC_CLOCK, NO_CHANNEL, RES_FREE},
+    {"D19", 19, IO | PC_CLOCK, NO_CHANNEL, RES_FREE}, {"D18", 18, IO | PC_CLOCK, NO_CHANNEL, RES_FREE},
+    GAP, GAP, GAP, {"D38", 38, IO, NO_CHANNEL, RES_FREE},
+    // 32: PORTE (INT4/5)
+    {"D0", 0, PC_DIN, NO_CHANNEL, RES_SERIAL_RX}, {"D1", 1, PC_DIN, NO_CHANNEL, RES_SERIAL_TX},
+    GAP, {"D5", 5, IO | PC_PWM, NO_CHANNEL, RES_FREE},
+    {"D2", 2, IO | PC_PWM | PC_CLOCK, NO_CHANNEL, RES_FREE}, {"D3", 3, IO | PC_PWM | PC_CLOCK, NO_CHANNEL, RES_FREE},
+    GAP, GAP,
+    // 40: PORTF (ADC0-7)
+    {"A0", A0, IO | PC_ADC, 0, RES_FREE}, {"A1", A1, IO | PC_ADC, 1, RES_FREE},
+    {"A2", A2, IO | PC_ADC, 2, RES_FREE}, {"A3", A3, IO | PC_ADC, 3, RES_FREE},
+    {"A4", A4, IO | PC_ADC, 4, RES_FREE}, {"A5", A5, IO | PC_ADC, 5, RES_FREE},
+    {"A6", A6, IO | PC_ADC, 6, RES_FREE}, {"A7", A7, IO | PC_ADC, 7, RES_FREE},
+    // 48: PORTG
+    {"D41", 41, IO, NO_CHANNEL, RES_FREE}, {"D40", 40, IO, NO_CHANNEL, RES_FREE},
+    {"D39", 39, IO, NO_CHANNEL, RES_FREE}, GAP, GAP, {"D4", 4, IO | PC_PWM, NO_CHANNEL, RES_FREE}, GAP, GAP,
+    // 56: PORTH
+    {"D17", 17, IO, NO_CHANNEL, RES_FREE}, {"D16", 16, IO, NO_CHANNEL, RES_FREE}, GAP,
+    {"D6", 6, IO | PC_PWM, NO_CHANNEL, RES_FREE}, {"D7", 7, IO | PC_PWM, NO_CHANNEL, RES_FREE},
+    {"D8", 8, IO | PC_PWM, NO_CHANNEL, RES_FREE}, {"D9", 9, IO | PC_PWM, NO_CHANNEL, RES_FREE}, GAP,
+    // 64: PORTJ
+    {"D15", 15, IO, NO_CHANNEL, RES_FREE}, {"D14", 14, IO, NO_CHANNEL, RES_FREE}, GAP, GAP, GAP, GAP, GAP, GAP,
+    // 72: PORTK (ADC8-15, pin change interrupts PCINT16-23)
+    {"A8", A8, IO | PC_ADC | SW, 8, RES_FREE}, {"A9", A9, IO | PC_ADC | SW, 9, RES_FREE},
+    {"A10", A10, IO | PC_ADC | SW, 10, RES_FREE}, {"A11", A11, IO | PC_ADC | SW, 11, RES_FREE},
+    {"A12", A12, IO | PC_ADC | SW, 12, RES_FREE}, {"A13", A13, IO | PC_ADC | SW, 13, RES_FREE},
+    {"A14", A14, IO | PC_ADC | SW, 14, RES_FREE}, {"A15", A15, IO | PC_ADC | SW, 15, RES_FREE},
+    // 80: PORTL
     {"D49", 49, IO, NO_CHANNEL, RES_FREE}, {"D48", 48, IO, NO_CHANNEL, RES_FREE},
     {"D47", 47, IO, NO_CHANNEL, RES_FREE}, {"D46", 46, IO | PC_PWM, NO_CHANNEL, RES_FREE},
     {"D45", 45, IO | PC_PWM, NO_CHANNEL, RES_FREE}, {"D44", 44, IO | PC_PWM, NO_CHANNEL, RES_FREE},
     {"D43", 43, IO, NO_CHANNEL, RES_FREE}, {"D42", 42, IO, NO_CHANNEL, RES_FREE},
-    // PORTK: A8-A15 (ADC8-15, pin change interrupts PCINT16-23)
-    {"A8", A8, IO | PC_ADC | PC_CLOCK_SW, 0, RES_FREE}, {"A9", A9, IO | PC_ADC | PC_CLOCK_SW, 1, RES_FREE},
-    {"A10", A10, IO | PC_ADC | PC_CLOCK_SW, 2, RES_FREE}, {"A11", A11, IO | PC_ADC | PC_CLOCK_SW, 3, RES_FREE},
-    {"A12", A12, IO | PC_ADC | PC_CLOCK_SW, 4, RES_FREE}, {"A13", A13, IO | PC_ADC | PC_CLOCK_SW, 5, RES_FREE},
-    {"A14", A14, IO | PC_ADC | PC_CLOCK_SW, 6, RES_FREE}, {"A15", A15, IO | PC_ADC | PC_CLOCK_SW, 7, RES_FREE},
 };
 
 const char *name() { return FW_STR("mega2560"); }
 
+}  // namespace board
+
+namespace hal {
+namespace avr {
+volatile uint8_t *const PORT_INPUT[FW_PORTS] = {&PINA, &PINB, &PINC, &PIND, &PINE, &PINF,
+                                                &PING, &PINH, &PINJ, &PINK, &PINL};
+}  // namespace avr
+}  // namespace hal
+
+namespace board {
+
 #else  // ATmega328P: Uno, Nano
 
 const PinDef PIN_TABLE[] FW_FLASH = {
+    // 0: PORTD
     {"D0", 0, PC_DIN, NO_CHANNEL, RES_SERIAL_RX},
     {"D1", 1, PC_DIN, NO_CHANNEL, RES_SERIAL_TX},
     {"D2", 2, IO | PC_CLOCK, NO_CHANNEL, RES_FREE},           // INT0
     {"D3", 3, IO | PC_PWM | PC_CLOCK, NO_CHANNEL, RES_FREE},  // INT1, OC2B
-    {"D4", 4, IO | PC_CLOCK_SW, NO_CHANNEL, RES_FREE},
-    {"D5", 5, IO | PC_PWM | PC_CLOCK_SW, NO_CHANNEL, RES_FREE},
-    {"D6", 6, IO | PC_PWM | PC_CLOCK_SW, NO_CHANNEL, RES_FREE},
-    {"D7", 7, IO | PC_CLOCK_SW, NO_CHANNEL, RES_FREE},
-    {"D8", 8, IO | PC_CLOCK_SW, NO_CHANNEL, RES_FREE},
-    {"D9", 9, IO | PC_PWM | PC_SQUARE | PC_CLOCK_SW, NO_CHANNEL, RES_FREE},   // OC1A
-    {"D10", 10, IO | PC_PWM | PC_SQUARE | PC_CLOCK_SW, NO_CHANNEL, RES_FREE}, // OC1B
-    {"D11", 11, IO | PC_PWM | PC_CLOCK_SW, NO_CHANNEL, RES_FREE},             // OC2A
-    {"D12", 12, IO | PC_CLOCK_SW, NO_CHANNEL, RES_FREE},
-    {"D13", 13, IO | PC_CLOCK_SW, NO_CHANNEL, RES_FREE},
-    {"A0", A0, IO | PC_ADC | PC_CLOCK_SW, 0, RES_FREE},
-    {"A1", A1, IO | PC_ADC | PC_CLOCK_SW, 1, RES_FREE},
-    {"A2", A2, IO | PC_ADC | PC_CLOCK_SW, 2, RES_FREE},
-    {"A3", A3, IO | PC_ADC | PC_CLOCK_SW, 3, RES_FREE},
-    {"A4", A4, IO | PC_ADC | PC_CLOCK_SW, 4, RES_FREE},
-    {"A5", A5, IO | PC_ADC | PC_CLOCK_SW, 5, RES_FREE},
+    {"D4", 4, IO | SW, NO_CHANNEL, RES_FREE},
+    {"D5", 5, IO | PC_PWM | SW, NO_CHANNEL, RES_FREE},
+    {"D6", 6, IO | PC_PWM | SW, NO_CHANNEL, RES_FREE},
+    {"D7", 7, IO | SW, NO_CHANNEL, RES_FREE},
+    // 8: PORTB (bits 6 and 7: the crystal)
+    {"D8", 8, IO | SW, NO_CHANNEL, RES_FREE},
+    {"D9", 9, IO | PC_PWM | PC_SQUARE | SW, NO_CHANNEL, RES_FREE},   // OC1A
+    {"D10", 10, IO | PC_PWM | PC_SQUARE | SW, NO_CHANNEL, RES_FREE}, // OC1B
+    {"D11", 11, IO | PC_PWM | SW, NO_CHANNEL, RES_FREE},             // OC2A
+    {"D12", 12, IO | SW, NO_CHANNEL, RES_FREE},
+    {"D13", 13, IO | SW, NO_CHANNEL, RES_FREE},
+    GAP, GAP,
+    // 16: PORTC (bit 6: reset; the Nano's A6/A7 are analog only and take the numbers of bits 6 and 7)
+    {"A0", A0, IO | PC_ADC | SW, 0, RES_FREE},
+    {"A1", A1, IO | PC_ADC | SW, 1, RES_FREE},
+    {"A2", A2, IO | PC_ADC | SW, 2, RES_FREE},
+    {"A3", A3, IO | PC_ADC | SW, 3, RES_FREE},
+    {"A4", A4, IO | PC_ADC | SW, 4, RES_FREE},
+    {"A5", A5, IO | PC_ADC | SW, 5, RES_FREE},
 #if defined(FW_BOARD_NANO)
-    {"A6", A6, PC_ADC, 6, RES_FREE},  // analog only
+    {"A6", A6, PC_ADC, 6, RES_FREE},
     {"A7", A7, PC_ADC, 7, RES_FREE},
 #endif
 };
@@ -90,9 +135,20 @@ const char *name() { return FW_STR("nano"); }
 const char *name() { return FW_STR("uno"); }
 #endif
 
+}  // namespace board
+
+namespace hal {
+namespace avr {
+volatile uint8_t *const PORT_INPUT[FW_PORTS] = {&PIND, &PINB, &PINC};
+}  // namespace avr
+}  // namespace hal
+
+namespace board {
+
 #endif
 
 #undef IO
+#undef SW
 
 const uint8_t PIN_COUNT = sizeof(PIN_TABLE) / sizeof(PIN_TABLE[0]);
 
@@ -124,8 +180,10 @@ namespace hal {
 static inline uint8_t gpio(uint8_t pin) { return fw_flash_byte(&PIN_TABLE[pin].gpio); }
 
 void init() {
-    for (uint8_t i = 0; i < PIN_COUNT; i++)
-        if (fw_flash_byte(&PIN_TABLE[i].reserved) == RES_FREE) pinMode(gpio(i), INPUT);
+    for (uint8_t i = 0; i < PIN_COUNT; i++) {
+        PinDef def = board::pin(i);
+        if (exists(def) && def.reserved == RES_FREE) pinMode(def.gpio, INPUT);
+    }
 }
 
 uint32_t micros() { return ::micros(); }
@@ -158,7 +216,7 @@ static const uint8_t NO_OWNER = 0xFF;
 static uint8_t timer2_owner = NO_OWNER;
 static bool timer1_square = false;
 static bool timer1_clock = false;
-static uint32_t pwm_active = 0;
+static Pins pwm_active;
 
 static uint8_t timer_of(uint8_t pin) { return digitalPinToTimer(gpio(pin)); }
 
@@ -173,7 +231,7 @@ static bool on_timer1(uint8_t timer) {
 
 static bool pwm_on(bool (*which)(uint8_t)) {
     for (uint8_t i = 0; i < PIN_COUNT; i++)
-        if ((pwm_active & ((uint32_t)1 << i)) && which(timer_of(i))) return true;
+        if (pwm_active.has(i) && which(timer_of(i))) return true;
     return false;
 }
 
@@ -184,7 +242,7 @@ uint8_t pwm_start(uint8_t pin, float, uint16_t duty, float *actual) {
     if (on_timer1(timer) && (timer1_square || timer1_clock)) return proto::ERR_BUSY;
     // the core's PWM: a fixed frequency per timer (Timer0 fast PWM, the others phase correct)
     analogWrite(gpio(pin), duty >> 8);
-    pwm_active |= (uint32_t)1 << pin;
+    pwm_active.add(pin);
     bool timer0 = timer == TIMER0A || timer == TIMER0B;
     *actual = timer0 ? (float)F_CPU / 64.0f / 256.0f : (float)F_CPU / 64.0f / 510.0f;
     return 0;
@@ -192,7 +250,7 @@ uint8_t pwm_start(uint8_t pin, float, uint16_t duty, float *actual) {
 
 void pwm_stop(uint8_t pin) {
     analogWrite(gpio(pin), 0);
-    pwm_active &= ~((uint32_t)1 << pin);
+    pwm_active.remove(pin);
 }
 
 uint8_t dac_write(uint8_t, uint16_t) { return proto::ERR_UNSUPPORTED; }

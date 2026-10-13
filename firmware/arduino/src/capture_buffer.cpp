@@ -4,13 +4,13 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Buffer captures: a loop paced by the counted clock reads the pins into RAM (1 to 4 bytes per
-// sample, by the highest pin of the mask). While it waits for the trigger it writes a ring in
-// turns of about 20 ms and returns to the main loop between them (answers, abort); the ring, the
-// trigger detection and the sample clock go on across the turns, so an edge between two turns
-// still triggers. Once the pre-trigger samples are in and the trigger hits, it records the rest
-// without a break. Then the samples go out as runs. A sample the loop could not take in time
-// while it records ends the capture with DONE status overflow.
+// Buffer captures: a loop paced by the counted clock reads the pins into RAM (a byte per port of
+// the mask). While it waits for the trigger it writes a ring in turns of about 20 ms and returns
+// to the main loop between them (answers, abort); the ring, the trigger detection and the sample
+// clock go on across the turns, so an edge between two turns still triggers. Once the
+// pre-trigger samples are in and the trigger hits, it records the rest without a break. Then the
+// samples go out as runs. A sample the loop could not take in time while it records ends the
+// capture with DONE status overflow.
 
 #include "app.h"
 #include "board.h"
@@ -33,42 +33,26 @@ static bool late;
 // the wait for the trigger, carried from turn to turn
 static uint32_t ring_index;        // where the next sample goes
 static uint32_t ring_filled;       // pre-trigger samples in the ring (up to pre)
-static uint32_t previous;          // the levels of the last sample (edge triggers)
+static uint8_t previous[FW_PORTS]; // the levels of the last sample (edge triggers; as read_ports)
 static hal::cycle_t next;          // when the next sample is due
 static uint32_t turn_end_us;       // when the last turn returned to the main loop
 static uint32_t wrap_us;           // a longer pause may have wrapped the counted clock
 
 static const hal::cycle_t HALF = (hal::cycle_t)(((hal::cycle_t)~(hal::cycle_t)0) / 2 + 1);
 
-static uint8_t width_of(uint32_t mask) {
-    if (mask <= 0xFFu) return 1;
-    if (mask <= 0xFFFFu) return 2;
-    if (mask <= 0xFFFFFFu) return 3;
-    return 4;
-}
+static inline uint8_t *at(uint32_t index) { return memory + index * width; }
 
-static inline void store(uint32_t index, uint32_t levels) {
-    uint8_t *p = memory + index * width;
-    p[0] = (uint8_t)levels;
-    if (width > 1) p[1] = (uint8_t)(levels >> 8);
-    if (width > 2) p[2] = (uint8_t)(levels >> 16);
-    if (width > 3) p[3] = (uint8_t)(levels >> 24);
-}
-
-static inline uint32_t load(uint32_t index) {
-    const uint8_t *p = memory + index * width;
-    uint32_t levels = p[0];
-    if (width > 1) levels |= (uint32_t)p[1] << 8;
-    if (width > 2) levels |= (uint32_t)p[2] << 16;
-    if (width > 3) levels |= (uint32_t)p[3] << 24;
-    return levels;
+static bool same(const uint8_t *a, const uint8_t *b) {
+    for (uint8_t i = 0; i < width; i++)
+        if (a[i] != b[i]) return false;
+    return true;
 }
 
 uint8_t buffer_setup(uint32_t *actual) {
     Config &c = config;
     if (c.adc) return ERR_UNSUPPORTED;  // the counted loop reads pins only
     if (c.rate == 0 || c.rate > board::INFO.buffer_max_rate) return ERR_ARGUMENTS;
-    uint32_t capacity = FW_CAPTURE_BYTES / width_of(c.mask);
+    uint32_t capacity = FW_CAPTURE_BYTES / c.width;
     if (c.samples == 0 || c.pre >= c.samples) return ERR_ARGUMENTS;
     if (c.samples > capacity) return ERR_OVERFLOW;
     // the loop does not answer while it records behind the trigger: two seconds at most
@@ -90,12 +74,12 @@ uint8_t buffer_start() {
         hal::clock_end();
         return ERR_BUSY;
     }
-    width = width_of(config.mask);
+    width = config.width;
     total = config.samples;
     cursor = 0;
     late = false;
     ring_index = ring_filled = 0;
-    previous = hal::read_levels();
+    read_ports(previous);
     next = (hal::cycle_t)(hal::cycles() + (hal::cycle_t)config.period);
     wrap_us = (uint32_t)((uint64_t)HALF * 1000000u / ticks / 2);
     turn_end_us = hal::micros();
@@ -112,8 +96,10 @@ void buffer_stop() {
 // next sample is)
 static void record(uint32_t index, hal::cycle_t due) {
     hal::cycle_t period = (hal::cycle_t)config.period;
-    uint32_t mask = config.mask;
     uint32_t remaining = total - config.pre - 1;
+    uint8_t *p = at(index);
+    uint8_t *end = memory + total * width;
+    const uint8_t w = width;
     hal::quiet_begin();
     while (remaining--) {
         hal::cycle_t now = hal::cycles();
@@ -121,15 +107,16 @@ static void record(uint32_t index, hal::cycle_t due) {
         while ((hal::cycle_t)(hal::cycles() - due) >= HALF) {
         }
         due += period;
-        index = index + 1 == total ? 0 : index + 1;
-        store(index, hal::read_levels() & mask);
+        p += w;
+        if (p == end) p = memory;
+        for (uint8_t i = 0; i < w; i++) p[i] = (uint8_t)(hal::read_port(config.port[i]) & config.keep[i]);
     }
     hal::quiet_end((uint32_t)((uint64_t)(total - config.pre) * 1000000u / config.rate));
 }
 
 // a sample into the ring (it holds the last pre-trigger samples)
-static inline void ring_put(uint32_t levels) {
-    store(ring_index, levels & config.mask);
+static inline void ring_put(const uint8_t *levels) {
+    put_sample(at(ring_index), levels);
     if (ring_filled < config.pre) ring_filled++;
     ring_index = ring_index + 1 == total ? 0 : ring_index + 1;
 }
@@ -147,7 +134,7 @@ static void catch_up() {
         next += (hal::cycle_t)(missed * config.period);
     }
     if (missed >= total) {  // the whole ring holds the levels
-        for (uint32_t i = 0; i < total; i++) store(i, previous & config.mask);
+        for (uint32_t i = 0; i < total; i++) put_sample(at(i), previous);
         ring_index = (uint32_t)((ring_index + missed) % total);
         ring_filled = config.pre;
         return;
@@ -161,9 +148,12 @@ static bool wait_for_trigger() {
     // the loop keeps its state in locals (fast on AVR) and leaves it for the next turn
     hal::cycle_t period = (hal::cycle_t)config.period;
     hal::cycle_t due = next;
-    uint32_t mask = config.mask;
     uint32_t pre = config.pre;
-    uint32_t index = ring_index, filled = ring_filled, before = previous;
+    uint32_t index = ring_index, filled = ring_filled;
+    uint8_t before[FW_PORTS], now[FW_PORTS];
+    copy_ports(before, previous);
+    uint8_t *p = at(index);
+    uint8_t *end = memory + total * width;
     // about 20 ms of samples; below 50 Hz the turn takes what is due and returns at once
     uint32_t budget = config.rate / 50;
     bool wait = budget > 0;
@@ -173,40 +163,41 @@ static bool wait_for_trigger() {
         while ((hal::cycle_t)(hal::cycles() - due) >= HALF) {
         }
         due += period;
-        uint32_t levels = hal::read_levels();
-        store(index, levels & mask);
-        if (filled >= pre && trigger_hit(before, levels)) {
+        read_ports(now);
+        put_sample(p, now);
+        if (filled >= pre && trigger_hit(before, now)) {
             first = (index + total - pre) % total;
             record(index, due);
             return true;
         }
         if (filled < pre) filled++;
-        before = levels;
+        copy_ports(before, now);
         index = index + 1 == total ? 0 : index + 1;
+        p += width;
+        if (p == end) p = memory;
     }
     next = due;
     ring_index = index;
     ring_filled = filled;
-    previous = before;
+    copy_ports(previous, before);
     turn_end_us = hal::micros();
     return false;
 }
 
 static void send_samples() {
-    const uint16_t per_frame = DATA_ROOM / 6;
+    const uint16_t per_frame = (uint16_t)(DATA_ROOM / (2 + width));
     app::event(EVENT_DATA);
     app::out.u8(DATA_DIGITAL);
     app::out.u32(cursor);
     for (uint16_t runs = 0; runs < per_frame && cursor < total; runs++) {
-        uint32_t index = (first + cursor) % total;
-        uint32_t levels = load(index);
+        const uint8_t *levels = at((first + cursor) % total);
         uint16_t count = 0;
-        while (cursor < total && count < 0xFFFF && load((first + cursor) % total) == levels) {
+        while (cursor < total && count < 0xFFFF && same(at((first + cursor) % total), levels)) {
             cursor++;
             count++;
         }
         app::out.u16(count);
-        app::out.u32(levels);
+        app::out.bytes(levels, width);
     }
     app::send();
 }

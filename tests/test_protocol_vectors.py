@@ -60,7 +60,19 @@ def test_runs_round_trip():
     levels = [0] * 70000 + [5, 5, 3]
     items = p.runs(levels)
     assert items[0] == (0xFFFF, 0) and sum(count for count, _ in items) == len(levels)
-    assert p.unpack_runs(p.pack_runs(items)) == items
+    assert p.unpack_runs(p.pack_runs(items, 1), 1) == items
+    # a run holds a byte per port of the sample
+    wide = [(3, 0x0201), (1, 0xFF00)]
+    assert p.pack_runs(wide, 2) == bytes.fromhex("0300" "0102" "0100" "00ff")
+    assert p.unpack_runs(p.pack_runs(wide, 2), 2) == wide
+
+
+def test_pin_masks_are_bytes_per_port():
+    assert p.pack_pins([0, 9, 23], 3) == bytes([0x01, 0x02, 0x80])
+    assert p.unpack_pins(bytes([0x01, 0x02, 0x80])) == (1 << 0) | (1 << 9) | (1 << 23)
+    assert p.sample_ports([77, 3, 5, 40]) == [0, 5, 9]
+    with pytest.raises(ValueError):
+        p.pack_pins([24], 3)
 
 
 @pytest.mark.parametrize("case", BRIDGE["varint"])

@@ -63,13 +63,11 @@ if TYPE_CHECKING:  # pragma: no cover
 
 log = logging.getLogger("openscilab.driver")
 
-#: runs per GEN_LOAD frame (6 bytes each, after the 2 byte offset and the command)
-RUNS_PER_FRAME = 40
 #: DAC values per ARB_LOAD frame
 POINTS_PER_FRAME = 120
-#: pattern runs and DAC points the board holds, its DAC points per second, when HELLO does not
-#: say (firmware before these keys): the smallest board's
-DEFAULT_GEN_RUNS = 32
+#: bytes of pattern runs and DAC points the board holds, its DAC points per second, when HELLO
+#: does not say: the smallest board's
+DEFAULT_GEN_BYTES = 192
 DEFAULT_ARB_POINTS = 2048
 DEFAULT_ARB_RATE = 100_000
 #: DAC points of one period of the arbitrary waveform: at most (the time to load them), at least
@@ -101,8 +99,9 @@ class _ArduinoFacet:
         except KeyError:
             raise InstrumentError(f"no pin {name!r}") from None
 
-    def _mask(self, names) -> int:
-        return sum(1 << self._index(name) for name in names)
+    def _mask(self, names) -> bytes:
+        """The pins as a mask of the wire."""
+        return protocol.pack_pins((self._index(name) for name in names), self.driver.ports)
 
 
 class ArduinoGpio(_ArduinoFacet, GpioFacet):
@@ -148,17 +147,15 @@ class ArduinoGpio(_ArduinoFacet, GpioFacet):
         self.write_many({pin: value})
 
     def write_many(self, values: dict[str, int]) -> None:
-        mask = levels = 0
-        for pin, value in values.items():
-            bit = 1 << self._pin(pin, PIN_DOUT)
-            mask |= bit
-            levels |= bit if value else 0
-        self._request(protocol.WRITE, struct.pack("<II", mask, levels))
+        numbers = {pin: self._pin(pin, PIN_DOUT) for pin in values}
+        high = [numbers[pin] for pin, value in values.items() if value]
+        ports = self.driver.ports
+        self._request(protocol.WRITE, protocol.pack_pins(numbers.values(), ports) + protocol.pack_pins(high, ports))
         for pin in values:
             self._modes[pin] = MODE_OUTPUT
 
     def read_many(self, pins: list[str]) -> dict[str, int]:
-        levels = struct.unpack("<I", self._request(protocol.READ, struct.pack("<I", self._mask(pins)))[:4])[0]
+        levels = protocol.unpack_pins(self._request(protocol.READ, self._mask(pins))[:self.driver.ports])
         return {pin: (levels >> self._index(pin)) & 1 for pin in pins}
 
     def read(self, pin: str) -> int:
@@ -215,7 +212,8 @@ class ArduinoMonitor(_ArduinoFacet, MonitorFacet):
             raise InstrumentError(f"no analog input {', '.join(unknown)}")
         self.watched, self.analog = list(pins), tuple(analog)
         adc_mask = sum(1 << names.index(name) for name in analog)
-        self._request(protocol.MONITOR, struct.pack("<IIH", round(rate * 1000), self._mask(pins), adc_mask))
+        self._request(protocol.MONITOR, struct.pack("<I", round(rate * 1000)) + self._mask(pins)
+                      + struct.pack("<H", adc_mask))
         self._running = True
 
     def stop(self) -> None:
@@ -223,17 +221,20 @@ class ArduinoMonitor(_ArduinoFacet, MonitorFacet):
             return
         self._running = False
         try:
-            self._request(protocol.MONITOR, struct.pack("<IIH", 0, 0, 0))
+            self._request(protocol.MONITOR, bytes(4 + self.driver.ports + 2))
         except InstrumentError as error:
             log.debug("Stopping the monitor failed: %s", error)
 
     def _report(self, frame: protocol.Frame) -> None:
         data = frame.data
-        if len(data) < 8:
+        ports = self.driver.ports
+        if len(data) < 4 + ports:
             return
-        stamp, levels = struct.unpack_from("<II", data)
+        (stamp,) = struct.unpack_from("<I", data)
+        levels = protocol.unpack_pins(data[4:4 + ports])
         order = self._adc_order()
-        values = struct.unpack_from(f"<{len(order)}H", data, 8) if len(data) >= 8 + 2 * len(order) else ()
+        start = 4 + ports
+        values = struct.unpack_from(f"<{len(order)}H", data, start) if len(data) >= start + 2 * len(order) else ()
         scale = self.driver.adc_scale()
         self._emit(MonitorState(stamp / 1e6, {pin: (levels >> self._index(pin)) & 1 for pin in self.watched},
                                 {name: raw * scale for name, raw in zip(order, values)}))
@@ -285,10 +286,10 @@ class ArduinoGenerator(_ArduinoFacet, GeneratorFacet):
     def _capabilities(self) -> frozenset[str]:
         return self.driver.capabilities()
 
-    @property
-    def gen_runs(self) -> int:
-        """Runs of the pattern generator the board holds."""
-        return self.driver._info_int("gen_runs", DEFAULT_GEN_RUNS) or DEFAULT_GEN_RUNS
+    def gen_runs(self, ports: int = 1) -> int:
+        """Runs of the pattern generator the board holds for pins of ``ports`` ports (a run takes
+        its count and a byte per port)."""
+        return (self.driver._info_int("gen_bytes", DEFAULT_GEN_BYTES) or DEFAULT_GEN_BYTES) // (2 + ports)
 
     def outputs(self) -> list[OutputInfo]:
         result = []
@@ -300,7 +301,7 @@ class ArduinoGenerator(_ArduinoFacet, GeneratorFacet):
                          and pin.channel is not None)[:int(count or 8)]
             # (as many samples as its runs hold at the most; what fits depends on how often the levels change)
             result.append(OutputInfo("PATTERN", "pattern", (0.0, level), resolution=len(pins), max_rate=float(rate),
-                                     max_points=self.gen_runs * 0xFFFF, pins=pins))
+                                     max_points=self.gen_runs() * 0xFFFF, pins=pins))
         if CAPABILITY_GEN_SQUARE in self._capabilities():
             # the pins with a timer of their own for it (PIN lines); another PWM pin would give
             # the core's fixed PWM frequency
@@ -341,23 +342,30 @@ class ArduinoGenerator(_ArduinoFacet, GeneratorFacet):
 
     def _start_pattern(self, output: str, waveform) -> float:
         length = waveform.pattern_length
-        levels = np.zeros(length, dtype=np.uint32)
-        mask = 0
+        numbers = {pin: self._index(pin) for pin in waveform.tracks}
+        ports = protocol.sample_ports(numbers.values())
+        # a run holds the bytes of those ports: a column per port
+        columns = np.zeros((length, len(ports)), dtype=np.uint8)
         for pin, track in waveform.tracks.items():
-            bit = self._index(pin)
-            mask |= 1 << bit
-            padded = np.zeros(length, dtype=np.uint32)
+            number = numbers[pin]
+            padded = np.zeros(length, dtype=np.uint8)
             padded[:len(track)] = track
             if 0 < len(track) < length:
                 padded[len(track):] = track[-1]
-            levels |= (padded & 1) << np.uint32(bit)
-        runs = protocol.runs(levels.tolist())
-        if len(runs) > self.gen_runs:
+            columns[:, ports.index(number >> 3)] |= (padded & 1) << np.uint8(number & 7)
+        samples = [int.from_bytes(row.tobytes(), "little") for row in columns]
+        runs = protocol.runs(samples)
+        capacity = self.gen_runs(len(ports))
+        if len(runs) > capacity:
             raise InstrumentError(f"the pattern has {len(runs):,} runs of equal levels; the board holds "
-                                  f"{self.gen_runs:,}")
-        for start in range(0, len(runs), RUNS_PER_FRAME):
-            self._request(protocol.GEN_LOAD, struct.pack("<H", start) + protocol.pack_runs(runs[start:start + RUNS_PER_FRAME]))
-        answer = self._request(protocol.GEN_START, struct.pack("<fIHB", float(waveform.rate), mask,
+                                  f"{capacity:,}")
+        mask = self._mask(numbers)
+        # (the frame holds the command, the offset and the mask besides the runs)
+        per_frame = (protocol.MAX_PAYLOAD - 3 - self.driver.ports) // (2 + len(ports))
+        for start in range(0, len(runs), per_frame):
+            self._request(protocol.GEN_LOAD, struct.pack("<H", start) + mask
+                          + protocol.pack_runs(runs[start:start + per_frame], len(ports)))
+        answer = self._request(protocol.GEN_START, struct.pack("<fHB", float(waveform.rate),
                                                                max(int(waveform.repeat), 0), 0))
         self._running.add(output)
         return struct.unpack("<f", answer[:4])[0] if len(answer) >= 4 else waveform.rate

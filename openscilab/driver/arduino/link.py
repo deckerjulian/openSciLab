@@ -22,6 +22,9 @@ log = logging.getLogger("openscilab.driver")
 
 #: seconds a request waits for its answer
 REQUEST_TIMEOUT_S = 3.0
+#: seconds the line stays silent after a reset: a frame within the first second keeps the
+#: STK500v2 bootloader of the Mega 2560 from starting the firmware until the next reset
+BOOT_QUIET_S = 1.5
 
 
 class LinkError(IOError):
@@ -48,6 +51,10 @@ class ByteLink:
 
     def close(self) -> None:  # pragma: no cover - interface
         raise NotImplementedError
+
+    def restart(self) -> bool:
+        """Restart the board and wait until its firmware runs; ``False``: this link cannot."""
+        return False
 
 
 class SerialLink(ByteLink):
@@ -87,6 +94,18 @@ class SerialLink(ByteLink):
             self._serial.close()
         except Exception:  # noqa: BLE001 - best effort
             log.debug("self._serial.close() failed: best effort", exc_info=True)
+
+    def restart(self) -> bool:
+        """Reset the board by DTR and stay silent while its bootloader runs."""
+        try:
+            self._serial.dtr = False
+            time.sleep(0.1)
+            self._serial.dtr = True
+            time.sleep(BOOT_QUIET_S)
+            self._serial.reset_input_buffer()
+        except Exception as error:  # noqa: BLE001 - the port went away
+            raise LinkError(str(error)) from error
+        return True
 
 
 class PipeLink(ByteLink):
@@ -234,14 +253,22 @@ class Connection:
                 log.exception("Handling an event of %s failed", self.name)
 
     def hello(self, attempts_until: float = 4.0) -> dict[str, str]:
-        """``HELLO`` until the board answers (it restarts when the port is opened)."""
+        """``HELLO`` until the board answers (it restarts when the port is opened). A board that
+        does not answer the first one is restarted once and asked again after its bootloader: the
+        Mega's bootloader, asked while it runs, stays in it."""
         deadline = time.monotonic() + attempts_until
         last: Optional[Exception] = None
+        restarted = False
         while time.monotonic() < deadline and self.alive:
             try:
                 return protocol.parse_text(self.request(protocol.HELLO, timeout=0.5))
             except LinkError as error:
                 last = error
+            if not restarted:
+                restarted = True
+                if self.link.restart():
+                    log.info("%s: no answer, restarted the board", self.name)
+                    deadline = time.monotonic() + attempts_until
         raise LinkError(f"no openSciLab Arduino firmware answers ({last or self.error})")
 
     def close(self) -> None:

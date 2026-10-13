@@ -16,19 +16,20 @@ using namespace proto;
 
 namespace capture {
 
-static Ring frames;  // records <II time, levels, then <H per channel (DATA kind 2)
+static Ring frames;  // records <I time, the sample, then <H per channel (DATA kind 2)
 static bool state_triggered;
-static uint32_t state_previous;
+static uint8_t state_previous[FW_PORTS];  // as read_ports
 static uint32_t frames_sent;
 static uint32_t state_last_send_ms;
 
 FW_ISR static void edge() {
     if (ending) return;
     uint32_t time = hal::micros();
-    uint32_t levels = hal::read_levels();
+    uint8_t now[FW_PORTS];
+    read_ports(now);
     if (!state_triggered) {
-        bool hit = trigger_hit(state_previous, levels);
-        state_previous = levels;
+        bool hit = trigger_hit(state_previous, now);
+        copy_ports(state_previous, now);
         if (!hit) return;
         state_triggered = true;
     }
@@ -38,8 +39,8 @@ FW_ISR static void edge() {
         return;
     }
     put_u32(slot, time);
-    put_u32(slot + 4, levels & config.mask);
-    slot += 8;
+    put_sample(slot + 4, now);
+    slot += 4 + config.width;
     for (uint8_t channel = 0; channel < FW_ADC_CHANNELS; channel++) {
         if (config.adc & (1u << channel)) {
             put_u16(slot, app::adc_latest[channel]);
@@ -52,11 +53,11 @@ FW_ISR static void edge() {
 }
 
 uint8_t state_start() {
-    uint16_t record = (uint16_t)(8 + 2 * config.adc_count);
+    uint16_t record = (uint16_t)(4 + config.width + 2 * config.adc_count);
     if (record > DATA_ROOM) return ERR_ARGUMENTS;
     frames.init(memory, FW_CAPTURE_BYTES, record);
     state_triggered = config.trigger == TRIGGER_NONE;
-    state_previous = hal::read_levels();
+    read_ports(state_previous);
     frames_sent = 0;
     state_last_send_ms = hal::millis();
     phase = RUNNING;

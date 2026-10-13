@@ -60,26 +60,17 @@ SETTLE_TIMEOUT_S = 2.5
 DEFAULT_STREAM_RATE = 100_000
 
 
-def buffer_width(mask: int) -> int:
-    """Bytes per sample of a buffer capture of the pins in ``mask``: the firmware stores 1 to 4
-    bytes by the highest pin of the mask (``src/capture_buffer.cpp``), not by how many pins."""
-    if mask <= 0xFF:
-        return 1
-    if mask <= 0xFFFF:
-        return 2
-    if mask <= 0xFFFFFF:
-        return 3
-    return 4
-
-
 class _Samples:
-    """Values arriving block by block, as one growing array (views stay valid)."""
+    """Values arriving block by block, as one growing array (views stay valid). With a ``width``
+    they are rows of that many values (the bytes of a sample)."""
 
-    def __init__(self, dtype) -> None:
+    def __init__(self, dtype, width: int = 0) -> None:
         self._data = np.zeros(4096, dtype=dtype)
         self.size = 0
+        self.width = width
 
     def append(self, values: np.ndarray) -> None:
+        values = np.asarray(values).reshape(-1)
         if self.size + len(values) > len(self._data):
             fresh = np.zeros(max(2 * (self.size + len(values)), 4096), dtype=self._data.dtype)
             fresh[:self.size] = self._data[:self.size]
@@ -87,8 +78,14 @@ class _Samples:
         self._data[self.size:self.size + len(values)] = values
         self.size += len(values)
 
+    @property
+    def count(self) -> int:
+        """Values (rows with a width) that arrived."""
+        return self.size // self.width if self.width else self.size
+
     def view(self) -> np.ndarray:
-        return self._data[:self.size]
+        data = self._data[:self.size]
+        return data.reshape(-1, self.width) if self.width else data
 
 
 class _Capture:
@@ -97,11 +94,13 @@ class _Capture:
         self.session = session
         self.handler = handler
         self.mode = mode
-        #: channel number -> pin index (the bit in the levels)
+        #: channel number -> pin number (bit n & 7 of the byte of port n >> 3)
         self.pins = pins
+        #: the ports whose bytes make a sample
+        self.ports = protocol.sample_ports(pins.values())
         self.adc = adc
         self.stream = stream
-        self.levels = _Samples(np.uint32)
+        self.levels = _Samples(np.uint8, max(len(self.ports), 1))
         self.analog = _Samples(np.uint16)
         self.times = _Samples(np.float64)
         self.reported = 0.0
@@ -109,6 +108,12 @@ class _Capture:
         self.rate = session.frequency
         #: samples that did not arrive (a DATA frame lost on the line)
         self.missing = 0
+
+    def channel(self, number: int) -> np.ndarray:
+        """The samples of a channel (0 or 1 each)."""
+        pin = self.pins[number]
+        levels = self.levels.view()
+        return ((levels[:, self.ports.index(pin >> 3)] >> np.uint8(pin & 7)) & 1).astype(np.uint8)
 
 
 class ArduinoDriver(AnalyzerDriverBase):
@@ -130,14 +135,16 @@ class ArduinoDriver(AnalyzerDriverBase):
             from ..pico.protocol import split_capabilities
 
             self._capabilities = frozenset(split_capabilities(text))
-            self.pins = self._read_pins()
+            self.pins, self._numbers = self._read_pins()
         except (LinkError, ArduinoError) as error:
             self.connection.close()
             raise DeviceConnectionError(f"{address or 'The board'}: {error}") from error
         except Exception:
             self.connection.close()
             raise
-        self._channels = sorted((pin.channel, index) for index, pin in enumerate(self.pins) if pin.channel is not None)
+        #: (capture channel, pin number) of the pins with a channel
+        self._channels = sorted((pin.channel, number) for pin, number in zip(self.pins, self._numbers)
+                                if pin.channel is not None)
         self._capture: Optional[_Capture] = None
         #: a capture may still run on the board: its CAPTURE_ABORT was not answered
         self._unsettled = False
@@ -149,17 +156,26 @@ class ArduinoDriver(AnalyzerDriverBase):
         self.connection.event_handlers[protocol.EVENT_DONE] = self._on_done
         self.connection.event_handlers[-1] = self._on_lost
 
-    def _read_pins(self) -> list[PinInfo]:
-        pins = []
-        for index in range(256):
-            line = self.connection.request(protocol.PINS, bytes([index])).decode("ascii", "replace")
+    def _read_pins(self) -> tuple[list[PinInfo], list[int]]:
+        """The pins and their numbers (the table may have gaps: numbers without a pin)."""
+        pins, numbers = [], []
+        for number in range(min(8 * self.ports, 256)):
+            line = self.connection.request(protocol.PINS, bytes([number])).decode("ascii", "replace")
             if not line:
                 break
+            if line == "-":
+                continue
             info = parse_pin_line(line)
             if info is None:
-                raise DeviceConnectionError(f"unreadable pin {index}: {line!r}")
+                raise DeviceConnectionError(f"unreadable pin {number}: {line!r}")
             pins.append(info)
-        return pins
+            numbers.append(number)
+        return pins, numbers
+
+    @property
+    def ports(self) -> int:
+        """Bytes of a pin mask (HELLO ``ports``)."""
+        return self._info_int("ports", 4) or 4
 
     # -------------------------------------------------------------- identity
     @property
@@ -202,8 +218,9 @@ class ArduinoDriver(AnalyzerDriverBase):
 
     def channel_names(self) -> list[str]:
         names = [f"CH{index}" for index in range(self.channel_count)]
-        for channel, index in self._channels:
-            names[channel] = self.pins[index].name
+        by_number = dict(zip(self._numbers, self.pins))
+        for channel, number in self._channels:
+            names[channel] = by_number[number].name
         return names
 
     @property
@@ -218,9 +235,10 @@ class ArduinoDriver(AnalyzerDriverBase):
         return self._capabilities
 
     def pin_index(self, name: str) -> int:
-        for index, pin in enumerate(self.pins):
+        """The number of a pin on the wire."""
+        for number, pin in zip(self._numbers, self.pins):
             if pin.name == name:
-                return index
+                return number
         raise KeyError(name)
 
     def analog_channel_names(self) -> list[str]:
@@ -252,8 +270,10 @@ class ArduinoDriver(AnalyzerDriverBase):
     def acquisition_modes(self) -> tuple[str, ...]:
         return (ACQUISITION_BUFFER, ACQUISITION_STREAM) if self.stream_bandwidth else ()
 
-    def _bytes_per_sample(self, digital: int, analog: int = 0) -> int:
-        return max((digital + 7) // 8, 1) + 2 * analog
+    def _sample_ports(self, channels: Sequence[int]) -> list[int]:
+        """The ports whose bytes make a sample of ``channels``."""
+        pins = dict(self._channels)
+        return protocol.sample_ports(pins[number] for number in set(channels) if number in pins)
 
     @property
     def stream_max_rate(self) -> int:
@@ -262,21 +282,17 @@ class ArduinoDriver(AnalyzerDriverBase):
 
     def max_frequency_for(self, channels: Sequence[int], acquisition_mode: Optional[str] = None) -> int:
         if acquisition_mode == ACQUISITION_STREAM and self.stream_bandwidth:
-            return max(min(self.stream_bandwidth // self._bytes_per_sample(len(list(channels))),
+            return max(min(self.stream_bandwidth // max(len(self._sample_ports(channels)), 1),
                            self.stream_max_rate), 1)
         return self.max_frequency
 
-    def _pin_mask(self, channels: Sequence[int]) -> int:
-        pins = dict(self._channels)
-        return sum(1 << pins[number] for number in set(channels) if number in pins)
-
     def buffer_depth(self, channels: Sequence[int]) -> int:
-        """Samples a buffer capture of ``channels`` holds (by the highest pin among them)."""
-        return self.buffer_size // buffer_width(self._pin_mask(channels))
+        """Samples a buffer capture of ``channels`` holds (a byte per port they are on)."""
+        return self.buffer_size // max(len(self._sample_ports(channels)), 1)
 
     def memory_depth(self, digital: int, analog: int) -> Optional[int]:
-        # at best (the lowest pins); get_limits knows the pins. Buffer captures read no analog
-        # inputs, so they take no room.
+        # at best (pins of as few ports as can be); get_limits knows the pins. Buffer captures
+        # read no analog inputs, so they take no room.
         return self.buffer_size // max((digital + 7) // 8, 1)
 
     def get_limits(self, channels, acquisition_mode=None, *, to_disk=False, continuous=False) -> CaptureLimits:
@@ -366,9 +382,11 @@ class ArduinoDriver(AnalyzerDriverBase):
 
     def _setup(self, session: CaptureSession, channel_pins: dict[int, int], adc: list[int],
                stream: bool, state: bool) -> bytes:
-        mask = sum(1 << channel_pins[number] for number in session.channel_numbers)
+        mask = {channel_pins[number] for number in session.channel_numbers}
         adc_mask = sum(1 << number for number in adc)
-        trigger, trigger_mask, trigger_levels = 0, 0, 0
+        trigger = 0
+        trigger_mask: set[int] = set()
+        trigger_levels: set[int] = set()
         pre = 0
         if state:
             if not self.supports_state_mode() or session.clock_channel not in channel_pins:
@@ -398,7 +416,7 @@ class ArduinoDriver(AnalyzerDriverBase):
                 if session.trigger_channel not in channel_pins:
                     raise ValueError("trigger channel")
                 trigger = 2 if session.trigger_inverted else 1
-                trigger_mask = 1 << channel_pins[session.trigger_channel]
+                trigger_mask = {channel_pins[session.trigger_channel]}
             elif kind in (TriggerType.COMPLEX, TriggerType.FAST):
                 trigger = 3
                 for offset in range(max(session.trigger_bit_count, 1)):
@@ -407,16 +425,19 @@ class ArduinoDriver(AnalyzerDriverBase):
                         continue  # (don't care: not in the mask)
                     if channel not in channel_pins:
                         raise ValueError("pattern channel")
-                    trigger_mask |= 1 << channel_pins[channel]
+                    trigger_mask.add(channel_pins[channel])
                     if (session.trigger_pattern >> offset) & 1:
-                        trigger_levels |= 1 << channel_pins[channel]
+                        trigger_levels.add(channel_pins[channel])
             else:
                 raise _Unsupported()
         mode = protocol.MODE_STATE if state else protocol.MODE_STREAM if stream else protocol.MODE_BUFFER
         clock = channel_pins.get(session.clock_channel, 0xFF) if state else 0xFF
         edge = 1 if state and EdgeKind(session.clock_edge) == EdgeKind.FALLING else 0
-        return struct.pack("<BIIHIIBIIBB", mode, max(int(session.frequency), 0), mask, adc_mask, samples, pre,
-                           trigger, trigger_mask, trigger_levels, clock, edge)
+        ports = self.ports
+        return (struct.pack("<BIHIIBBB", mode, max(int(session.frequency), 0), adc_mask, samples, pre, trigger, clock,
+                            edge)
+                + protocol.pack_pins(mask, ports) + protocol.pack_pins(trigger_mask, ports)
+                + protocol.pack_pins(trigger_levels, ports))
 
     def _on_data(self, frame: protocol.Frame) -> None:
         capture = self._capture
@@ -426,33 +447,35 @@ class ArduinoDriver(AnalyzerDriverBase):
         index = struct.unpack_from("<I", frame.data, 1)[0]
         body = frame.data[5:]  # after the kind and the index of the first sample
         # the index of a frame follows what arrived before; a lost frame leaves a gap
-        arrived = {protocol.DATA_DIGITAL: capture.levels.size, protocol.DATA_STATE: capture.times.size,
+        arrived = {protocol.DATA_DIGITAL: capture.levels.count, protocol.DATA_STATE: capture.times.size,
                    protocol.DATA_ANALOG: capture.analog.size // max(len(capture.adc), 1)}.get(kind)
         if arrived is not None and index != arrived:
             log.warning("Arduino capture: %s samples were lost on the line (a frame starts at %s)",
                         index - arrived, index)
             capture.missing += max(index - arrived, 1)
+        width = len(capture.ports)
         if kind == protocol.DATA_DIGITAL:
-            runs = np.frombuffer(body[:len(body) - len(body) % 6], dtype=np.dtype([("count", "<u2"), ("levels", "<u4")]))
-            capture.levels.append(np.repeat(runs["levels"], runs["count"].astype(np.int64)))
+            size = 2 + width
+            runs = np.frombuffer(body[:len(body) - len(body) % size],
+                                 dtype=np.dtype([("count", "<u2"), ("levels", "u1", (width,))]))
+            capture.levels.append(np.repeat(runs["levels"], runs["count"].astype(np.int64), axis=0))
         elif kind == protocol.DATA_ANALOG:
             capture.analog.append(np.frombuffer(body[:len(body) - len(body) % 2], dtype="<u2"))
         elif kind == protocol.DATA_STATE:
-            size = 8 + 2 * len(capture.adc)
+            size = 4 + width + 2 * len(capture.adc)
             for offset in range(0, len(body) - size + 1, size):
-                stamp, levels = struct.unpack_from("<II", body, offset)
+                (stamp,) = struct.unpack_from("<I", body, offset)
                 capture.times.append(np.asarray([stamp], dtype=np.float64))
-                capture.levels.append(np.asarray([levels], dtype=np.uint32))
+                capture.levels.append(np.frombuffer(body[offset + 4:offset + 4 + width], dtype=np.uint8))
                 if capture.adc:
-                    capture.analog.append(np.frombuffer(body[offset + 8:offset + size], dtype="<u2"))
+                    capture.analog.append(np.frombuffer(body[offset + 4 + width:offset + size], dtype="<u2"))
         if capture.stream and time.monotonic() - capture.reported >= PROGRESS_INTERVAL_S:
             capture.reported = time.monotonic()
             self._raise_capture_progress(self._progress(capture))
 
     def _progress(self, capture: _Capture) -> CaptureProgressArgs:
-        levels = capture.levels.view()
-        samples = {number: ((levels >> np.uint32(pin)) & 1).astype(np.uint8) for number, pin in capture.pins.items()}
-        analog = self._analog(capture, len(levels))
+        samples = {number: capture.channel(number) for number in capture.pins}
+        analog = self._analog(capture, capture.levels.count)
         times = capture.times.view() - capture.times.view()[0] if capture.times.size else None
         return CaptureProgressArgs(capture.session, samples, 0, analog=analog, state_times=times)
 
@@ -475,7 +498,7 @@ class ArduinoDriver(AnalyzerDriverBase):
         lost = struct.unpack_from("<I", frame.data, 5)[0] if len(frame.data) >= 9 else 0
         if len(frame.data) >= 5:  # the samples the board sent: the last frames may be the lost ones
             sent = struct.unpack_from("<I", frame.data, 1)[0]
-            arrived = capture.times.size if capture.mode == protocol.MODE_STATE else capture.levels.size
+            arrived = capture.times.size if capture.mode == protocol.MODE_STATE else capture.levels.count
             capture.missing = max(capture.missing, sent - arrived)
         self._capture = None
         if capture.stopped and not capture.stream:
@@ -484,11 +507,9 @@ class ArduinoDriver(AnalyzerDriverBase):
 
     def _finish(self, capture: _Capture, status: int, lost: int = 0, error: Optional[str] = None) -> None:
         session = capture.session
-        levels = capture.levels.view().copy()
-        count = len(levels)
+        count = capture.levels.count
         for channel in session.capture_channels:
-            pin = capture.pins[channel.channel_number]
-            channel.samples = ((levels >> np.uint32(pin)) & 1).astype(np.uint8)
+            channel.samples = capture.channel(channel.channel_number)
         analog = self._analog(capture)
         for channel in session.analog_channels:
             channel.raw = analog.get(channel.channel_number, np.zeros(0, np.int16)).copy()

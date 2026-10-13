@@ -110,7 +110,7 @@ give it a name of its own.
 | `stream_max_rate` | highest rate of a stream, whatever the bandwidth (the firmware's) |
 | `buffer_analog` | `false`: buffer captures read the pins only (analog inputs only in streams) |
 | `max_post_seconds` | buffer captures record at most this long after the trigger |
-| `gen_runs` | runs of equal levels the pattern generator of a simulated Arduino holds (`arduino-sim:`; its DAC points and rate are those of its `analog` output) |
+| `gen_bytes` | bytes of runs of equal levels the pattern generator of a simulated Arduino holds, as the firmware's HELLO says (`arduino-sim:`; a run takes 2 bytes and one per port of its pins; its DAC points and rate are those of its `analog` output) |
 | `analog_aggregate_rate` | samples per second of all analog inputs together (one multiplexed ADC) |
 | `clock_hz` | the clock the board reports |
 | `latency`, `gpio_latency` | seconds until a capture starts / a pin changes |

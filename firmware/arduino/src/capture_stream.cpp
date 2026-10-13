@@ -5,7 +5,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 // Stream captures: a timer interrupt samples the pins; the digital levels become runs
-// (<HI count, levels) in one ring, the analog channels (the latest conversion of each, refreshed
+// (<H count, then a byte per port of the mask) in one ring, the analog channels (the latest conversion of each, refreshed
 // in turn by the main loop) one record per sample in another. The main loop sends them as DATA
 // events while the capture runs. A full ring ends the capture with DONE status overflow.
 
@@ -17,13 +17,13 @@ using namespace proto;
 
 namespace capture {
 
-static Ring runs;     // records <HI: count, levels (the wire format of DATA kind 0)
+static Ring runs;     // records <H count, then the sample (the wire format of DATA kind 0)
 static Ring analog;   // records <H per channel (the wire format of DATA kind 1)
 
 static volatile bool split = false;  // the main loop wants the open run now (live view)
 static bool triggered;
-static uint32_t previous;
-static uint32_t run_levels;
+static uint8_t previous[FW_PORTS];   // as read_ports
+static uint8_t run_levels[FW_PORTS]; // a sample (config.width bytes)
 static uint16_t run_count;
 
 static uint32_t runs_sent;    // samples covered by the runs sent
@@ -36,7 +36,7 @@ FW_ISR static bool push_run() {
     uint8_t *slot = runs.slot();
     if (!slot) return false;
     put_u16(slot, run_count);
-    put_u32(slot + 2, run_levels);
+    for (uint8_t i = 0; i < config.width; i++) slot[2 + i] = run_levels[i];
     runs.commit();
     run_count = 0;
     return true;
@@ -50,23 +50,28 @@ FW_ISR static void overflow() {
 
 FW_ISR static void tick() {
     if (ending) return;
-    uint32_t levels = hal::read_levels();
+    uint8_t now[FW_PORTS];
+    read_ports(now);
     if (!triggered) {
-        bool hit = trigger_hit(previous, levels);
-        previous = levels;
+        bool hit = trigger_hit(previous, now);
+        copy_ports(previous, now);
         if (!hit) return;
         triggered = true;
     }
-    if (config.mask) {
-        levels &= config.mask;
-        if (run_count && (levels != run_levels || run_count == 0xFFFF || split)) {
+    if (config.width) {
+        uint8_t levels[FW_PORTS];
+        put_sample(levels, now);
+        bool changed = false;
+        for (uint8_t i = 0; i < config.width; i++)
+            if (levels[i] != run_levels[i]) changed = true;
+        if (run_count && (changed || run_count == 0xFFFF || split)) {
             split = false;
             if (!push_run()) {
                 overflow();
                 return;
             }
         }
-        run_levels = levels;
+        for (uint8_t i = 0; i < config.width; i++) run_levels[i] = levels[i];
         run_count++;
     }
     if (config.adc_count) {
@@ -95,14 +100,14 @@ FW_ISR static void tick() {
 
 uint8_t stream_start() {
     // the memory: runs and analog records in proportion to what a sample needs at most
-    uint32_t digital_bytes = config.mask ? 6 : 0;
+    uint32_t digital_bytes = config.width ? 2u + config.width : 0;
     uint32_t analog_bytes = 2u * config.adc_count;
     uint32_t split_at = FW_CAPTURE_BYTES * digital_bytes / (digital_bytes + analog_bytes);
-    runs.init(memory, split_at, 6);
+    runs.init(memory, split_at, (uint16_t)(2 + config.width));
     analog.init(memory + split_at, FW_CAPTURE_BYTES - split_at, (uint16_t)(analog_bytes ? analog_bytes : 1));
     if (analog_bytes > DATA_ROOM) return ERR_ARGUMENTS;
     triggered = config.trigger == TRIGGER_NONE;
-    previous = hal::read_levels();
+    read_ports(previous);
     run_count = 0;
     split = false;
     runs_sent = analog_sent = 0;
@@ -121,14 +126,14 @@ void stream_stop() {
 }
 
 static void send_runs(uint16_t count) {
-    uint16_t per_frame = DATA_ROOM / 6;
+    uint16_t per_frame = (uint16_t)(DATA_ROOM / runs.record());
     if (count > per_frame) count = per_frame;
     app::event(EVENT_DATA);
     app::out.u8(DATA_DIGITAL);
     app::out.u32(runs_sent);
     for (uint16_t i = 0; i < count; i++) {
         const uint8_t *record = runs.front();
-        app::out.bytes(record, 6);
+        app::out.bytes(record, runs.record());
         runs_sent += get_u16(record);
         runs.pop();
     }
@@ -157,8 +162,8 @@ void stream_poll() {
     bool draining = phase == DRAINING;
     uint32_t now = hal::millis();
     bool due = draining || now - last_send_ms >= FLUSH_MS;
-    uint16_t pending = config.mask ? runs.count() : 0;
-    if (pending && (due || pending >= DATA_ROOM / 6)) {
+    uint16_t pending = config.width ? runs.count() : 0;
+    if (pending && (due || pending >= DATA_ROOM / runs.record())) {
         send_runs(pending);
         last_send_ms = now;
         return;  // one frame per turn: the main loop keeps answering
@@ -171,10 +176,10 @@ void stream_poll() {
     }
     if (!draining) {
         // a level that holds: the open run goes out for the live view
-        if (config.mask && !pending && now - last_send_ms >= FLUSH_MS) split = true;
+        if (config.width && !pending && now - last_send_ms >= FLUSH_MS) split = true;
         return;
     }
-    send_done(config.mask ? runs_sent : analog_sent);
+    send_done(config.width ? runs_sent : analog_sent);
 }
 
 }  // namespace capture

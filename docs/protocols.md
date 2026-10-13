@@ -207,7 +207,7 @@ When outputs are driven (pins set by 12, 13, 15, 16, a pattern running) and no f
 1 s, the board releases them (command 20) and sends the line `WATCHDOG`. The application keeps
 it satisfied with command 18 while it is connected (`core.instrument.KeepAlive`).
 
-## Arduino firmware (protocol 1)
+## Arduino firmware (protocol 2)
 
 The firmware of `firmware/arduino/` on Arduino Uno, Nano, Mega 2560, Uno R4 Minima, ESP32 and
 ESP32-S3 (USB serial, 115200 baud on the AVR boards, 2 Mbaud elsewhere). Frames carry COBS-encoded
@@ -229,29 +229,38 @@ and the driver.
 Error codes: 1 unknown command, 2 bad arguments, 3 reserved pin, 4 busy (a capture runs or the pin
 belongs to it), 5 not supported by this board, 6 no acknowledge (I²C), 7 overflow.
 
-Pins are indexes into the board's pin table (command 0x02). Pin masks: bit n is pin n of the table; the capture channel of a pin is the
-`channel` field of its `PIN` line. `CAPS` lists `STREAM=<bytes per second>` on boards that stream.
+Pins are numbers into the board's pin table (command 0x02); the table may have gaps, numbers
+without a pin. Pin masks and levels (`P` below) are `ports` bytes (HELLO): bit b of byte k is pin
+8k+b. On the AVR boards byte k is a port of the chip (Uno, Nano: D, B, C; Mega 2560: A, B, C, D, E,
+F, G, H, J, K, L), so eight pins are one read and the gaps are the bits a port has no pin for; the
+other boards number their pins without gaps. A *sample* of a capture is the bytes of the ports
+that pins of its mask are on, in ascending order of the port, masked (`w` bytes: as many as those
+ports). The capture channel of a pin is the `channel` field of its `PIN` line. `CAPS` lists
+`STREAM=<bytes per second>` on boards that stream.
+
+Protocol 2 replaced the 32 bit masks of protocol 1, which held 32 pins at most (the Mega 2560 has
+70); the host refuses a board with another protocol and asks for the firmware that comes with it.
 
 | Command | Request data | Answer data |
 | --- | --- | --- |
-| 0x01 HELLO | – | text `board=<name>;version=<x.y.z>;protocol=1;rate=<highest sample rate, Hz>;clock=<Hz>;buffer=<bytes>;adc_bits=<n>;dac_bits=<n>;vref_mv=<n>;stream_rate=<highest stream rate, Hz>;gen_runs=<pattern runs>`, on boards with the arbitrary waveform `;arb_rate=<DAC points per second>;arb_points=<n>` (firmware before these keys: the host takes 100 kHz, 32 runs, 100 kHz and 2048 points) |
-| 0x02 PINS | `<B` index | text `PIN:…` (see *Pins*), empty after the last pin |
+| 0x01 HELLO | – | text `board=<name>;version=<x.y.z>;protocol=2;ports=<bytes of a pin mask>;rate=<highest sample rate, Hz>;clock=<Hz>;buffer=<bytes>;adc_bits=<n>;dac_bits=<n>;vref_mv=<n>;stream_rate=<highest stream rate, Hz>;gen_bytes=<bytes of pattern runs>`, on boards with the arbitrary waveform `;arb_rate=<DAC points per second>;arb_points=<n>` |
+| 0x02 PINS | `<B` pin number | text `PIN:…` (see *Pins*), `-` for a number without a pin, empty after the last pin |
 | 0x03 CAPS | – | text `<capability>,…` |
 | 0x10 PIN_MODE | `<BB` pin, mode (as Pico command 12) | – |
-| 0x11 WRITE | `<II` mask, levels (bit n: pin n) | – |
-| 0x12 READ | `<I` mask | `<I` levels |
+| 0x11 WRITE | `P` mask, `P` levels | – |
+| 0x12 READ | `P` mask | `P` levels |
 | 0x13 PWM | `<BfH` pin, frequency, duty 0–65535 | `<f` actual frequency |
 | 0x14 DAC | `<BH` pin, raw value | – |
 | 0x15 PULSE | `<BBI` pin, level, width µs | – (returns when the pulse is over) |
 | 0x16 ADC_READ | `<H` ADC mask | `<H` raw value per mask bit |
-| 0x17 MONITOR | `<IIH` rate mHz (0 stops), pin mask, ADC mask | –; then events STATE |
+| 0x17 MONITOR | `<I` rate mHz (0 stops), `P` pin mask, `<H` ADC mask | –; then events STATE |
 | 0x18 HEARTBEAT | – | – |
 | 0x19 SAFE | – | – |
-| 0x20 CAPTURE_SETUP | `<BIIHIIBIIBB` mode (0 stream, 1 buffer, 2 state), rate Hz, pin mask, ADC mask, samples, pre-trigger samples, trigger (0 none, 1 rising, 2 falling, 3 pattern), trigger pin mask, trigger levels, clock pin, clock edge (0 rising, 1 falling) | `<I` actual rate |
+| 0x20 CAPTURE_SETUP | `<BIHIIBBB` mode (0 stream, 1 buffer, 2 state), rate Hz, ADC mask, samples, pre-trigger samples, trigger (0 none, 1 rising, 2 falling, 3 pattern), clock pin, clock edge (0 rising, 1 falling); then `P` pin mask, `P` trigger mask, `P` trigger levels | `<I` actual rate |
 | 0x21 CAPTURE_START | – | –; then events DATA and DONE |
 | 0x22 CAPTURE_ABORT | – | – (then the event DONE) |
-| 0x30 GEN_LOAD | `<H` offset (runs), then runs: `<HI` count, levels | `<H` runs in the buffer |
-| 0x31 GEN_START | `<fIHB` rate, pin mask, passes (0: until stopped), flags (1: wait for the trigger pin) | `<f` actual rate |
+| 0x30 GEN_LOAD | `<H` offset (runs), `P` the pins of the runs, then runs: `<H` count and the `w` bytes of the ports of those pins | `<H` runs in the buffer |
+| 0x31 GEN_START | `<fHB` rate, passes (0: until stopped), flags (1: wait for the trigger pin); the pins are those of `GEN_LOAD` | `<f` actual rate |
 | 0x32 GEN_STOP | – | – |
 | 0x33 GEN_STATUS | – | `<BH` running, passes done |
 | 0x34 SQUARE | `<Bf` pin, frequency (0 stops) | `<f` actual frequency |
@@ -265,8 +274,8 @@ Events (type 0x03), the first byte says which:
 
 | Event | Data |
 | --- | --- |
-| 0x01 STATE | `<II` time µs, pin levels, then `<H` per ADC mask bit |
-| 0x02 DATA | `<BI` kind, index of the first sample, then: kind 0 digital runs `<HI` (count, levels), kind 1 analog `<H` values interleaved in mask order, kind 2 state frames `<II` (time µs, levels) and `<H` per ADC |
+| 0x01 STATE | `<I` time µs, `P` pin levels, then `<H` per ADC mask bit |
+| 0x02 DATA | `<BI` kind, index of the first sample, then: kind 0 digital runs (`<H` count and the `w` bytes of the sample), kind 1 analog `<H` values interleaved in mask order, kind 2 state frames (`<I` time µs, the `w` bytes of the sample, `<H` per ADC) |
 | 0x03 DONE | `<BII` status (0 complete, 1 overflow, 2 stopped), samples, edges lost (state mode) |
 | 0x04 WATCHDOG | – (the outputs were released) |
 
@@ -277,13 +286,13 @@ answer busy.
 Further rules of the firmware:
 
 * Capture channels are numbered without gaps over the free digital inputs (Uno: D2 is channel 0);
-  the `channel` field of a `PIN` line says which. On the Mega 2560 the table holds whole ports
-  (D22–D29, D50–D53 with D10–D13, D42–D49, A8–A15), so the levels fit 32 bits.
+  the `channel` field of a `PIN` line says which. The Mega 2560 has all its pins: 70 at the numbers
+  0–87 (11 ports), 68 channels (D0/D1 carry the USB serial line) and 16 analog inputs A0–A15.
 * `samples` 0 in stream or state mode runs until `CAPTURE_ABORT`. Pre-trigger samples are kept by
   buffer captures only (in a stream or state capture they answer error 5); analog channels in a
   buffer capture answer error 5. A buffer capture records at most 2 s after its trigger (error 2
-  beyond); a sample takes 1 to 4 bytes by the highest pin of the mask (Uno and Nano: pins from D8
-  on take 2, Mega 2560: A8–A15 take 4), more samples than the buffer holds so answer error 7. A
+  beyond); a sample takes a byte per port of the mask (Uno, Nano: D0–D7, D8–D13 and A0–A5 are a
+  port each; Mega 2560: 1 to 11 bytes), more samples than the buffer holds so answer error 7. A
   stream runs at `stream_rate` at most (error 2 above). DONE status 1 in a buffer capture means a
   sample was taken late.
 * While a buffer capture waits for its trigger it samples in turns of about 20 ms (below 50 Hz:
@@ -294,12 +303,13 @@ Further rules of the firmware:
   (kind 2: frames, kind 1: sets of analog values) sent before it, and DONE says how many were
   sent; a host that sees a gap lost a frame on the line.
 * Triggers: rising or falling – any pin of the trigger mask changes so; pattern – the pins of the
-  mask have the trigger levels.
+  mask have the trigger levels. Trigger pins need not be captured (their ports are read, not kept).
 * Analog values of streams, state frames and the monitor are the latest conversion of each input
   (converted in turn by the main loop).
 * `GEN_LOAD` and `ARB_LOAD` refuse an offset beyond what is loaded (error 2); `GEN_STOP` also stops
   the arbitrary waveform; `GEN_START` flag 1 (wait for a trigger) answers error 5 (no trigger input
-  is defined yet). `GEN_LOAD` beyond `gen_runs` and `ARB_LOAD` beyond `arb_points` answer error 7,
+  is defined yet). `GEN_LOAD` with other pins than the runs before it (offset above 0) answers
+  error 2; runs beyond `gen_bytes` and `ARB_LOAD` beyond `arb_points` answer error 7,
   `ARB_START` above `arb_rate` error 2: the host plays a period in as many points as `arb_rate`
   allows at its frequency (1000 at most). A `GEN_START` or `ARB_START` that cannot start its timer
   leaves its pins inputs.

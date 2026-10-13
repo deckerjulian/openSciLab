@@ -31,17 +31,19 @@ uint8_t dac_pin() {
     return NO_CHANNEL;
 }
 
-uint32_t pins_with(uint16_t caps) {
-    uint32_t mask = 0;
-    for (uint8_t i = 0; i < PIN_COUNT; i++)
-        if ((pin(i).caps & caps) == caps) mask |= (uint32_t)1 << i;
+Pins pins_with(uint16_t caps) {
+    Pins mask = Pins::none();
+    for (uint8_t i = 0; i < PIN_COUNT; i++) {
+        PinDef def = pin(i);
+        if (exists(def) && (def.caps & caps) == caps) mask.add(i);
+    }
     return mask;
 }
 
-uint32_t reserved_pins() {
-    uint32_t mask = 0;
+Pins reserved_pins() {
+    Pins mask = Pins::none();
     for (uint8_t i = 0; i < PIN_COUNT; i++)
-        if (pin(i).reserved != RES_FREE) mask |= (uint32_t)1 << i;
+        if (pin(i).reserved != RES_FREE) mask.add(i);
     return mask;
 }
 

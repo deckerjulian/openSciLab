@@ -23,17 +23,18 @@ volatile uint32_t taken = 0;
 volatile uint32_t lost = 0;
 uint8_t memory[FW_CAPTURE_BYTES];
 
-static uint8_t count_bits(uint32_t mask) {
+static uint8_t count_bits(uint16_t mask) {
     uint8_t n = 0;
     for (; mask; mask &= mask - 1) n++;
     return n;
 }
 
 // pins a capture may read: they exist, are digital inputs and not reserved
-static uint8_t check_inputs(uint32_t mask) {
-    for (uint8_t i = 0; i < 32; i++) {
-        if (!(mask & app::pin_bit(i))) continue;
-        if (i >= board::PIN_COUNT) return ERR_ARGUMENTS;
+static uint8_t check_inputs(const board::Pins &mask) {
+    uint8_t error = app::check_numbers(mask);
+    if (error) return error;
+    for (uint8_t i = 0; i < board::PIN_COUNT; i++) {
+        if (!mask.has(i)) continue;
         board::PinDef def = board::pin(i);
         if (def.reserved != board::RES_FREE) return ERR_RESERVED;
         if (!(def.caps & board::PC_DIN)) return ERR_UNSUPPORTED;
@@ -41,36 +42,57 @@ static uint8_t check_inputs(uint32_t mask) {
     return 0;
 }
 
+// the ports the capture reads: those of the mask, then those of the trigger alone
+static void plan_ports(Config &c) {
+    c.ports = 0;
+    for (uint8_t pass = 0; pass < 2; pass++) {
+        for (uint8_t k = 0; k < FW_PORTS; k++) {
+            bool data = c.mask.port[k] != 0;
+            if (pass == 0 ? !data : (data || !c.trigger_mask.port[k])) continue;
+            c.port[c.ports] = k;
+            c.keep[c.ports] = c.mask.port[k];
+            c.trigger_bits[c.ports] = c.trigger_mask.port[k];
+            c.trigger_want[c.ports] = c.trigger_levels.port[k];
+            c.ports++;
+        }
+        if (pass == 0) c.width = c.ports;
+    }
+}
+
 uint8_t setup(const uint8_t *d, uint8_t n, uint32_t *actual) {
-    if (n != 30) return ERR_ARGUMENTS;
+    if (n != 18 + 3 * FW_PORTS) return ERR_ARGUMENTS;
     if (phase != IDLE) return ERR_BUSY;
     Config c;
     c.valid = false;
     c.mode = d[0];
     c.rate = get_u32(d + 1);
-    c.mask = get_u32(d + 5);
-    c.adc = get_u16(d + 9);
-    c.samples = get_u32(d + 11);
-    c.pre = get_u32(d + 15);
-    c.trigger = d[19];
-    c.trigger_mask = get_u32(d + 20);
-    c.trigger_levels = get_u32(d + 24) & c.trigger_mask;
-    c.clock_pin = d[28];
-    c.clock_edge = d[29];
+    c.adc = get_u16(d + 5);
+    c.samples = get_u32(d + 7);
+    c.pre = get_u32(d + 11);
+    c.trigger = d[15];
+    c.clock_pin = d[16];
+    c.clock_edge = d[17];
+    c.mask = board::Pins::from(d + 18);
+    c.trigger_mask = board::Pins::from(d + 18 + FW_PORTS);
+    c.trigger_levels = board::Pins::from(d + 18 + 2 * FW_PORTS);
     c.adc_count = count_bits(c.adc);
     c.period = c.ticks = 0;
 
     if (c.mode > MODE_STATE || c.trigger > TRIGGER_PATTERN || c.clock_edge > 1) return ERR_ARGUMENTS;
-    if (!c.mask && !c.adc) return ERR_ARGUMENTS;
+    if (!c.mask.any() && !c.adc) return ERR_ARGUMENTS;
     uint8_t error = check_inputs(c.mask);
     if (error) return error;
     uint8_t analog = board::analog_count();
     if (analog < 16 && (c.adc >> analog)) return ERR_ARGUMENTS;
     if (c.trigger != TRIGGER_NONE) {
-        if (!c.trigger_mask) return ERR_ARGUMENTS;
+        if (!c.trigger_mask.any()) return ERR_ARGUMENTS;
         error = check_inputs(c.trigger_mask);
         if (error) return error;
+    } else {
+        c.trigger_mask.clear();
     }
+    c.trigger_levels.keep(c.trigger_mask);
+    plan_ports(c);
     if (c.mode != MODE_BUFFER && c.pre) return ERR_UNSUPPORTED;  // pre-trigger: buffer captures only
 
     config = c;
@@ -99,7 +121,7 @@ uint8_t setup(const uint8_t *d, uint8_t n, uint32_t *actual) {
 uint8_t start() {
     if (phase != IDLE) return ERR_BUSY;
     if (!config.valid) return ERR_ARGUMENTS;
-    if (gen::pins() & (config.mask | config.trigger_mask)) return ERR_BUSY;
+    if (gen::pins().meets(config.mask) || gen::pins().meets(config.trigger_mask)) return ERR_BUSY;
     ending = false;
     end_status = DONE_COMPLETE;
     taken = 0;
@@ -123,10 +145,11 @@ void abort() {
 
 bool running() { return phase != IDLE; }
 
-uint32_t pins() {
-    if (phase == IDLE) return 0;
-    uint32_t mask = config.mask | (config.trigger ? config.trigger_mask : 0);
-    if (config.mode == MODE_STATE) mask |= app::pin_bit(config.clock_pin);
+board::Pins pins() {
+    if (phase == IDLE) return board::Pins::none();
+    board::Pins mask = config.mask;
+    mask.add(config.trigger_mask);
+    if (config.mode == MODE_STATE) mask.add(config.clock_pin);
     return mask;
 }
 

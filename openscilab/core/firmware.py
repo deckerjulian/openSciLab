@@ -514,9 +514,20 @@ def find_tool(name: str) -> Optional[list[str]]:
     return None
 
 
+#: the programmer (bootloader protocol) of avrdude for each chip: Optiboot speaks STK500v1, the
+#: bootloader of the Mega 2560 STK500v2
+AVR_PROGRAMMERS = {"atmega328p": "arduino", "atmega2560": "wiring"}
+
+
+def avr_part(image: str) -> str:
+    """The chip of an AVR image by its name (``openSciLab_megaatmega2560.hex``: the Mega 2560)."""
+    return "atmega2560" if "2560" in os.path.basename(image) else "atmega328p"
+
+
 def tool_command(method: str, image: str, port: str = "", part: str = "") -> list[str]:
     """The command that writes ``image`` with ``method`` (``part``: the chip of avrdude, e.g.
-    ``atmega328p``). Raises :class:`FirmwareToolMissing` without the tool."""
+    ``atmega328p``; by the image's name when not given). Raises :class:`FirmwareToolMissing`
+    without the tool."""
     info = UPDATE_METHODS[method]
     if not info.tool:
         raise ValueError(f"{method} needs no tool")
@@ -524,7 +535,8 @@ def tool_command(method: str, image: str, port: str = "", part: str = "") -> lis
     if tool is None:
         raise FirmwareToolMissing(f"{info.tool} is not installed; it is needed for {info.title}.")
     if method == "avrdude":
-        return [*tool, "-p", part or "atmega328p", "-c", "arduino", "-P", port, "-b", "115200", "-D",
+        part = part or avr_part(image)
+        return [*tool, "-p", part, "-c", AVR_PROGRAMMERS.get(part, "arduino"), "-P", port, "-b", "115200", "-D",
                 "-U", f"flash:w:{image}:i"]
     if method == "bossac":
         return [*tool, f"--port={port}", "-U", "-i", "-e", "-w", "-b", image, "-R"]

@@ -31,8 +31,7 @@ from .facets import pins_of
 
 log = logging.getLogger("openscilab.driver")
 
-#: digital runs, analog values per DATA frame (within 250 payload bytes)
-RUNS_PER_FRAME = 40
+#: analog values per DATA frame (within 250 payload bytes)
 VALUES_PER_FRAME = 120
 
 
@@ -46,6 +45,8 @@ class ArduinoShell:
         self.device = self.instrument.simulated_driver
         self.profile = self.device.profile
         self.pins = pins_of(self.profile)
+        #: bytes of a pin mask: the pins are numbered without gaps, port k holds 8k to 8k+7
+        self.ports = max((len(self.pins) + 7) // 8, 1)
         self.digital = list(self.profile["digital"])
         self.analog_names = list(self.profile.get("analog", []))
         if self.instrument.gpio is not None:
@@ -62,6 +63,9 @@ class ArduinoShell:
         self._sent_states = 0
         self._aborted = False
         self._pattern: list[tuple[int, int]] = []
+        self._pattern_mask = 0
+        #: the ports of the pins of the running capture (the bytes of a sample)
+        self._sample_ports: list[int] = []
         self._arbitrary: list[int] = []
         self._monitor_remove = None
         self._thread = threading.Thread(target=self._run, name="openscilab-arduino-shell", daemon=True)
@@ -143,8 +147,24 @@ class ArduinoShell:
     def _stream_rate(self) -> int:
         return int(self.profile.get("stream_max_rate") or self.profile["max_rate"])
 
-    def _gen_runs(self) -> int:
-        return int(self.profile.get("gen_runs", 32))
+    def _gen_bytes(self) -> int:
+        return int(self.profile.get("gen_bytes", 192))
+
+    def _pack(self, mask: int) -> bytes:
+        return int(mask).to_bytes(self.ports, "little")
+
+    def _mask(self, data: bytes, at: int = 0) -> int:
+        """A pin mask of the request at ``at``."""
+        if len(data) < at + self.ports:
+            raise _Refused(protocol.ERR_ARGUMENTS, "a pin mask is too short")
+        return protocol.unpack_pins(data[at:at + self.ports])
+
+    def _to_samples(self, levels: np.ndarray, ports: list[int]) -> np.ndarray:
+        """Levels by pin number (bit n: pin n) as samples: the bytes of ``ports``, in order."""
+        samples = np.zeros(len(levels), dtype=np.uint64)
+        for position, port in enumerate(ports):
+            samples |= ((levels >> np.uint64(8 * port)) & np.uint64(0xFF)) << np.uint64(8 * position)
+        return samples
 
     def _dac_output(self) -> Optional[dict]:
         return next((output for output in self.profile.get("outputs", []) if output.get("kind") == "analog"
@@ -162,11 +182,11 @@ class ArduinoShell:
         gpio = self.instrument.gpio
         if command == protocol.HELLO:
             # (as the firmware: the capture buffer in bytes, one byte a sample of the pins 0-7)
-            text = (f"board={self.profile['name']};version=1.0.0;protocol={protocol.PROTOCOL};"
+            text = (f"board={self.profile['name']};version=1.0.0;protocol={protocol.PROTOCOL};ports={self.ports};"
                     f"rate={int(self.profile['max_rate'])};clock={int(self.profile.get('clock_hz', 16_000_000))};"
                     f"buffer={int(self.profile['memory_depth'])};adc_bits={int(self.profile.get('adc_bits', 10))};"
                     f"dac_bits={int(self.profile.get('dac_bits', 0))};vref_mv={int(self._vref() * 1000)};"
-                    f"stream_rate={self._stream_rate()};gen_runs={self._gen_runs()}")
+                    f"stream_rate={self._stream_rate()};gen_bytes={self._gen_bytes()}")
             dac = self._dac_output()
             if dac is not None:
                 text += f";arb_rate={int(dac.get('max_rate', 0))};arb_points={int(dac.get('max_points', 0))}"
@@ -199,16 +219,15 @@ class ArduinoShell:
             gpio.set_mode(name, modes[mode])
             return b""
         if command == protocol.WRITE:
-            mask, levels = struct.unpack("<II", data[:8])
+            mask, levels = self._mask(data), self._mask(data, self.ports)
             names = self._pins(mask)
             self._check_free(names)
             gpio.write_many({name: levels >> self._index(name) & 1 for name in names})
             return b""
         if command == protocol.READ:
-            (mask,) = struct.unpack("<I", data[:4])
-            names = self._pins(mask)
+            names = self._pins(self._mask(data))
             values = gpio.read_many(names)
-            return struct.pack("<I", sum(values[name] << self._index(name) for name in names))
+            return self._pack(sum(values[name] << self._index(name) for name in names))
         if command == protocol.PWM:
             index, frequency, duty = struct.unpack("<BfH", data[:7])
             name = self._pin(index)
@@ -237,8 +256,9 @@ class ArduinoShell:
             values = self._facet("AnalogInFacet").read(names)
             return b"".join(struct.pack("<H", self._adc_counts(values[name])) for name in names)
         if command == protocol.MONITOR:
-            rate, mask, adc_mask = struct.unpack("<IIH", data[:10])
-            return self._monitor(rate / 1000.0, mask, adc_mask)
+            (rate,) = struct.unpack("<I", data[:4])
+            (adc_mask,) = struct.unpack("<H", data[4 + self.ports:6 + self.ports])
+            return self._monitor(rate / 1000.0, self._mask(data, 4), adc_mask)
         if command == protocol.CAPTURE_SETUP:
             return self._capture_setup(data)
         if command == protocol.CAPTURE_START:
@@ -290,7 +310,8 @@ class ArduinoShell:
         def report(state: MonitorState) -> None:
             levels = sum(state.digital.get(name, 0) << self._index(name) for name in names)
             values = b"".join(struct.pack("<H", self._adc_counts(state.analog.get(name, 0.0))) for name in analog)
-            self._event(protocol.EVENT_STATE, struct.pack("<II", int(state.time * 1e6) & 0xFFFFFFFF, levels) + values)
+            self._event(protocol.EVENT_STATE, struct.pack("<I", int(state.time * 1e6) & 0xFFFFFFFF)
+                        + self._pack(levels) + values)
 
         self._monitor_remove = monitor.on_state(report)
         monitor.start(rate, names, analog)
@@ -300,8 +321,13 @@ class ArduinoShell:
     def _capture_setup(self, data: bytes) -> bytes:
         if self._capture is not None:
             raise _Refused(protocol.ERR_BUSY, "a capture runs")
-        values = struct.unpack("<BIIHIIBIIBB", data[:struct.calcsize("<BIIHIIBIIBB")])
-        mode, rate, mask, adc_mask, samples, pre, trigger, trigger_mask, trigger_levels, clock, edge = values
+        head = struct.calcsize("<BIHIIBBB")
+        if len(data) != head + 3 * self.ports:
+            raise _Refused(protocol.ERR_ARGUMENTS, "the setup has another length")
+        mode, rate, adc_mask, samples, pre, trigger, clock, edge = struct.unpack("<BIHIIBBB", data[:head])
+        mask, trigger_mask = self._mask(data, head), self._mask(data, head + self.ports)
+        trigger_levels = self._mask(data, head + 2 * self.ports)
+        values = (mode, rate, mask, adc_mask, samples, pre, trigger, trigger_mask, trigger_levels, clock, edge)
         names = self._pins(mask)
         if not names or any(name not in self.digital for name in names):
             raise _Refused(protocol.ERR_ARGUMENTS, "the pins are no capture channels")
@@ -314,8 +340,8 @@ class ArduinoShell:
         if mode == protocol.MODE_BUFFER:
             if adc_mask and self.profile.get("buffer_analog") is False:
                 raise _Refused(protocol.ERR_UNSUPPORTED, "buffer captures read the pins only")
-            # (as the firmware: 1 to 4 bytes a sample by the highest pin of the mask)
-            width = 1 if mask <= 0xFF else 2 if mask <= 0xFFFF else 3 if mask <= 0xFFFFFF else 4
+            # (as the firmware: a byte a sample per port of the mask)
+            width = len(protocol.sample_ports(self._index(name) for name in names))
             if not samples or pre >= samples:
                 raise _Refused(protocol.ERR_ARGUMENTS, "samples")
             if samples > int(self.profile["memory_depth"]) // width:
@@ -360,6 +386,7 @@ class ArduinoShell:
                     for channel in channels)
                 session.trigger_mask = sum(1 << (channel - min(channels)) for channel in channels)
         self._capture = session
+        self._sample_ports = protocol.sample_ports(self._index(name) for name in self._pins(mask))
         self._sent = self._sent_analog = self._sent_states = 0
         self._aborted = False
         self.device.add_capture_progress_handler(self._progress)
@@ -371,17 +398,20 @@ class ArduinoShell:
         return b""
 
     def _levels(self, samples: dict[int, np.ndarray], start: int, end: int) -> np.ndarray:
-        levels = np.zeros(end - start, dtype=np.uint32)
+        """The samples of the capture: the bytes of its ports (an integer each)."""
+        levels = np.zeros(end - start, dtype=np.uint64)
         for number, values in samples.items():
-            levels |= values[start:end].astype(np.uint32) << np.uint32(self._index(self.digital[number]))
-        return levels
+            levels |= values[start:end].astype(np.uint64) << np.uint64(self._index(self.digital[number]))
+        return self._to_samples(levels, self._sample_ports)
 
     def _send_digital(self, levels: np.ndarray, first: int) -> None:
+        width = len(self._sample_ports)
+        per_frame = (protocol.MAX_PAYLOAD - 6) // (2 + width)
         runs = protocol.runs(levels.tolist())
-        for start in range(0, len(runs), RUNS_PER_FRAME):
+        for start in range(0, len(runs), per_frame):
             self._event(protocol.EVENT_DATA, struct.pack("<BI", protocol.DATA_DIGITAL, first)
-                        + protocol.pack_runs(runs[start:start + RUNS_PER_FRAME]))
-            first += sum(count for count, _level in runs[start:start + RUNS_PER_FRAME])
+                        + protocol.pack_runs(runs[start:start + per_frame], width))
+            first += sum(count for count, _level in runs[start:start + per_frame])
 
     def _send_analog(self, analog: dict[int, np.ndarray], start: int, end: int, first: int) -> None:
         if not analog:
@@ -399,12 +429,13 @@ class ArduinoShell:
     def _send_states(self, levels: np.ndarray, times: np.ndarray, analog: dict[int, np.ndarray], first: int) -> None:
         scale, offset, _bits = self.device.analog_scale()
         numbers = sorted(analog)
-        size = 8 + 2 * len(numbers)
+        width = len(self._sample_ports)
+        size = 4 + width + 2 * len(numbers)
         per_frame = max(240 // size, 1)
         for start in range(0, len(levels), per_frame):
             body = b""
             for index in range(start, min(start + per_frame, len(levels))):
-                body += struct.pack("<II", int(times[index]) & 0xFFFFFFFF, int(levels[index]))
+                body += struct.pack("<I", int(times[index]) & 0xFFFFFFFF) + int(levels[index]).to_bytes(width, "little")
                 body += b"".join(struct.pack("<H", self._adc_counts(analog[n][index] * scale + offset)) for n in numbers)
             self._event(protocol.EVENT_DATA, struct.pack("<BI", protocol.DATA_STATE, first + start) + body)
 
@@ -461,21 +492,30 @@ class ArduinoShell:
             raise _Refused(protocol.ERR_UNSUPPORTED, "no generator")
         if command == protocol.GEN_LOAD:
             (offset,) = struct.unpack("<H", data[:2])
-            runs = protocol.unpack_runs(data[2:])
-            if offset > len(self._pattern):
-                raise _Refused(protocol.ERR_ARGUMENTS, "a gap in the runs")
-            if offset + len(runs) > self._gen_runs():
+            mask = self._mask(data, 2)
+            ports = protocol.sample_ports(self._index(name) for name in self._pins(mask))
+            if not mask or offset > len(self._pattern) or (offset and mask != self._pattern_mask):
+                raise _Refused(protocol.ERR_ARGUMENTS, "a gap in the runs or other pins")
+            runs = protocol.unpack_runs(data[2 + self.ports:], len(ports))
+            if offset + len(runs) > self._gen_bytes() // (2 + len(ports)):
                 raise _Refused(protocol.ERR_OVERFLOW, "more runs than the board holds")
             del self._pattern[offset:]
             self._pattern += runs
+            self._pattern_mask = mask
             return struct.pack("<H", len(self._pattern))
         if command == protocol.GEN_START:
-            rate, mask, passes, _flags = struct.unpack("<fIHB", data[:11])
+            rate, passes, _flags = struct.unpack("<fHB", data[:7])
             levels = np.repeat([level for _count, level in self._pattern],
-                               [count for count, _level in self._pattern]).astype(np.uint32)
-            names = self._pins(mask)
+                               [count for count, _level in self._pattern]).astype(np.uint64)
+            names = self._pins(self._pattern_mask)
             self._check_free(names)
-            tracks = {name: ((levels >> self._index(name)) & 1).astype(np.uint8) for name in names}
+            ports = protocol.sample_ports(self._index(name) for name in names)
+
+            def track(name: str) -> np.ndarray:
+                number = self._index(name)
+                return ((levels >> np.uint64(8 * ports.index(number >> 3) + (number & 7))) & np.uint64(1)).astype(np.uint8)
+
+            tracks = {name: track(name) for name in names}
             try:
                 generator.start("PATTERN", waves.pattern(tracks, rate=rate, repeat=passes))
             except InstrumentError as error:

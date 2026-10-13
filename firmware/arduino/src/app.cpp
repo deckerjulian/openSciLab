@@ -23,16 +23,18 @@ volatile uint16_t adc_latest[FW_ADC_CHANNELS];
 static Decoder decoder;
 static uint8_t event_sequence = 0;
 static uint32_t last_frame_ms = 0;
-static uint32_t driven = 0;    // outputs set by commands (WRITE, PIN_MODE, PULSE, TX_*)
-static uint32_t pwm_pins = 0;  // pins with a running PWM
-static uint32_t dac_pins = 0;  // pins with a DAC value
+using board::Pins;
+
+static Pins driven;    // outputs set by commands (WRITE, PIN_MODE, PULSE, TX_*)
+static Pins pwm_pins;  // pins with a running PWM
+static Pins dac_pins;  // pins with a DAC value
 
 static struct {
     uint32_t period_us;  // 0: stopped
     uint32_t next_us;
-    uint32_t pins;
+    Pins pins;
     uint16_t adc;
-} monitor = {0, 0, 0, 0};
+} monitor;
 
 static uint8_t adc_turn = 0;  // the channel refreshed next
 
@@ -66,46 +68,62 @@ static void send_error(uint8_t sequence, uint8_t command, uint8_t code) {
     send();
 }
 
-uint8_t check_pins(uint32_t mask, uint16_t caps) {
-    for (uint8_t i = 0; i < 32 && mask; i++) {
-        if (!(mask & pin_bit(i))) continue;
-        mask &= ~pin_bit(i);
-        if (i >= board::PIN_COUNT) return ERR_ARGUMENTS;
+uint8_t check_numbers(const Pins &mask) {
+    for (uint8_t i = 0; i < 8 * FW_PORTS; i++)
+        if (mask.has(i) && (i >= board::PIN_COUNT || !board::exists(board::pin(i)))) return ERR_ARGUMENTS;
+    return 0;
+}
+
+uint8_t check_pins(const Pins &mask, uint16_t caps) {
+    uint8_t error = check_numbers(mask);
+    if (error) return error;
+    Pins busy = capture::pins();
+    busy.add(gen::pins());
+    for (uint8_t i = 0; i < board::PIN_COUNT; i++) {
+        if (!mask.has(i)) continue;
         board::PinDef def = board::pin(i);
         if (def.reserved != board::RES_FREE) return ERR_RESERVED;
         if ((def.caps & caps) != caps) return ERR_UNSUPPORTED;
-        if (capture::gpio_locked() || ((capture::pins() | gen::pins()) & pin_bit(i))) return ERR_BUSY;
+        if (capture::gpio_locked() || busy.has(i)) return ERR_BUSY;
     }
     return 0;
 }
 
 static uint8_t check_pin(uint8_t pin, uint16_t caps) {
     if (pin >= board::PIN_COUNT) return ERR_ARGUMENTS;
-    return check_pins(pin_bit(pin), caps);
+    return check_pins(Pins::of(pin), caps);
+}
+
+Pins levels() {
+    Pins now;
+    for (uint8_t k = 0; k < FW_PORTS; k++) now.port[k] = hal::read_port(k);
+    return now;
 }
 
 // the pin no longer runs PWM or holds a DAC value
 static void quiet_pin(uint8_t pin) {
-    if (pwm_pins & pin_bit(pin)) hal::pwm_stop(pin);
-    if (dac_pins & pin_bit(pin)) hal::dac_stop(pin);
-    pwm_pins &= ~pin_bit(pin);
-    dac_pins &= ~pin_bit(pin);
+    if (pwm_pins.has(pin)) hal::pwm_stop(pin);
+    if (dac_pins.has(pin)) hal::dac_stop(pin);
+    pwm_pins.remove(pin);
+    dac_pins.remove(pin);
 }
 
-void driving(uint32_t mask) { driven |= mask; }
+void driving(const Pins &mask) { driven.add(mask); }
 
-void released(uint32_t mask) { driven &= ~mask; }
+void released(const Pins &mask) { driven.remove(mask); }
 
 void safe() {
     gen::stop_all();
     monitor.period_us = 0;
-    uint32_t pins = driven | pwm_pins | dac_pins;
+    Pins pins = driven;
+    pins.add(pwm_pins);
+    pins.add(dac_pins);
     for (uint8_t i = 0; i < board::PIN_COUNT; i++) {
-        if (!(pins & pin_bit(i))) continue;
+        if (!pins.has(i)) continue;
         quiet_pin(i);
         hal::pin_input(i, hal::PULL_NONE);
     }
-    driven = 0;
+    driven.clear();
 }
 
 static uint16_t adc_in_use() { return monitor.adc | capture::adc_mask(); }
@@ -133,7 +151,9 @@ static uint8_t check_adc_mask(uint16_t mask) {
 static void hello() {
     out.text_flash(FW_STR("board="));
     out.text_flash(board::name());
-    out.text_flash(FW_STR(";version=" FIRMWARE_VERSION ";protocol=1;rate="));
+    out.text_flash(FW_STR(";version=" FIRMWARE_VERSION ";protocol=2;ports="));
+    out.decimal(FW_PORTS);
+    out.text_flash(FW_STR(";rate="));
     uint32_t rate = board::INFO.buffer_max_rate;
     if (board::INFO.stream_max_rate > rate) rate = board::INFO.stream_max_rate;
     out.decimal(rate);
@@ -150,8 +170,8 @@ static void hello() {
     // the limits of the modes (rate above is the highest of all)
     out.text_flash(FW_STR(";stream_rate="));
     out.decimal(board::INFO.stream_max_rate);
-    out.text_flash(FW_STR(";gen_runs="));
-    out.decimal(FW_GEN_RUNS);
+    out.text_flash(FW_STR(";gen_bytes="));
+    out.decimal(FW_GEN_BYTES);
     if (FW_ARB_POINTS && board::INFO.arb_max_rate && board::dac_pin() != board::NO_CHANNEL) {
         out.text_flash(FW_STR(";arb_rate="));
         out.decimal(board::INFO.arb_max_rate);
@@ -174,22 +194,25 @@ static void caps() {
     }
     out.text_flash(FW_STR("," CAP_IMMEDIATE_TRIGGER "," CAP_CONTINUOUS_STREAM "," CAP_STREAM "="));
     out.decimal(info.stream_bytes);
-    if (board::pins_with(board::PC_CLOCK) | board::pins_with(board::PC_CLOCK_SW))
+    if (board::pins_with(board::PC_CLOCK).any() || board::pins_with(board::PC_CLOCK_SW).any())
         out.text_flash(FW_STR("," CAP_STATE_MODE "," CAP_STREAM_STATE));
     out.text_flash(FW_STR("," CAP_PATTERN_GEN));
     out.decimal(info.generator_max_rate);
     out.u8(',');
-    uint32_t outputs = board::pins_with(board::PC_DOUT) & ~board::reserved_pins();
-    uint8_t count = 0;
-    for (; outputs; outputs &= outputs - 1) count++;
-    out.decimal(count);
-    if (board::pins_with(board::PC_SQUARE)) out.text_flash(FW_STR("," CAP_GEN_SQUARE));
+    Pins outputs = board::pins_with(board::PC_DOUT);
+    outputs.remove(board::reserved_pins());
+    out.decimal(outputs.count());
+    if (board::pins_with(board::PC_SQUARE).any()) out.text_flash(FW_STR("," CAP_GEN_SQUARE));
     out.text_flash(FW_STR("," CAP_TX_UART "," CAP_TX_SPI "," CAP_TX_I2C));
 }
 
 static void pin_line(uint8_t index) {
     if (index >= board::PIN_COUNT) return;  // empty after the last pin
     board::PinDef def = board::pin(index);
+    if (!board::exists(def)) {  // a gap
+        out.u8('-');
+        return;
+    }
     out.text_flash(FW_STR("PIN:"));
     out.text(def.name);
     out.u8(',');
@@ -246,30 +269,30 @@ static uint8_t pin_mode(const uint8_t *d) {
         case MODE_INPUT:
         case MODE_ANALOG:
             hal::pin_input(pin, hal::PULL_NONE);
-            released(pin_bit(pin));
+            released(Pins::of(pin));
             break;
         case MODE_INPUT_PULLUP:
             hal::pin_input(pin, hal::PULL_UP);
-            released(pin_bit(pin));
+            released(Pins::of(pin));
             break;
         case MODE_INPUT_PULLDOWN:
             hal::pin_input(pin, hal::PULL_DOWN);
-            released(pin_bit(pin));
+            released(Pins::of(pin));
             break;
         default:  // output, PWM (low until the command PWM)
             hal::pin_output(pin, false);
-            driving(pin_bit(pin));
+            driving(Pins::of(pin));
     }
     return 0;
 }
 
-static uint8_t write_pins(uint32_t mask, uint32_t levels) {
+static uint8_t write_pins(const Pins &mask, const Pins &levels) {
     uint8_t error = check_pins(mask, board::PC_DOUT);
     if (error) return error;
     for (uint8_t i = 0; i < board::PIN_COUNT; i++) {
-        if (!(mask & pin_bit(i))) continue;
+        if (!mask.has(i)) continue;
         quiet_pin(i);
-        hal::pin_output(i, (levels & pin_bit(i)) != 0);
+        hal::pin_output(i, levels.has(i));
     }
     driving(mask);
     return 0;
@@ -283,14 +306,14 @@ static uint8_t pwm(uint8_t pin, float frequency, uint16_t duty, float *actual) {
     if (duty == 0) {  // stops: output low
         quiet_pin(pin);
         hal::pin_output(pin, false);
-        driving(pin_bit(pin));
+        driving(Pins::of(pin));
         return 0;
     }
-    if (dac_pins & pin_bit(pin)) quiet_pin(pin);
+    if (dac_pins.has(pin)) quiet_pin(pin);
     error = hal::pwm_start(pin, frequency, duty, actual);
     if (error) return error;
-    pwm_pins |= pin_bit(pin);
-    driving(pin_bit(pin));
+    pwm_pins.add(pin);
+    driving(Pins::of(pin));
     return 0;
 }
 
@@ -298,11 +321,11 @@ static uint8_t dac(uint8_t pin, uint16_t raw) {
     uint8_t error = check_pin(pin, board::PC_DAC);
     if (error) return error;
     if (board::INFO.dac_bits < 16 && raw >= (1u << board::INFO.dac_bits)) return ERR_ARGUMENTS;
-    if (pwm_pins & pin_bit(pin)) quiet_pin(pin);
+    if (pwm_pins.has(pin)) quiet_pin(pin);
     error = hal::dac_write(pin, raw);
     if (error) return error;
-    dac_pins |= pin_bit(pin);
-    driving(pin_bit(pin));
+    dac_pins.add(pin);
+    driving(Pins::of(pin));
     return 0;
 }
 
@@ -311,7 +334,7 @@ static uint8_t pulse(uint8_t pin, uint8_t level, uint32_t width) {
     if (error) return error;
     if (level > 1) return ERR_ARGUMENTS;
     quiet_pin(pin);
-    driving(pin_bit(pin));
+    driving(Pins::of(pin));
     hal::pin_output(pin, level);
     hal::delay_us(width);
     hal::pin_output(pin, !level);
@@ -326,14 +349,15 @@ static uint8_t adc_read(uint16_t mask) {
     return 0;
 }
 
-static uint8_t start_monitor(uint32_t rate_mhz, uint32_t pins, uint16_t adc) {
+static uint8_t start_monitor(uint32_t rate_mhz, const Pins &pins, uint16_t adc) {
     if (rate_mhz == 0) {
         monitor.period_us = 0;
         return 0;
     }
     if (rate_mhz > board::INFO.monitor_max_mhz) return ERR_ARGUMENTS;
-    if (board::PIN_COUNT < 32 && (pins >> board::PIN_COUNT)) return ERR_ARGUMENTS;
-    uint8_t error = check_adc_mask(adc);
+    uint8_t error = check_numbers(pins);
+    if (error) return error;
+    error = check_adc_mask(adc);
     if (error) return error;
     refresh_adc_all(adc);
     monitor.pins = pins;
@@ -351,15 +375,15 @@ static uint8_t data_size(uint8_t command) {
             return 0;
         case CMD_PINS: return 1;
         case CMD_PIN_MODE: return 2;
-        case CMD_WRITE: return 8;
-        case CMD_READ: return 4;
+        case CMD_WRITE: return 2 * FW_PORTS;
+        case CMD_READ: return FW_PORTS;
         case CMD_PWM: return 7;
         case CMD_DAC: return 3;
         case CMD_PULSE: return 6;
         case CMD_ADC_READ: return 2;
-        case CMD_MONITOR: return 10;
-        case CMD_CAPTURE_SETUP: return 30;
-        case CMD_GEN_START: return 11;
+        case CMD_MONITOR: return 6 + FW_PORTS;
+        case CMD_CAPTURE_SETUP: return 18 + 3 * FW_PORTS;
+        case CMD_GEN_START: return 7;
         case CMD_SQUARE: return 5;
         case CMD_ARB_START: return 7;
         default: return 0xFF;
@@ -389,12 +413,16 @@ static uint8_t execute(uint8_t command, const uint8_t *d, uint8_t n) {
         case CMD_PINS: pin_line(d[0]); return 0;
         case CMD_CAPS: caps(); return 0;
         case CMD_PIN_MODE: return pin_mode(d);
-        case CMD_WRITE: return write_pins(get_u32(d), get_u32(d + 4));
-        case CMD_READ:
-            value = get_u32(d);
-            if (board::PIN_COUNT < 32 && (value >> board::PIN_COUNT)) return ERR_ARGUMENTS;
-            out.u32(hal::read_levels() & value);
+        case CMD_WRITE: return write_pins(Pins::from(d), Pins::from(d + FW_PORTS));
+        case CMD_READ: {
+            Pins mask = Pins::from(d);
+            error = check_numbers(mask);
+            if (error) return error;
+            Pins now = levels();
+            now.keep(mask);
+            out.bytes(now.port, FW_PORTS);
             return 0;
+        }
         case CMD_PWM:
             error = pwm(d[0], get_f32(d + 1), get_u16(d + 5), &actual);
             if (!error) out.f32(actual);
@@ -402,7 +430,7 @@ static uint8_t execute(uint8_t command, const uint8_t *d, uint8_t n) {
         case CMD_DAC: return dac(d[0], get_u16(d + 1));
         case CMD_PULSE: return pulse(d[0], d[1], get_u32(d + 2));
         case CMD_ADC_READ: return adc_read(get_u16(d));
-        case CMD_MONITOR: return start_monitor(get_u32(d), get_u32(d + 4), get_u16(d + 8));
+        case CMD_MONITOR: return start_monitor(get_u32(d), Pins::from(d + 4), get_u16(d + 4 + FW_PORTS));
         case CMD_HEARTBEAT: return 0;
         case CMD_SAFE: safe(); return 0;
         case CMD_CAPTURE_SETUP:
@@ -484,7 +512,9 @@ static void poll_monitor() {
     if ((int32_t)(now - monitor.next_us) >= 0) monitor.next_us = now + monitor.period_us;  // behind: skip
     event(EVENT_STATE);
     out.u32(now);
-    out.u32(hal::read_levels() & monitor.pins);
+    Pins state = levels();
+    state.keep(monitor.pins);
+    out.bytes(state.port, FW_PORTS);
     for (uint8_t channel = 0; channel < FW_ADC_CHANNELS; channel++)
         if (monitor.adc & (1u << channel)) out.u16(adc_latest[channel]);
     send();
@@ -503,7 +533,7 @@ static void poll_adc() {
 }
 
 static void poll_watchdog() {
-    if (!driven && !pwm_pins && !dac_pins && !gen::driving()) {
+    if (!driven.any() && !pwm_pins.any() && !dac_pins.any() && !gen::driving()) {
         last_frame_ms = hal::millis();
         return;
     }
@@ -524,8 +554,11 @@ void poll() {
 
 void init() {
     for (uint8_t i = 0; i < FW_ADC_CHANNELS; i++) adc_latest[i] = 0;
-    driven = pwm_pins = dac_pins = 0;
+    driven.clear();
+    pwm_pins.clear();
+    dac_pins.clear();
     monitor.period_us = 0;
+    monitor.pins.clear();
     decoder.reset();
     last_frame_ms = hal::millis();
 }

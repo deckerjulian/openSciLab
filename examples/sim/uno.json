@@ -321,7 +321,7 @@
     "16": 224
   },
   "stream_max_rate": 20000,
-  "gen_runs": 32,
+  "gen_bytes": 192,
   "buffer_analog": false,
   "max_post_seconds": 2,
   "clock_hz": 16000000

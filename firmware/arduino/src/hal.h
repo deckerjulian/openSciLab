@@ -32,9 +32,9 @@ const uint8_t PULL_DOWN = 2;
 void pin_input(uint8_t pin, uint8_t pull);
 void pin_output(uint8_t pin, bool level);
 bool pin_read(uint8_t pin);
-// fast, from interrupts as well (src/arch/<arch>/fast.h):
-//   uint32_t read_levels();                          bit n: the level of pin n
-//   void write_levels(uint32_t mask, uint32_t levels);  pins that are outputs already
+// fast, from interrupts as well (src/arch/<arch>/fast.h); port k holds the pins 8k to 8k+7:
+//   uint8_t read_port(uint8_t k);                                bit b: the level of pin 8k+b
+//   void write_port(uint8_t k, uint8_t mask, uint8_t levels);    pins that are outputs already
 
 // PWM, DAC, ADC
 uint8_t pwm_start(uint8_t pin, float frequency, uint16_t duty, float *actual);

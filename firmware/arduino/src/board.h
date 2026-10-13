@@ -7,11 +7,14 @@
 // The board: its pin table and its limits. Every board (src/arch/<arch>/board_<arch>.cpp, the
 // fake board of the native tests in src/arch/native/) defines PIN_TABLE, PIN_COUNT and INFO.
 //
-// Pins on the wire are indexes into the pin table; bit n of a level mask is pin n.
+// Pins on the wire are indexes into the pin table. Masks and levels are FW_PORTS bytes: bit b of
+// byte k is pin 8k+b, and byte k is what hal::read_port(k) reads. On the AVR boards byte k is a
+// port of the chip, so the table has gaps (GAP: no pin at that number) where a port has no pin.
 
 #ifndef BOARD_H
 #define BOARD_H
 
+#include "board_config.h"
 #include "platform.h"
 
 #define FIRMWARE_VERSION "0.1.0b2"
@@ -40,11 +43,79 @@ const uint8_t RES_USB_DP = 4;
 const uint8_t NO_CHANNEL = 0xFF;  // no analog channel
 
 struct PinDef {
-    char name[8];
+    char name[8];      // empty: no pin at this number (GAP)
     uint8_t gpio;      // the Arduino pin number (digitalWrite, analogRead, ...)
     uint16_t caps;
     uint8_t analog;    // analog channel or NO_CHANNEL
     uint8_t reserved;  // RES_FREE or why the pin is reserved
+};
+
+// a number of the pin table without a pin
+#define GAP {"", 0xFF, 0, board::NO_CHANNEL, board::RES_FREE}
+
+static inline bool exists(const PinDef &def) { return def.name[0] != 0; }
+
+// A set of pins in the wire format of masks and levels: bit b of port[k] is pin 8k+b.
+struct Pins {
+    uint8_t port[FW_PORTS];
+
+    static Pins none() {
+        Pins p;
+        p.clear();
+        return p;
+    }
+    static Pins of(uint8_t pin) {
+        Pins p = none();
+        p.add(pin);
+        return p;
+    }
+    // FW_PORTS bytes of a request
+    static Pins from(const uint8_t *data) {
+        Pins p;
+        memcpy(p.port, data, FW_PORTS);
+        return p;
+    }
+    void clear() { memset(port, 0, FW_PORTS); }
+    bool has(uint8_t pin) const { return pin < 8 * FW_PORTS && (port[pin >> 3] >> (pin & 7)) & 1; }
+    void add(uint8_t pin) {
+        if (pin < 8 * FW_PORTS) port[pin >> 3] |= (uint8_t)(1u << (pin & 7));
+    }
+    void remove(uint8_t pin) {
+        if (pin < 8 * FW_PORTS) port[pin >> 3] &= (uint8_t)~(1u << (pin & 7));
+    }
+    void add(const Pins &other) {
+        for (uint8_t k = 0; k < FW_PORTS; k++) port[k] |= other.port[k];
+    }
+    void remove(const Pins &other) {
+        for (uint8_t k = 0; k < FW_PORTS; k++) port[k] &= (uint8_t)~other.port[k];
+    }
+    void keep(const Pins &other) {
+        for (uint8_t k = 0; k < FW_PORTS; k++) port[k] &= other.port[k];
+    }
+    bool any() const {
+        for (uint8_t k = 0; k < FW_PORTS; k++)
+            if (port[k]) return true;
+        return false;
+    }
+    bool meets(const Pins &other) const {
+        for (uint8_t k = 0; k < FW_PORTS; k++)
+            if (port[k] & other.port[k]) return true;
+        return false;
+    }
+    bool operator==(const Pins &other) const { return memcmp(port, other.port, FW_PORTS) == 0; }
+    // the ports (bytes) with a pin of the set
+    uint8_t ports() const {
+        uint8_t n = 0;
+        for (uint8_t k = 0; k < FW_PORTS; k++)
+            if (port[k]) n++;
+        return n;
+    }
+    uint8_t count() const {
+        uint8_t n = 0;
+        for (uint8_t k = 0; k < FW_PORTS; k++)
+            for (uint8_t b = port[k]; b; b &= (uint8_t)(b - 1)) n++;
+        return n;
+    }
 };
 
 struct Info {
@@ -83,10 +154,10 @@ uint8_t analog_count();
 uint8_t analog_pin(uint8_t channel);
 // the first pin with the DAC capability, or NO_CHANNEL
 uint8_t dac_pin();
-// pins with all of caps (a mask of indexes)
-uint32_t pins_with(uint16_t caps);
+// pins with all of caps
+Pins pins_with(uint16_t caps);
 // pins that are reserved
-uint32_t reserved_pins();
+Pins reserved_pins();
 
 }  // namespace board
 

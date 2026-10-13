@@ -8,6 +8,39 @@ release is created by pushing a tag `v<version>` whose version has a section in 
 The project was called **PiPiLogicAnalyzer** up to version 7.2.0; as **openSciLab** it counts
 again from 0.1.
 
+## [Unreleased]
+
+### Devices
+
+- **Arduino Mega 2560: all 70 pins.** D0–D53 and A0–A15 are pins of the device card, of the flows
+  and of the logic analyzer (68 channels; D0/D1 carry the USB serial line), A0–A15 are its 16
+  analog inputs. Before, the pin masks of the Arduino protocol held 32 pins, so the Mega offered
+  only whole ports (D22–D29, D10–D13 with D50–D53, D42–D49, A8–A15) and neither A0–A7 nor most of
+  the numbered pins. Tried on a Mega 2560 with D34–D35 and A0–A1 wired together: inputs and outputs
+  both ways, analog inputs, monitor, buffer and stream captures across ports, the pattern
+  generator on pins of two ports.
+- A buffer capture of an Arduino holds as many samples as a byte per port of its pins allows: on
+  the Uno D8 alone takes one byte (it took two, by the highest pin), on the Mega up to 11 bytes
+  for all 68 channels (372 samples).
+- **An Arduino Mega that did not answer**: opening its port restarts it, and a request during the
+  first second keeps its bootloader (STK500v2) from starting the firmware until the next restart,
+  so the Mega was never found ("no openSciLab Arduino firmware answers"). A board that does not
+  answer the first request is restarted once (DTR) and asked again after 1.5 s of silence.
+- *Update firmware* writes an image of the Arduino Mega 2560 (`openSciLab_megaatmega2560.hex`) for
+  its chip and bootloader (avrdude `-p atmega2560 -c wiring`); before, every AVR image went to an
+  ATmega328P, which the Mega refused.
+
+### Firmware
+
+- **Arduino protocol 2** (`docs/protocols.md`): pin masks and levels are `ports` bytes (HELLO), bit b
+  of byte k is pin 8k+b; on the AVR boards byte k is a port of the chip, so the pin table follows
+  the ports and has gaps (`PINS` answers `-` for a number without a pin). Capture samples, the
+  runs of `DATA` events and of the pattern generator hold a byte per port of their pins;
+  `GEN_LOAD` carries the pins of its runs, `GEN_START` no longer; HELLO says `gen_bytes` instead
+  of `gen_runs`. openSciLab works with protocol 2 only: a board with the Arduino firmware of
+  0.1.0b2 asks for the firmware that comes with the application. The pin numbers of the Uno and
+  Nano changed with it (A0 is 16), the simulated Arduino profiles say `gen_bytes`.
+
 ## [0.1.0b2] - 2026-10-11
 
 ### Application

@@ -618,6 +618,11 @@ def test_tool_commands():
     path = fake_tool("avrdude")
     command = firmware.tool_command("avrdude", "fw.hex", "/dev/ttyUSB0", part="atmega2560")
     assert command[0] == path and "atmega2560" in command and "flash:w:fw.hex:i" in command
+    # the chip and its bootloader's protocol by the image's name: the Mega 2560 speaks STK500v2
+    command = firmware.tool_command("avrdude", "/x/openSciLab_megaatmega2560.hex", "/dev/ttyACM0")
+    assert command[command.index("-p") + 1:command.index("-p") + 4] == ["atmega2560", "-c", "wiring"]
+    command = firmware.tool_command("avrdude", "/x/openSciLab_uno.hex", "/dev/ttyACM0")
+    assert command[command.index("-p") + 1:command.index("-p") + 4] == ["atmega328p", "-c", "arduino"]
     fake_tool("adb")
     assert firmware.tool_command("adb", "bridge.apk")[1:] == ["install", "-r", "bridge.apk"]
 

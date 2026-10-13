@@ -11,6 +11,7 @@
 #ifndef APP_H
 #define APP_H
 
+#include "board.h"
 #include "board_config.h"
 #include "protocol.h"
 
@@ -32,19 +33,21 @@ void event(uint8_t code);
 void send();
 
 // 0 when every pin of mask exists, is free and has all of caps; else the error code
-uint8_t check_pins(uint32_t mask, uint16_t caps);
+uint8_t check_pins(const board::Pins &mask, uint16_t caps);
+// 0 when every pin of mask exists (a gap or a number beyond the table: ERR_ARGUMENTS)
+uint8_t check_numbers(const board::Pins &mask);
 // the pins become outputs that are driven (SAFE and the watchdog release them)
-void driving(uint32_t mask);
+void driving(const board::Pins &mask);
 // the pins are no longer driven by a command
-void released(uint32_t mask);
+void released(const board::Pins &mask);
+// the levels of every pin
+board::Pins levels();
 
 // the latest raw value of each analog channel the monitor or a capture uses (refreshed in turn)
 extern volatile uint16_t adc_latest[FW_ADC_CHANNELS];
 
 // releases every output (command SAFE, the watchdog)
 void safe();
-
-static inline uint32_t pin_bit(uint8_t n) { return (uint32_t)1 << n; }
 
 }  // namespace app
 
