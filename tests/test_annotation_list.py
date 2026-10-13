@@ -18,7 +18,7 @@ from openscilab.ui.view_model import CaptureViewModel
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DEMO = os.path.join(ROOT, "examples", "c64-demo.lac")
-PROFILE = os.path.join(ROOT, "examples", "profiles", "c64-expansion-port.json")
+PROFILE = os.path.join(ROOT, "examples", "profiles", "c64-logicanalyzer-v2.json")
 
 
 @pytest.fixture(scope="module")

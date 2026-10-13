@@ -16,7 +16,7 @@ from openscilab.sigrok.composition import compose
 from openscilab.sigrok.provider import DecoderInstance, SigrokProvider
 
 PROJECT_DIRECTORY = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-PROFILE = os.path.join(PROJECT_DIRECTORY, "examples", "profiles", "c64-expansion-port.json")
+PROFILE = os.path.join(PROJECT_DIRECTORY, "examples", "profiles", "c64-logicanalyzer-v2.json")
 
 pytestmark = pytest.mark.skipif(
     not os.path.isfile(os.path.join(PROJECT_DIRECTORY, "decoders", "c64bus", "pd.py")),

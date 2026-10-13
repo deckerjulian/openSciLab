@@ -1,7 +1,7 @@
 {
   "Profiles": [
     {
-      "Name": "C64 expansion port - board B (master) + board A (slave)",
+      "Name": "C64 expansion port - LogicAnalyzer V2: board B (master) + board A (slave)",
       "CaptureSettings": {
         "Frequency": 20000000,
         "PreTriggerSamples": 1000,
@@ -421,7 +421,7 @@
       "Notes": "Board B is the master (clock, control lines, PLA on CH1-CH14), board A is the slave (A0-A15 on CH1-CH16, D0-D7 on CH17-CH24). Also connect A0 (expansion port pin Y) to CH15 of board B: this reference line lets the application align board A exactly to board B after every capture (offset and clock drift); without it the offset is estimated from the Φ2 edges. Both boards: GND to pins A and Z, VREF at 5 V. Connect the trigger output of the master to the trigger input of the slave. Trigger: pattern /RESET = high (master CH3); it acts as a rising edge when the capture is started while the reset button is held (the C64 has no reset button, pull pin C of the expansion port to GND with a push button). With the firmware of this project a real rising edge on CH3 works as well (Edge, Channel 3 (board 1)), and a pattern can also run on board A, e.g. the address $FFFC on A0-A15 (first channel 25, pattern 0011111111111111). 20 MHz gives 20 samples per C64 cycle with an exact clock divider (200 MHz / 40). The 6502 decoder shows address bus, data bus and read/write; the C64 bus decoder also disassembles the code. The dot clock (about 8 MHz) is only roughly captured. 1,000 + 30,000 samples (1.55 ms) fit into the buffer of a Raspberry Pi Pico."
     },
     {
-      "Name": "C64 expansion port - board B only (/RESET rising edge)",
+      "Name": "C64 expansion port - LogicAnalyzer V2: board B only (/RESET rising edge)",
       "CaptureSettings": {
         "Frequency": 20000000,
         "PreTriggerSamples": 1000,

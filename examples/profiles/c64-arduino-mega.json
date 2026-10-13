@@ -1,0 +1,367 @@
+{
+  "Profiles": [
+    {
+      "Name": "C64 expansion port - Arduino Mega 2560 (Ben Eater's wiring)",
+      "CaptureSettings": {
+        "Frequency": 1000,
+        "PreTriggerSamples": 0,
+        "PostTriggerSamples": 2000,
+        "TotalSamples": 2000,
+        "LoopCount": 0,
+        "MeasureBursts": false,
+        "CaptureChannels": [
+          {
+            "TextualChannelNumber": "Channel 32",
+            "ChannelNumber": 31,
+            "ChannelName": "R/W (5)",
+            "ChannelColor": 4286695300,
+            "Hidden": false,
+            "Samples": null
+          },
+          {
+            "TextualChannelNumber": "Channel 2",
+            "ChannelNumber": 1,
+            "ChannelName": "/RESET (C)",
+            "ChannelColor": 4286695300,
+            "Hidden": false,
+            "Samples": null
+          },
+          {
+            "TextualChannelNumber": "Channel 4",
+            "ChannelNumber": 3,
+            "ChannelName": "/IRQ (4)",
+            "ChannelColor": 4286695300,
+            "Hidden": false,
+            "Samples": null
+          },
+          {
+            "TextualChannelNumber": "Channel 6",
+            "ChannelNumber": 5,
+            "ChannelName": "/NMI (D)",
+            "ChannelColor": 4286695300,
+            "Hidden": false,
+            "Samples": null
+          },
+          {
+            "TextualChannelNumber": "Channel 8",
+            "ChannelNumber": 7,
+            "ChannelName": "/ROML (11)",
+            "ChannelColor": 4290406600,
+            "Hidden": false,
+            "Samples": null
+          },
+          {
+            "TextualChannelNumber": "Channel 23",
+            "ChannelNumber": 22,
+            "ChannelName": "/ROMH (B)",
+            "ChannelColor": 4290406600,
+            "Hidden": false,
+            "Samples": null
+          },
+          {
+            "TextualChannelNumber": "Channel 21",
+            "ChannelNumber": 20,
+            "ChannelName": "/IO1 (7)",
+            "ChannelColor": 4290406600,
+            "Hidden": false,
+            "Samples": null
+          },
+          {
+            "TextualChannelNumber": "Channel 19",
+            "ChannelNumber": 18,
+            "ChannelName": "/IO2 (10)",
+            "ChannelColor": 4290406600,
+            "Hidden": false,
+            "Samples": null
+          },
+          {
+            "TextualChannelNumber": "Channel 17",
+            "ChannelNumber": 16,
+            "ChannelName": "BA (12)",
+            "ChannelColor": 4286695300,
+            "Hidden": false,
+            "Samples": null
+          },
+          {
+            "TextualChannelNumber": "Channel 44",
+            "ChannelNumber": 43,
+            "ChannelName": "/DMA (13)",
+            "ChannelColor": 4286695300,
+            "Hidden": false,
+            "Samples": null
+          },
+          {
+            "TextualChannelNumber": "Channel 28",
+            "ChannelNumber": 27,
+            "ChannelName": "/EXROM (9)",
+            "ChannelColor": 4294963574,
+            "Hidden": false,
+            "Samples": null
+          },
+          {
+            "TextualChannelNumber": "Channel 27",
+            "ChannelNumber": 26,
+            "ChannelName": "/GAME (8)",
+            "ChannelColor": 4294963574,
+            "Hidden": false,
+            "Samples": null
+          },
+          {
+            "TextualChannelNumber": "Channel 10",
+            "ChannelNumber": 9,
+            "ChannelName": "A0 (Y)",
+            "ChannelColor": 4283417591,
+            "Hidden": false,
+            "Samples": null
+          },
+          {
+            "TextualChannelNumber": "Channel 12",
+            "ChannelNumber": 11,
+            "ChannelName": "A1 (X)",
+            "ChannelColor": 4283417591,
+            "Hidden": false,
+            "Samples": null
+          },
+          {
+            "TextualChannelNumber": "Channel 62",
+            "ChannelNumber": 61,
+            "ChannelName": "A2 (W)",
+            "ChannelColor": 4283417591,
+            "Hidden": false,
+            "Samples": null
+          },
+          {
+            "TextualChannelNumber": "Channel 64",
+            "ChannelNumber": 63,
+            "ChannelName": "A3 (V)",
+            "ChannelColor": 4283417591,
+            "Hidden": false,
+            "Samples": null
+          },
+          {
+            "TextualChannelNumber": "Channel 66",
+            "ChannelNumber": 65,
+            "ChannelName": "A4 (U)",
+            "ChannelColor": 4283417591,
+            "Hidden": false,
+            "Samples": null
+          },
+          {
+            "TextualChannelNumber": "Channel 68",
+            "ChannelNumber": 67,
+            "ChannelName": "A5 (T)",
+            "ChannelColor": 4283417591,
+            "Hidden": false,
+            "Samples": null
+          },
+          {
+            "TextualChannelNumber": "Channel 42",
+            "ChannelNumber": 41,
+            "ChannelName": "A6 (S)",
+            "ChannelColor": 4283417591,
+            "Hidden": false,
+            "Samples": null
+          },
+          {
+            "TextualChannelNumber": "Channel 29",
+            "ChannelNumber": 28,
+            "ChannelName": "A7 (R)",
+            "ChannelColor": 4283417591,
+            "Hidden": false,
+            "Samples": null
+          },
+          {
+            "TextualChannelNumber": "Channel 18",
+            "ChannelNumber": 17,
+            "ChannelName": "A8 (P)",
+            "ChannelColor": 4283417591,
+            "Hidden": false,
+            "Samples": null
+          },
+          {
+            "TextualChannelNumber": "Channel 20",
+            "ChannelNumber": 19,
+            "ChannelName": "A9 (N)",
+            "ChannelColor": 4283417591,
+            "Hidden": false,
+            "Samples": null
+          },
+          {
+            "TextualChannelNumber": "Channel 22",
+            "ChannelNumber": 21,
+            "ChannelName": "A10 (M)",
+            "ChannelColor": 4283417591,
+            "Hidden": false,
+            "Samples": null
+          },
+          {
+            "TextualChannelNumber": "Channel 24",
+            "ChannelNumber": 23,
+            "ChannelName": "A11 (L)",
+            "ChannelColor": 4283417591,
+            "Hidden": false,
+            "Samples": null
+          },
+          {
+            "TextualChannelNumber": "Channel 7",
+            "ChannelNumber": 6,
+            "ChannelName": "A12 (K)",
+            "ChannelColor": 4283417591,
+            "Hidden": false,
+            "Samples": null
+          },
+          {
+            "TextualChannelNumber": "Channel 5",
+            "ChannelNumber": 4,
+            "ChannelName": "A13 (J)",
+            "ChannelColor": 4283417591,
+            "Hidden": false,
+            "Samples": null
+          },
+          {
+            "TextualChannelNumber": "Channel 3",
+            "ChannelNumber": 2,
+            "ChannelName": "A14 (H)",
+            "ChannelColor": 4283417591,
+            "Hidden": false,
+            "Samples": null
+          },
+          {
+            "TextualChannelNumber": "Channel 1",
+            "ChannelNumber": 0,
+            "ChannelName": "A15 (F)",
+            "ChannelColor": 4283417591,
+            "Hidden": false,
+            "Samples": null
+          },
+          {
+            "TextualChannelNumber": "Channel 9",
+            "ChannelNumber": 8,
+            "ChannelName": "D0 (21)",
+            "ChannelColor": 4294948685,
+            "Hidden": false,
+            "Samples": null
+          },
+          {
+            "TextualChannelNumber": "Channel 11",
+            "ChannelNumber": 10,
+            "ChannelName": "D1 (20)",
+            "ChannelColor": 4294948685,
+            "Hidden": false,
+            "Samples": null
+          },
+          {
+            "TextualChannelNumber": "Channel 61",
+            "ChannelNumber": 60,
+            "ChannelName": "D2 (19)",
+            "ChannelColor": 4294948685,
+            "Hidden": false,
+            "Samples": null
+          },
+          {
+            "TextualChannelNumber": "Channel 63",
+            "ChannelNumber": 62,
+            "ChannelName": "D3 (18)",
+            "ChannelColor": 4294948685,
+            "Hidden": false,
+            "Samples": null
+          },
+          {
+            "TextualChannelNumber": "Channel 65",
+            "ChannelNumber": 64,
+            "ChannelName": "D4 (17)",
+            "ChannelColor": 4294948685,
+            "Hidden": false,
+            "Samples": null
+          },
+          {
+            "TextualChannelNumber": "Channel 67",
+            "ChannelNumber": 66,
+            "ChannelName": "D5 (16)",
+            "ChannelColor": 4294948685,
+            "Hidden": false,
+            "Samples": null
+          },
+          {
+            "TextualChannelNumber": "Channel 41",
+            "ChannelNumber": 40,
+            "ChannelName": "D6 (15)",
+            "ChannelColor": 4294948685,
+            "Hidden": false,
+            "Samples": null
+          },
+          {
+            "TextualChannelNumber": "Channel 43",
+            "ChannelNumber": 42,
+            "ChannelName": "D7 (14)",
+            "ChannelColor": 4294948685,
+            "Hidden": false,
+            "Samples": null
+          }
+        ],
+        "Bursts": null,
+        "TriggerType": 6,
+        "TriggerChannel": 0,
+        "TriggerInverted": false,
+        "TriggerBitCount": 0,
+        "TriggerPattern": 0,
+        "TriggerAnalogChannel": null,
+        "TriggerLevel": 0.0,
+        "AcquisitionMode": "stream",
+        "ThresholdVoltage": null,
+        "Continuous": false,
+        "ToDisk": false,
+        "TriggerSequence": null,
+        "SoftwareTrigger": false,
+        "ClockChannel": 30,
+        "ClockEdge": "falling",
+        "Buses": [
+          {
+            "Name": "Address",
+            "Channels": [
+              9,
+              11,
+              61,
+              63,
+              65,
+              67,
+              41,
+              28,
+              17,
+              19,
+              21,
+              23,
+              6,
+              4,
+              2,
+              0
+            ],
+            "Format": "hex",
+            "Symbols": {},
+            "Color": 4283417591
+          },
+          {
+            "Name": "Data",
+            "Channels": [
+              8,
+              10,
+              60,
+              62,
+              64,
+              66,
+              40,
+              42
+            ],
+            "Format": "hex",
+            "Symbols": {},
+            "Color": 4294948685
+          }
+        ],
+        "AnalogChannels": [],
+        "StateTimes": null
+      },
+      "DecoderConfiguration": [],
+      "Notes": "An Arduino Mega 2560 with the openSciLab Arduino firmware at the C64 expansion port, wired as Ben Eater's 6502 monitor: the address bus on the even pins 22-52 (A15 on 22 ... A0 on 52), the data bus on the odd pins 39-53 (D7 on 39 ... D0 on 53), the clock Phi2 (E) on D2 and R/W (5) on D3. The other lines of the port sit on free pins of the same ports: /RESET (C) D23, /IRQ (4) D25, /NMI (D) D27, /ROML (11) D29, /ROMH (B) D31, /IO1 (7) D33, /IO2 (10) D35, BA (12) D37, /DMA (13) D4, /EXROM (9) D18, /GAME (8) D19; GND to pins A and Z. The C64 and the Mega both run at 5 V; the pins stay inputs (never set them as outputs while they are on the bus). State capture: a frame per falling edge of Phi2 (D2 is the interrupt INT4), the buses Address and Data show each cycle as Ben Eater's monitor prints it. The Mega takes an edge in its interrupt and sends about 1,000 frames a second over USB (11 bytes each, its ring holds 372): that suits a slowed or single-stepped 6502 as on Ben Eater's breadboard computer; a C64 runs Phi2 at about 1 MHz, far too fast - most of its cycles are lost and counted as lost edges. The C64 bus and 6502 decoders need the Phi2 edges of a timing capture, so they are not set up here. All pins: R/W D3, /RESET D23, /IRQ D25, /NMI D27, /ROML D29, /ROMH D31, /IO1 D33, /IO2 D35, BA D37, /DMA D4, /EXROM D18, /GAME D19, A0 D52, A1 D50, A2 D48, A3 D46, A4 D44, A5 D42, A6 D40, A7 D38, A8 D36, A9 D34, A10 D32, A11 D30, A12 D28, A13 D26, A14 D24, A15 D22, D0 D53, D1 D51, D2 D49, D3 D47, D4 D45, D5 D43, D6 D41, D7 D39."
+    }
+  ]
+}

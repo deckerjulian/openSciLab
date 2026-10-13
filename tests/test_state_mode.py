@@ -153,7 +153,7 @@ def test_c64_states_match_the_bus_cycles_of_the_decoder():
     registry = DecoderRegistry()
     registry.load()
     provider = SigrokProvider(registry)
-    provider.load_configuration(read_profiles_file(DEMO.replace("c64-demo.lac", os.path.join("profiles", "c64-expansion-port.json")))[0].decoder_configuration)
+    provider.load_configuration(read_profiles_file(DEMO.replace("c64-demo.lac", os.path.join("profiles", "c64-logicanalyzer-v2.json")))[0].decoder_configuration)
     (group,) = [item for item in provider.run(session) if item.instance.decoder_id == "c64bus"]
     cycles = next(row for row in group.annotations if row.name == "Bus cycles").segments
     reference = []

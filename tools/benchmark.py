@@ -73,7 +73,7 @@ def bench_decode() -> dict:
     capture = load_capture(os.path.join(ROOT, "examples", "c64-demo.lac"))
     provider = SigrokProvider()
     provider.load_configuration(read_profiles_file(os.path.join(ROOT, "examples", "profiles",
-                                                                "c64-expansion-port.json"))[0].decoder_configuration)
+                                                                "c64-logicanalyzer-v2.json"))[0].decoder_configuration)
     provider.registry.load()
     start = time.perf_counter()
     provider.run(capture.session)

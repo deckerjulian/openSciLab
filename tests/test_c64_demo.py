@@ -12,7 +12,7 @@ from openscilab.sigrok.provider import SigrokProvider
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DEMO = os.path.join(ROOT, "examples", "c64-demo.lac")
-PROFILE = os.path.join(ROOT, "examples", "profiles", "c64-expansion-port.json")
+PROFILE = os.path.join(ROOT, "examples", "profiles", "c64-logicanalyzer-v2.json")
 
 pytestmark = pytest.mark.skipif(
     not (os.path.isfile(DEMO) and os.path.isfile(os.path.join(ROOT, "decoders", "c64bus", "pd.py"))),

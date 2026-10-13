@@ -29,6 +29,15 @@ again from 0.1.
 - *Update firmware* writes an image of the Arduino Mega 2560 (`openSciLab_megaatmega2560.hex`) for
   its chip and bootloader (avrdude `-p atmega2560 -c wiring`); before, every AVR image went to an
   ATmega328P, which the Mega refused.
+- **The C64 profiles say what they are for**: the two profiles for gusmanb's LogicAnalyzer board V2
+  are *C64 expansion port - LogicAnalyzer V2: ...* (file `c64-logicanalyzer-v2.json`, was
+  `c64-expansion-port.json`, whose copy in the profiles folder is removed unless it was
+  changed), and the Arduino Mega 2560 has a profile of its own, *C64 expansion port - Arduino Mega
+  2560 (Ben Eater's wiring)* (`c64-arduino-mega.json`): the pins of Ben Eater's 6502 monitor
+  (address bus on the even pins 22-52, data bus on the odd pins 39-53, Φ2 on D2, R/W on D3), the
+  other lines of the port on free pins of the same ports, a state capture per falling Φ2 edge with
+  the buses *Address* and *Data*. Made for a slowed or single-stepped 6502: the Mega sends about
+  1,000 states a second, a C64 at full speed (1 MHz) is far too fast for it.
 
 ### Firmware
 

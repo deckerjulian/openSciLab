@@ -46,7 +46,7 @@ def test_the_process_decodes_what_a_thread_decodes(service):
     capture = load_capture(os.path.join(ROOT, "examples", "c64-demo.lac"))
     provider = SigrokProvider()
     provider.load_configuration(read_profiles_file(os.path.join(ROOT, "examples", "profiles",
-                                                                "c64-expansion-port.json"))[0].decoder_configuration)
+                                                                "c64-logicanalyzer-v2.json"))[0].decoder_configuration)
     groups = service.run(provider, capture.session)
     assert segments(groups) == segments(provider.run(capture.session))
     assert all(group.instance in provider.instances and group.info is not None for group in groups)

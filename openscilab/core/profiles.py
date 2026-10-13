@@ -30,6 +30,7 @@ Accepted import formats:
 from __future__ import annotations
 
 import copy
+import hashlib
 import json
 import logging
 import os
@@ -50,6 +51,12 @@ PROFILE_FILE_FILTER = "openSciLab profiles (*.json);;All files (*)"
 PROFILES_FOLDER = "profiles"
 #: the standard profiles that were copied into the profiles folder already (file names)
 INSTALLED_FILE = ".standard-profiles.json"
+#: standard profiles of earlier versions that are gone (renamed or replaced): their copy in the
+#: profiles folder is removed while it is unchanged (the SHA-256 of the file as it came)
+RETIRED_FILES = {
+    # now c64-logicanalyzer-v2.json
+    "c64-expansion-port.json": "8f502984f325a696e9df8a89d9531a567f588fe86c5e9d6cb71c00b8205a4ad4",
+}
 STANDARD_DIRECTORIES = [
     os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), os.pardir, "examples", "profiles"),
 ]
@@ -265,6 +272,7 @@ def install_standard_profiles(folder: Optional[str] = None) -> list[str]:
     """Copy the standard profiles that are new into the profiles folder; one that was copied before
     is not copied again (deleted, it stays deleted). Returns the names of the copied files."""
     folder = folder or profiles_directory()
+    remove_retired_profiles(folder)
     source = standard_directory()
     if source is None:
         return []
@@ -294,6 +302,23 @@ def install_standard_profiles(folder: Optional[str] = None) -> list[str]:
         except OSError as error:
             log.warning("%s cannot be written: %s", index, error)
     return copied
+
+
+def remove_retired_profiles(folder: str) -> list[str]:
+    """Remove the copies of retired standard profiles (``RETIRED_FILES``) that were not changed;
+    returns their names."""
+    removed = []
+    for name, digest in RETIRED_FILES.items():
+        path = os.path.join(folder, name)
+        try:
+            with open(path, "rb") as handle:
+                if hashlib.sha256(handle.read()).hexdigest() != digest:
+                    continue  # changed by its user: kept
+            os.remove(path)
+        except OSError:
+            continue
+        removed.append(name)
+    return removed
 
 
 def profile_problem(profile: Profile, driver: Any) -> str:

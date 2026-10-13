@@ -44,7 +44,7 @@ card puts something else on them, at once and also while a capture runs:
 | *I²C* (`i2c`) | SCL and SDA on two channels from `channel` |
 | *UART, SPI and I²C* (`protocols`) | UART on channel 1, SPI on 2–4, I²C on 5–6 |
 | *Counter* (`counter`) | an 8 bit counter on the first channels, its clock on the next |
-| *C64 bus* (`c64`) | a Commodore 64 at its expansion port running a small program (reset, a loop, two interrupts) on the channels of the profile *C64 expansion port*; needs 48 channels, i.e. `sim:pico*2` |
+| *C64 bus* (`c64`) | a Commodore 64 at its expansion port running a small program (reset, a loop, two interrupts) on the channels of the profile *C64 expansion port - LogicAnalyzer V2: board B (master) + board A (slave)*; needs 48 channels, i.e. `sim:pico*2` |
 | *Capture file* (`file`) | the channels of a capture (`path`), played at its rate and repeated |
 | *Nothing connected* (`idle`) | every channel low |
 
@@ -76,7 +76,7 @@ Without `signals`, a flow that opens the simulator itself (virtual time) uses wh
 of the same address in the device list was told.
 
 To see the C64 at work: connect *Simulated multi device…* (Pico, 2 boards), choose *C64 bus* on
-its *Signals* tab, load the profile *C64 expansion port* (*Profiles* in the header of the device card) and
+its *Signals* tab, load the profile *C64 expansion port - LogicAnalyzer V2: board B (master) + board A (slave)* (*Profiles* in the header of the device card) and
 capture – the result is the capture `examples/c64-demo.lac`, decoded by the C64 bus decoder.
 
 ## Profiles

@@ -42,7 +42,7 @@ C64_MAP = (
 )
 
 # Pin names of the expansion port. The channel names match the names in the
-# profile examples/profiles/c64-expansion-port.json exactly, so the channels are
+# profile examples/profiles/c64-logicanalyzer-v2.json exactly, so the channels are
 # assigned automatically when the decoder is added.
 ADDR_PINS = 'YXWVUTSRPNMLKJHF'   # A0..A15
 DATA_PINS = (21, 20, 19, 18, 17, 16, 15, 14)   # D0..D7

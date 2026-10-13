@@ -247,7 +247,7 @@ def build_signals(program: list[tuple[int, int, bool, bool]]) -> dict[str, np.nd
     return signals
 
 
-#: Channel of every signal in ``examples/profiles/c64-expansion-port.json`` (two boards of 24
+#: Channel of every signal in ``examples/profiles/c64-logicanalyzer-v2.json`` (two boards of 24
 #: channels: board B with clock and control lines first, board A with address and data bus)
 PROFILE_CHANNELS = {
     "Φ2": 0, "R/W": 1, "/RESET": 2, "/IRQ": 3, "/NMI": 4, "/ROML": 5, "/ROMH": 6, "/IO1": 7, "/IO2": 8,

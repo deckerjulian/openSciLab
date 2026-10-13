@@ -11,7 +11,8 @@ common buses and applications, one JSON file each.
 Every profile starts at channel 1 and uses as few channels as the bus needs, so it fits every
 device with enough channels; rate and length are clamped to the device when a profile is loaded.
 The decoder channels are looked up by their id in the decoder registry, the options start from
-the decoder's defaults. ``c64-expansion-port.json`` is written by hand and kept as it is::
+the decoder's defaults. ``c64-logicanalyzer-v2.json`` and ``c64-arduino-mega.json`` are written by
+hand and kept as they are::
 
     python tools/make_standard_profiles.py
 """

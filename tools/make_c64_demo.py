@@ -7,7 +7,7 @@
 
 """Generate ``examples/c64-demo.lac``: a Commodore 64 running a small program.
 
-The capture uses the channels of ``examples/profiles/c64-expansion-port.json`` (board B: clock
+The capture uses the channels of ``examples/profiles/c64-logicanalyzer-v2.json`` (board B: clock
 and control lines, board A: address and data bus, the A0 reference line) at 20 MHz. A
 cycle-accurate model of the 6510 produces the bus, with the timing of a real C64: the address
 changes 2 samples after the falling Φ2 edge, the memory drives the data in the second half of
@@ -44,7 +44,7 @@ from openscilab.core.c64_model import (  # noqa: E402
 
 
 def main() -> int:
-    profile = read_profiles_file(os.path.join(ROOT, "examples", "profiles", "c64-expansion-port.json"))[0]
+    profile = read_profiles_file(os.path.join(ROOT, "examples", "profiles", "c64-logicanalyzer-v2.json"))[0]
     session = profile.capture_settings.clone_settings()
     program = run_program()
     signals = build_signals(program)

@@ -25,7 +25,7 @@ from openscilab.core.profiles import (
     standard_files,
     write_profiles_file,
 )
-from openscilab.driver.models import AnalyzerChannel, CaptureSession, TriggerType
+from openscilab.driver.models import AnalyzerChannel, CaptureSession, EdgeKind, TriggerType
 from openscilab.driver.simulated import open_simulated
 from openscilab.sigrok.provider import DecoderRegistry
 
@@ -45,10 +45,10 @@ def standard(name: str) -> Profile:
 # ------------------------------------------------------------ the profiles
 def test_the_standard_profiles_cover_the_buses_and_the_c64():
     names = {os.path.splitext(name)[0] for name in standard_files()}
-    assert BUSES | {"c64-expansion-port"} <= names
+    assert BUSES | {"c64-logicanalyzer-v2"} <= names
 
 
-@pytest.mark.parametrize("name", sorted(BUSES | {"c64-expansion-port"}))
+@pytest.mark.parametrize("name", sorted(BUSES | {"c64-logicanalyzer-v2"}))
 def test_a_standard_profile_is_complete(name):
     profile = standard(name)
     registry = DecoderRegistry()
@@ -90,6 +90,24 @@ def test_the_standard_profiles_are_copied_once(tmp_path):
     assert install_standard_profiles(folder) == ["jtag.json"]  # one that came with a new version
 
 
+def test_a_retired_standard_profile_is_removed_while_unchanged(tmp_path, monkeypatch):
+    import hashlib
+
+    from openscilab.core import profiles
+
+    # the C64 profiles of 0.1.0b2 were renamed: c64-expansion-port.json is retired
+    assert "c64-expansion-port.json" in profiles.RETIRED_FILES and "c64-expansion-port.json" not in standard_files()
+    shipped = b'{"Profiles": []}'
+    monkeypatch.setattr(profiles, "RETIRED_FILES", {"old.json": hashlib.sha256(shipped).hexdigest()})
+    (tmp_path / "old.json").write_bytes(shipped)
+    install_standard_profiles(str(tmp_path))
+    assert not (tmp_path / "old.json").exists()
+    # a copy its user changed stays
+    (tmp_path / "old.json").write_bytes(shipped + b"\n")
+    assert profiles.remove_retired_profiles(str(tmp_path)) == []
+    assert (tmp_path / "old.json").exists()
+
+
 def test_the_store_loads_the_folder_without_importing():
     folder = profiles_directory()
     session = CaptureSession(frequency=1_000_000)
@@ -97,7 +115,7 @@ def test_the_store_loads_the_folder_without_importing():
     write_profiles_file(os.path.join(folder, "lab.json"), [Profile("Lab bench", session), Profile("Lab two", session)])
     store = ProfileStore()
     sources = {os.path.basename(profile.source) for profile in store.profiles if profile.standard}
-    assert sources == set(standard_files())  # the C64 file holds two profiles: both boards, board B only
+    assert sources == set(standard_files())  # the C64 file of the LogicAnalyzer V2 holds two: both boards, board B only
     assert store.get("UART 9600 baud").standard
     mine = store.user_profiles()
     assert [profile.name for profile in mine] == ["Lab bench", "Lab two"]
@@ -136,8 +154,21 @@ def test_a_file_put_into_the_folder_shows_up_in_the_menu(make_dataview):
 
 
 # ------------------------------------------------------ fitting a device
+def test_the_c64_profiles_say_the_device_they_are_for():
+    names = [profile.name for name in ("c64-logicanalyzer-v2", "c64-arduino-mega")
+             for profile in read_profiles_file(os.path.join(standard_directory(), name + ".json"))]
+    assert all("LogicAnalyzer V2" in name for name in names[:2]) and "Arduino Mega 2560" in names[2]
+    # the Mega: Ben Eater's pins, a state per falling edge of Φ2 (D2), address and data as buses
+    mega = standard("c64-arduino-mega").capture_settings
+    named = {channel.channel_name: channel.channel_number for channel in mega.capture_channels}
+    assert mega.clock_channel == 30 and mega.clock_edge == EdgeKind.FALLING  # D2
+    assert named["A15 (F)"] == 0 and named["A0 (Y)"] == 9 and named["D7 (14)"] == 42 and named["D0 (21)"] == 8
+    assert [bus.name for bus in mega.buses] == ["Address", "Data"]
+    assert mega.buses[0].channels == [named[f"A{bit} ({pin})"] for bit, pin in enumerate("YXWVUTSRPNMLKJHF")]
+
+
 def test_a_profile_needs_the_channels_it_captures():
-    c64 = standard("c64-expansion-port")
+    c64 = standard("c64-logicanalyzer-v2")
     assert "needs 48 channels" in profile_problem(c64, driver("pico"))  # two boards of 24
     assert profile_problem(standard("uart-115200"), driver("uno")) == ""
     assert "needs 9 channels" in profile_problem(standard("parallel-8bit"), _small(8))
@@ -187,8 +218,10 @@ def test_the_standard_profiles_menu_loads_and_disables(make_dataview):
         controller.fill_profiles_menu(menu, window)
         assert "Open the profiles folder" in [action.text() for action in menu.actions()]
         entries = {action.text(): action for action in controller.standard_menu.actions()}
-        c64 = next(action for text, action in entries.items() if text.startswith("C64"))
+        c64 = next(action for text, action in entries.items() if "LogicAnalyzer V2: board B (master)" in text)
         assert not c64.isEnabled() and "needs 48 channels" in c64.text()
+        mega = next(action for text, action in entries.items() if "Arduino Mega" in text)
+        assert not mega.isEnabled() and "needs 68 channels" in mega.text()
         entries["UART 115200 baud (Arduino serial)"].trigger()
         stored = capture_io.session_from_dict(settings.get_settings(capture_settings_file(controller.driver)))
         assert stored.frequency == 100_000  # the Uno's highest rate
