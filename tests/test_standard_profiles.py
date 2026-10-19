@@ -184,6 +184,13 @@ def _small(channels: int):
     return Small()
 
 
+def test_channels_the_device_has_keep_their_numbers():
+    session = CaptureSession(frequency=1000)
+    session.capture_channels = [AnalyzerChannel(channel_number=n) for n in (5, 2)]
+    fitted, changes = fit_session(session, _Device(8))
+    assert [c.channel_number for c in fitted.capture_channels] == [5, 2] and not changes
+
+
 def test_rate_and_length_are_fitted_to_the_device():
     usb = standard("usb-full-speed").capture_settings
     fitted, changes = fit_session(usb, driver("uno"))
@@ -262,19 +269,19 @@ def test_a_fast_trigger_pattern_is_kept_and_its_channel_follows():
 
 
 def test_a_pattern_window_that_stays_together_follows():
-    session = CaptureSession(frequency=1000, trigger_type=TriggerType.FAST, trigger_channel=2,
+    session = CaptureSession(frequency=1000, trigger_type=TriggerType.FAST, trigger_channel=12,
                              trigger_bit_count=2, trigger_pattern=0b11)
-    session.capture_channels = [AnalyzerChannel(channel_number=n) for n in (2, 3)]
+    session.capture_channels = [AnalyzerChannel(channel_number=n) for n in (12, 13)]
     fitted, changes = fit_session(session, _Device(8))
-    assert fitted.trigger_type == TriggerType.FAST and fitted.trigger_channel == 0  # 2,3 -> 0,1 (together)
+    assert fitted.trigger_type == TriggerType.FAST and fitted.trigger_channel == 0  # 12,13 -> 0,1 (together)
     assert "no trigger" not in changes
 
 
 def test_a_pattern_window_compaction_breaks_apart_is_dropped():
-    session = CaptureSession(frequency=1000, trigger_type=TriggerType.FAST, trigger_channel=2,
+    session = CaptureSession(frequency=1000, trigger_type=TriggerType.FAST, trigger_channel=12,
                              trigger_bit_count=2, trigger_pattern=0b11)
-    # channels 2 and 3 do not stay next to each other: 2 and 3 map to 0 and 2, not 0 and 1
-    session.capture_channels = [AnalyzerChannel(channel_number=n) for n in (2, 0, 3)]
+    # channels 12 and 13 do not stay next to each other: 12 and 13 map to 0 and 2, not 0 and 1
+    session.capture_channels = [AnalyzerChannel(channel_number=n) for n in (12, 10, 13)]
     fitted, changes = fit_session(session, _Device(8))
     assert fitted.trigger_type == TriggerType.IMMEDIATE and "no trigger" in changes
 

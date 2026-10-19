@@ -396,12 +396,20 @@ def _compaction(session: CaptureSession, count: int, analog_count: int) -> tuple
     """How the channels of ``session`` fit onto a device of ``count`` digital and ``analog_count``
     analog channels: the digital and analog ``{old number: new number}`` and whether anything moved.
 
-    The channels keep their order and take the device's channels ``0, 1, 2, ...``; channels that do
-    not fit at all (more than the device has) are left out of the mapping.
+    Channels the device has keep their numbers (a profile saved here loads as it was). Otherwise they
+    keep their order and take the device's channels ``0, 1, 2, ...``; channels that do not fit at all
+    (more than the device has) are left out of the mapping.
     """
-    digital = {number: index for index, number in enumerate(_referenced_digital(session)) if index < count}
-    analog = {channel.channel_number: index for index, channel in enumerate(session.analog_channels)
-              if index < analog_count}
+    referenced = _referenced_digital(session)
+    if all(number < count for number in referenced):
+        digital = {number: number for number in referenced}
+    else:
+        digital = {number: index for index, number in enumerate(referenced) if index < count}
+    numbers = [channel.channel_number for channel in session.analog_channels]
+    if all(number < analog_count for number in numbers):
+        analog = {number: number for number in numbers}
+    else:
+        analog = {number: index for index, number in enumerate(numbers) if index < analog_count}
     moved = any(old != new for old, new in (*digital.items(), *analog.items())) \
         or len(digital) < len(_referenced_digital(session)) or len(analog) < len(session.analog_channels)
     return digital, analog, moved

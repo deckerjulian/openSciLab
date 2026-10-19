@@ -301,6 +301,7 @@ SIZES = {
     "scope-side": 250,  # the column of settings and readouts beside an oscilloscope's screen
     "scope-screen-width": 320,
     "scope-screen-height": 200,
+    "speed-slider": 110,  # the slider of a circuit's speed in its tool bar
     "smith-chart": 260,
     "search-popup-width": 340,  # the catalog search over the canvas
     "search-popup-height": 560,

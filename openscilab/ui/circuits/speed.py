@@ -20,7 +20,7 @@ from PySide6.QtGui import QAction, QActionGroup
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QMenu, QSlider, QWidget
 
 from ...circuits import values
-from ..theme import set_role, space
+from ..theme import set_role, size, space
 
 #: what the slider offers: simulated seconds per second
 SPEEDS = (0.001, 0.002, 0.005, 0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1.0, 2.0, 5.0, 10.0, 20.0, 50.0, 100.0)
@@ -55,7 +55,7 @@ class SpeedControl(QWidget):
         self.slider = QSlider(Qt.Horizontal, self)
         self.slider.setRange(0, len(SPEEDS) - 1)
         self.slider.setPageStep(1)
-        self.slider.setFixedWidth(110)
+        self.slider.setFixedWidth(size("speed-slider"))
         layout.addWidget(self.slider)
         self.label = QLabel(self)
         # (as wide as the widest text: the bar does not move while the slider does)

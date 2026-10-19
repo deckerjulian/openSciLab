@@ -76,9 +76,10 @@ pin). Everything set on a device while a capture runs becomes a marker in it. Se
 open at once; trigger routes of the hub tell how their trigger lines are wired.
 
 Loading a capture profile (*Profiles* in the data view) fits it to the device: its rate and length
-are held within the device's limits, and its channels are renumbered onto the device's own channels
-in order – the clock, buses, trigger and decoders following – so a profile made for another device
-loads here with its probes re-plugged to match. A profile needing more channels than the device has
+are held within the device's limits. Channels the device has keep their numbers; a profile with
+channels the device lacks is renumbered onto the device's own channels in order – the clock, buses,
+trigger and decoders following – so a profile made for another device loads here with its probes
+re-plugged to match. A profile needing more channels than the device has
 stays off; a pattern trigger whose channels no longer sit together is dropped rather than pointed at
 the wrong ones. What was changed is reported when it loads.
 
