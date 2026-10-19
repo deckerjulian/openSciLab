@@ -2643,9 +2643,21 @@ class ShellWindow(QMainWindow):
                 or (self.nodes_dock.isVisible() and self.nodes_dock.width() < NODES_WIDTH * 0.6):
             self._sidebar_opened = True
             # (the node palette beside it keeps its width: it was squeezed to a strip before)
-            QTimer.singleShot(0, lambda: self.resizeDocks(
+            QTimer.singleShot(0, lambda: self._resize_docks_to(
                 [self.sidebar_dock, self.nodes_dock] if self.nodes_dock.isVisible() else [self.sidebar_dock],
-                [DOCK_WIDTHS[0], NODES_WIDTH] if self.nodes_dock.isVisible() else [DOCK_WIDTHS[0]], Qt.Horizontal))
+                [DOCK_WIDTHS[0], NODES_WIDTH] if self.nodes_dock.isVisible() else [DOCK_WIDTHS[0]]))
+
+    #: how often a dock that did not take its width is sized again, and how far apart (ms)
+    DOCK_ATTEMPTS, DOCK_RETRY = 5, 40
+
+    def _resize_docks_to(self, docks: list[QDockWidget], widths: list[int], attempt: int = 0) -> None:
+        """``docks`` at ``widths``; sized again a moment later while they are not (a dock just shown is
+        laid out by an event of its own: on a busy computer that can come after the resize, which is lost)."""
+        if not all(dock.isVisible() for dock in docks):
+            return
+        self.resizeDocks(docks, widths, Qt.Horizontal)
+        if attempt + 1 < self.DOCK_ATTEMPTS and any(dock.width() != width for dock, width in zip(docks, widths)):
+            QTimer.singleShot(self.DOCK_RETRY, lambda: self._resize_docks_to(docks, widths, attempt + 1))
 
     def showEvent(self, event) -> None:  # noqa: N802 - Qt naming
         super().showEvent(event)

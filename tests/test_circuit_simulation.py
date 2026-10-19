@@ -40,6 +40,12 @@ def wait_until(condition, timeout: float = 10.0) -> bool:
     return False
 
 
+def clock_stands(simulation, interval: float = 0.05) -> bool:
+    before = simulation.clock()
+    time.sleep(interval)
+    return simulation.clock() == before
+
+
 def test_analyses_of_a_low_pass(catalog):
     s = low_pass()
     result = analysis.run_analysis(spice.emit(s, catalog.spec, catalog.models, analysis="ac",
@@ -58,22 +64,31 @@ def test_analyses_of_a_low_pass(catalog):
     assert result.values["out"] == pytest.approx(2.5)
 
 
+#: the step of the live tests in real time: 20 points a period of the 1 kHz sine - real time then needs a
+#: fifth of the computing of the default step, which a busy computer (the CI) does not always have
+REALTIME_STEP = 50e-6
+
+
 def test_the_live_simulation_runs_in_real_time_and_takes_changes(catalog):
-    simulation = live.LiveSimulation(spice.emit(low_pass(), catalog.spec, catalog.models), realtime=True)
+    simulation = live.LiveSimulation(spice.emit(low_pass(), catalog.spec, catalog.models), step=REALTIME_STEP,
+                                     realtime=True)
     simulation.start()
     try:
-        started = time.monotonic()
-        assert wait_until(lambda: simulation.clock() > 0.3)
-        assert simulation.clock() == pytest.approx(time.monotonic() - started, abs=0.25)
+        assert wait_until(lambda: simulation.clock() > 0.02)  # (from its first steps: not the engine's start)
+        mark, started = simulation.clock(), time.monotonic()
+        assert wait_until(lambda: simulation.clock() > mark + 0.3)
+        assert simulation.clock() - mark == pytest.approx(time.monotonic() - started, abs=0.25)
         assert abs(simulation.value("v(out)") or 0) <= 1.0
         changed = low_pass(r="10k")
-        assert simulation.change(spice.emit(changed, catalog.spec, catalog.models)) == "altered"
+        assert simulation.change(spice.emit(changed, catalog.spec, catalog.models)) == "altered", simulation.error
         mark = simulation.clock()
         assert wait_until(lambda: simulation.clock() > mark + 0.05)
         times, values = simulation.course("v(out)")
         recent = values[times > times[-1] - 0.002]
         assert np.max(np.abs(recent)) == pytest.approx(0.0995, rel=0.1)  # (1 / sqrt(1 + 10²))
         simulation.pause()
+        # (what the engine computed before the pause still arrives: the clock stands once it is in)
+        assert wait_until(lambda: clock_stands(simulation))
         paused = simulation.clock()
         time.sleep(0.15)
         assert simulation.clock() == pytest.approx(paused, abs=0.01)
@@ -123,7 +138,8 @@ def test_the_wiper_of_a_variac_turns_while_it_runs(catalog):
 
 
 def test_the_speed_changes_while_it_runs(catalog):
-    simulation = live.LiveSimulation(spice.emit(low_pass(), catalog.spec, catalog.models), realtime=True)
+    simulation = live.LiveSimulation(spice.emit(low_pass(), catalog.spec, catalog.models), step=REALTIME_STEP,
+                                     realtime=True)
     simulation.start()
     try:
         assert wait_until(lambda: simulation.clock() > 0.1)
@@ -137,6 +153,8 @@ def test_the_speed_changes_while_it_runs(catalog):
         simulation.set_speed(1.0)  # (paused: the pause does not count at the new speed)
         time.sleep(0.2)
         simulation.resume()
+        resumed = simulation.clock()
+        assert wait_until(lambda: simulation.clock() > resumed)  # (the engine process took the resume)
         mark, started = simulation.clock(), time.monotonic()
         assert wait_until(lambda: simulation.clock() > mark + 0.3)
         assert (simulation.clock() - mark) / (time.monotonic() - started) == pytest.approx(1.0, abs=0.35)
@@ -365,9 +383,10 @@ def test_a_probe_added_while_running_gets_its_course(catalog):
         assert simulation.change(changed) == ""
         vector = next(probe.vector for probe in changed.probes if probe.component == "P2")
         mark = simulation.clock()
-        assert wait_until(lambda: simulation.clock() > mark + 0.05)
-        times, data = simulation.course(vector, mark)
-        assert len(times) > 10 and np.nanmax(np.abs(data)) > 0.5  # (the sine of 1 V arrives)
+        # (its course comes from the engine process as it computes: waited for, not for a time span)
+        assert wait_until(lambda: len(simulation.course(vector, mark)[0]) > 10 and simulation.clock() > mark + 0.05)
+        _times, data = simulation.course(vector, mark)
+        assert np.nanmax(np.abs(data)) > 0.5  # (the sine of 1 V arrives)
     finally:
         simulation.stop()
 
@@ -431,3 +450,33 @@ def test_a_run_that_makes_no_progress_is_given_up():
     child._progress_at = (1.0, time.monotonic() - process.STALL_SECONDS - 1)
     child._watch_progress(simulation, points=False)
     assert simulation.state == "error" and "source stepping failed" in simulation.error
+
+
+def test_a_run_before_its_first_point_is_not_stuck(monkeypatch):
+    # (a busy computer: the engine process sends before ngspice computed a point - that run was marked
+    # "does not get on" at once, while ngspice went on)
+    from types import SimpleNamespace
+
+    from openscilab.circuits.engines import ngspice, process
+
+    class Started:
+        def __init__(self, *args) -> None:
+            self.history = SimpleNamespace(offset=0.0, last_time=0.0)
+            self.state, self.error, self._engine = "idle", "", None
+
+        def start(self) -> None:
+            self.state = "running"
+
+        def clock(self) -> float:
+            return self.history.last_time
+
+    monkeypatch.setattr(ngspice, "instance", lambda path: None)
+    monkeypatch.setattr(live, "LocalSimulation", Started)
+    child = process._Child(None, "")
+    child.do_live(circuit=None, step=1e-5, realtime=True, speed=1.0, owner="a test", max_step=None)
+    child._watch_progress(child.simulation, False)
+    assert child.simulation.state == "running"
+    clock, since = child._progress_at
+    child._progress_at = (clock, since - process.STALL_SECONDS - 1)  # (and then nothing for that long)
+    child._watch_progress(child.simulation, False)
+    assert child.simulation.state == "error" and "does not get on" in child.simulation.error

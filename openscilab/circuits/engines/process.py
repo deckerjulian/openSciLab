@@ -167,6 +167,8 @@ class _Child:  # pragma: no cover - runs in the engine process (tested through E
                 cosimulation.close()
             raise
         self.cosimulation = cosimulation
+        # (its progress counts from now: before its first point a run of a busy computer is not stuck)
+        self._progress_at = (simulation.clock(), time.monotonic())
         self.simulation = simulation
         return {"state": simulation.state}
 

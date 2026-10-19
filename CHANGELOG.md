@@ -111,6 +111,10 @@ A new section of the window, *Circuits* (Ctrl+Shift+C), and the document *Circui
   raised; installing one tool no longer rewrites another's loaded library (a staged install), downloads
   are tried again and the source archives are checked against pinned SHA-256; the AVR emulator is
   installed on demand and its shim ships with the package.
+- **A busy computer no longer stops a circuit**: a run whose first point came later than the engine
+  process first reported was taken for stuck at once ("ngspice does not get on (it fails to
+  converge)") while ngspice went on; a sidebar opened while the window was still laid out keeps its
+  width.
 - Examples: *Circuits* (an RC low pass, a transistor switch, an inverting amplifier, a half adder, an
   Arduino blinking an LED as fast as its potentiometer says, held on by a switch, watched by an
   oscilloscope, and a hybrid AC/DC lab power supply drawn with wires only, in framed blocks: DC, AC

@@ -108,7 +108,8 @@ def test_the_display_asks_for_the_visible_range_first(shell, make_dataview):
     assert wait_for(lambda: progressive.is_loaded(3_000_000, 3_200_000), 10)
     assert not progressive.complete  # the visible part came before the rest
     assert not window.sample_viewer.grab().isNull() and not window.analog_viewer.grab().isNull()
-    assert "Transferring" in window.last_message
+    # (the tile's signal reaches the window through its event loop, after the samples arrived)
+    assert wait_for(lambda: "Transferring" in window.last_message, 10), window.last_message
 
     # saving waits until all of it arrived
     driver.profile["progressive"]["lan_rate"] = 0
