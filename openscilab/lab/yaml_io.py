@@ -142,7 +142,8 @@ def _inline(value: Any) -> str:
             and not yaml_text.UNSAFE.search(value):
         # Addresses like sim:uno need no quotes as long as YAML reads them back unchanged.
         try:
-            if yaml.safe_load(f"[{value}]") == [value]:
+            # (in a list and after a key: "-" alone is read back in a list, after a key it starts one)
+            if yaml.safe_load(f"[{value}]") == [value] and yaml.safe_load(f"k: {value}") == {"k": value}:
                 return value
         except yaml.YAMLError:
             pass
