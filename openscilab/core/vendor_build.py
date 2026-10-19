@@ -13,8 +13,8 @@
 * ``ngspice``: ngspice as a shared library with its XSPICE code models (macOS, Linux; needs a C
   compiler and make).
 
-``tools/build_vendor.py`` (the CI, a checkout) and :func:`openscilab.core.vendor.install` (when the
-vendor archive cannot be had) call :func:`build`.
+``tools/build_vendor.py`` (the CI, a checkout) and :func:`openscilab.core.vendor.install` (when a tool is
+missing) call :func:`build`: openSciLab hands on no builds, every computer builds its own.
 """
 
 from __future__ import annotations
@@ -186,7 +186,7 @@ def build_simavr(target: str, progress: Progress | None = None, source: str | No
 def build_ngspice(target: str, progress: Progress | None = None, source: str | None = None) -> str:
     """Build libngspice with its code models into ``target/ngspice``; returns the library's path."""
     if sys.platform.startswith("win"):
-        raise VendorError("ngspice is not built on Windows: its vendor archive brings it")
+        raise VendorError("ngspice is not built on Windows: ngspice's DLL package is installed (core/vendor.py)")
     cc = compiler()
     if cc is None or shutil.which("make") is None:
         raise VendorError("a C compiler and make are needed to build ngspice")

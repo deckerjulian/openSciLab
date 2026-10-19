@@ -62,14 +62,24 @@ jobs:
       - name: Install the application
         run: python -m pip install -e ".[dev]"
 
-      - name: Install ngspice and build the AVR emulator (the tests of Circuits)
-        # the shipped ngspice (the vendor archive of the last build, which the applications bring) so that
-        # the tests see what people get - S-parameters need ngspice 44 or newer, Ubuntu's libngspice0 is 36;
-        # when no build has been published yet, Ubuntu's
+      - name: Remember the version of ngspice
+        run: echo "NGSPICE_VERSION=$(python -c 'from openscilab.core.vendor_build import NGSPICE_VERSION as v; print(v)')" >> "$GITHUB_ENV"
+
+      - name: Reuse ngspice built before
+        id: ngspice-cache
+        uses: actions/cache@v4
+        with:
+          path: openscilab/vendor/linux-x86_64/ngspice
+          key: ngspice-${{ env.NGSPICE_VERSION }}-${{ runner.os }}-${{ hashFiles('openscilab/core/vendor_build.py') }}
+
+      - name: Build ngspice and the AVR emulator (the tests of Circuits)
+        # from their sources, as openSciLab does on a computer without them (it hands on no builds) -
+        # S-parameters need ngspice 44 or newer, Ubuntu's libngspice0 is 36
         run: |
-          sudo apt-get install -y --no-install-recommends avr-libc
-          python -c "from openscilab.core import vendor; print(vendor.install('ngspice', build=False))" \
-            || sudo apt-get install -y --no-install-recommends libngspice0
+          sudo apt-get install -y --no-install-recommends build-essential avr-libc bison flex
+          if [[ "${{ steps.ngspice-cache.outputs.cache-hit }}" != "true" ]]; then
+            python tools/build_vendor.py --only ngspice
+          fi
           python tools/build_vendor.py --only simavr
 
       - name: Run the tests
@@ -328,73 +338,15 @@ jobs:
           pattern: firmware-BOARD_*
           delete-merged: true
 
-  vendor:
-    name: Vendor ${{ matrix.platform }}
-    needs: plan
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include: ${{ fromJSON(needs.plan.outputs.platforms) }}
-    defaults:
-      run:
-        shell: bash
-    steps:
-      - uses: actions/checkout@v5
-
-      - uses: actions/setup-python@v6
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
-
-      - name: Install the build tools (Linux)
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends build-essential avr-libc bison flex
-
-      - name: Install the build tools (macOS)
-        if: runner.os == 'macOS'
-        run: |
-          brew tap osx-cross/avr
-          brew install avr-gcc bison flex
-          echo "$(brew --prefix bison)/bin" >> "$GITHUB_PATH"
-
-      - name: Install the build tools (Windows)
-        if: runner.os == 'Windows'
-        uses: msys2/setup-msys2@v2
-        with:
-          msystem: MINGW64
-          release: false  # (the runner's MSYS2 at C:\msys64, where tools/build_vendor.py looks)
-          install: >-
-            mingw-w64-x86_64-gcc mingw-w64-x86_64-avr-libc mingw-w64-x86_64-ngspice mingw-w64-x86_64-binutils
-
-      - name: Install PyYAML
-        run: python -m pip install PyYAML numpy
-
-      - name: Build ngspice and the AVR emulator
-        env:
-          PATH_PREFIX: ${{ runner.os == 'Windows' && '/c/msys64/mingw64/bin' || '' }}
-        run: |
-          if [[ -n "$PATH_PREFIX" ]]; then export PATH="$PATH_PREFIX:$PATH"; export CC=gcc; fi
-          python tools/build_vendor.py --zip dist
-
-      - name: Upload the vendor folder
-        uses: actions/upload-artifact@v4
-        with:
-          name: vendor-${{ matrix.platform }}
-          path: dist/openSciLab-vendor-*
-          if-no-files-found: error
-
   app:
     name: App ${{ matrix.platform }}
-    needs: [tests, plan, firmware-images, vendor]
+    needs: [tests, plan, firmware-images]
     # Runs as well when the firmware was not rebuilt (firmware-images skipped).
     if: >-
       always()
       && needs.tests.result == 'success'
       && needs.plan.result == 'success'
       && (needs.firmware-images.result == 'success' || needs.firmware-images.result == 'skipped')
-      && needs.vendor.result == 'success'
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -436,20 +388,6 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: gh release download "$RELEASE_TAG" --pattern "*.uf2" --dir firmware/uf2
-
-      - name: Download the vendor folder (ngspice, the AVR emulator)
-        uses: actions/download-artifact@v4
-        with:
-          name: vendor-${{ matrix.platform }}
-          path: build/vendor
-
-      - name: Put the vendor folder into the package
-        env:
-          PLATFORM: ${{ matrix.platform }}
-        run: |
-          mkdir -p "openscilab/vendor/$PLATFORM"
-          python -c "import sys, zipfile; zipfile.ZipFile(sys.argv[1]).extractall(sys.argv[2])" \
-            "build/vendor/openSciLab-vendor-$PLATFORM.zip" "openscilab/vendor/$PLATFORM"
 
       - name: Install the Qt runtime libraries
         if: runner.os == 'Linux'
@@ -556,8 +494,6 @@ jobs:
         run: |
           mkdir upload
           find artifacts/app-* -type f -exec cp {} upload/ \;
-          # the vendor archives openSciLab installs from when a tool is missing (core/vendor.py)
-          find artifacts/vendor-* -type f -exec cp {} upload/ \; 2>/dev/null || true
           cp artifacts/firmware-uf2/*.uf2 upload/
           (cd artifacts/firmware-uf2 && zip -q ../../upload/openSciLab-firmware-pico-uf2.zip ./*.uf2)
           if [[ -d artifacts/firmware-arduino ]]; then

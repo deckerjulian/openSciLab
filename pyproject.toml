@@ -49,13 +49,12 @@ Changelog = "https://github.com/deckerjulian/openSciLab/blob/main/CHANGELOG.md"
 include = ["openscilab*"]
 
 [tool.setuptools.package-data]
-# the components and SPICE models of Circuits; the vendor folder only holds what a build put there
+# the components and SPICE models of Circuits (the tools of the vendor folder and the typeface are
+# installed on the computer: core/vendor.py, core/typeface.py)
 "openscilab.circuits" = ["library/*.yaml", "models/*.lib"]
 # the C shim around simavr: the AVR emulator can be built from a pip install too (core/vendor_build.py)
 "openscilab.circuits.mcu" = ["shim/*.c", "shim/*.h"]
 "openscilab" = ["vendor/README.md"]
-# the typeface of the application (Inter Tight, SIL Open Font License)
-"openscilab.ui" = ["fonts/*.ttf", "fonts/OFL.txt"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

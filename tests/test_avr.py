@@ -4,11 +4,9 @@ folder the tools are found in or installed into."""
 
 from __future__ import annotations
 
-import hashlib
-import io
 import os
+import subprocess
 import time
-import zipfile
 
 import numpy as np
 import pytest
@@ -158,20 +156,58 @@ def test_the_vendor_folders():
     assert set(vendor.TOOLS) == {"ngspice", "simavr", "kicad"}
 
 
-def test_the_vendor_archive_is_checked(tmp_path, monkeypatch):
-    payload = io.BytesIO()
-    with zipfile.ZipFile(payload, "w") as archive:
-        archive.writestr("simavr/" + vendor._library_names("openscilab_avr")[0], b"library")
-    data = payload.getvalue()
-    digest = hashlib.sha256(data).hexdigest()
-    downloads = {".sha256": f"{digest}  openSciLab-vendor.zip\n".encode(), ".zip": data}
-    monkeypatch.setattr(vendor, "_download", lambda url, progress, what, share=(0, 1), sha256="": downloads[
-        url[url.rfind("."):] if url.endswith(".sha256") else ".zip"])
-    vendor._install_release(str(tmp_path), None)
-    assert os.path.isfile(tmp_path / "simavr" / vendor._library_names("openscilab_avr")[0])
-    downloads[".sha256"] = b"0" * 64
-    with pytest.raises(vendor.VendorError, match="checksum"):
-        vendor._install_release(str(tmp_path / "other"), None)
+def test_tools_come_from_their_projects_never_from_openscilab(tmp_path, monkeypatch):
+    # (openSciLab hands on no builds: what is missing is built on the computer, or fetched upstream)
+    from openscilab.core import vendor_build
+
+    urls = []
+    monkeypatch.setattr(vendor, "directories", lambda: [str(tmp_path)])
+    monkeypatch.setattr(vendor, "install_directory", lambda: str(tmp_path))
+    monkeypatch.setattr(vendor, "_download", lambda url, *args, **kwargs: urls.append(url) or b"")
+
+    def no_compiler(name, target, progress=None):
+        raise vendor.VendorError("no C compiler (cc, gcc, clang) to build the AVR emulator")
+
+    monkeypatch.setattr(vendor_build, "build", no_compiler)
+    with pytest.raises(vendor.VendorError, match="compiler") as raised:
+        vendor.install("simavr")
+    assert vendor._hint("simavr") in str(raised.value)
+    assert not [url for url in urls if "openSciLab" in url]
+
+
+def test_ngspice_on_windows_is_its_own_dll_package(tmp_path, monkeypatch):
+    work = tmp_path / "package"
+    (work / "Spice64_dll" / "dll-vs").mkdir(parents=True)
+    (work / "Spice64_dll" / "lib" / "ngspice").mkdir(parents=True)
+    (work / "Spice64_dll" / "dll-vs" / "ngspice.dll").write_bytes(b"new ngspice")
+    (work / "Spice64_dll" / "dll-vs" / "libomp140.x86_64.dll").write_bytes(b"openmp")
+    (work / "Spice64_dll" / "lib" / "ngspice" / "analog.cm").write_bytes(b"code model")
+    (work / "Spice64_dll" / "lib" / "ngspice" / "psp103.osdi").write_bytes(b"not taken")
+    archive = tmp_path / "ngspice.7z"
+    made = subprocess.run(["tar", "--format", "7zip", "-cf", str(archive), "-C", str(work), "Spice64_dll"],
+                          capture_output=True, check=False)
+    if made.returncode != 0:
+        pytest.skip("this tar writes no 7-Zip archives (bsdtar does: macOS, Windows)")
+    seen = {}
+
+    def download(url, progress, what, share=(0, 1), sha256=""):
+        seen.update(url=url, sha256=sha256)
+        return archive.read_bytes()
+
+    monkeypatch.setattr(vendor, "_download", download)
+    monkeypatch.setattr(vendor, "platform_tag", lambda: "windows-x64")
+    target = tmp_path / "vendor"
+    vendor._install_ngspice_windows(str(target), None)
+    assert seen["url"].startswith("https://downloads.sourceforge.net/project/ngspice/")
+    assert seen["sha256"] == vendor.NGSPICE_WINDOWS_SHA256
+    assert (target / "ngspice" / "bin" / "ngspice.dll").read_bytes() == b"new ngspice"
+    assert (target / "ngspice" / "bin" / "libomp140.x86_64.dll").is_file()
+    assert os.listdir(target / "ngspice" / "lib" / "ngspice") == ["analog.cm"]
+    from openscilab.circuits.engines.ngspice import code_model_folders
+
+    assert code_model_folders(str(target / "ngspice" / "bin" / "ngspice.dll")) == \
+        [os.path.normpath(target / "ngspice" / "lib" / "ngspice")]
+    assert not [name for name in os.listdir(target) if name.startswith("vendor-")]  # (no staging folder left)
 
 
 # ------------------------------------------------------------ review fixes
@@ -289,25 +325,6 @@ def test_the_serial_monitor_keeps_lines_whole(shell):
     monitor.append("U2", b"x\n", "1")
     assert monitor.output.toPlainText().endswith("[U2 Serial1] x\n")
     monitor.deleteLater()
-
-
-def test_only_the_missing_tool_is_taken_from_the_vendor_archive(tmp_path, monkeypatch):
-    payload = io.BytesIO()
-    with zipfile.ZipFile(payload, "w") as archive:
-        archive.writestr("simavr/" + vendor._library_names("openscilab_avr")[0], b"new emulator")
-        archive.writestr("ngspice/lib/" + vendor._library_names("ngspice")[0], b"new ngspice")
-    data = payload.getvalue()
-    digest = hashlib.sha256(data).hexdigest()
-    downloads = {".sha256": f"{digest}  openSciLab-vendor.zip\n".encode(), ".zip": data}
-    monkeypatch.setattr(vendor, "_download", lambda url, progress, what, share=(0, 1), sha256="": downloads[
-        url[url.rfind("."):] if url.endswith(".sha256") else ".zip"])
-    old = tmp_path / "ngspice" / "lib" / vendor._library_names("ngspice")[0]
-    old.parent.mkdir(parents=True)
-    old.write_bytes(b"the loaded ngspice")
-    vendor._install_release(str(tmp_path), None, only="simavr")
-    assert (tmp_path / "simavr" / vendor._library_names("openscilab_avr")[0]).read_bytes() == b"new emulator"
-    assert old.read_bytes() == b"the loaded ngspice"  # (not written over)
-    assert not [name for name in os.listdir(tmp_path) if name.startswith("vendor-")]  # (no staging folder left)
 
 
 def test_a_bare_name_in_the_settings_must_be_a_library(monkeypatch):

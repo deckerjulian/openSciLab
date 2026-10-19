@@ -38,8 +38,12 @@ A new section of the window, *Circuits* (Ctrl+Shift+C), and the document *Circui
 - **The circuit as a device**: `circuit:<file>` gives the probes as analog and logic channels to the
   data view, flows and panels; a flow opens a circuit by its file.
 - **The tools in the vendor folder**: ngspice, the AVR emulator and KiCad's symbols are found or
-  installed into `openscilab/vendor/<platform>/` (the applications bring ngspice and the emulator;
-  `tools/build_vendor.py` builds them; *Settings → Circuits*), so openSciLab needs nothing installed.
+  installed into the vendor folder when first needed (*Settings → Circuits*). openSciLab hands on none
+  of them - the applications, the package and the releases do not contain them -: ngspice comes as
+  ngspice's own DLL package on Windows and is built from its sources on macOS and Linux (or taken from
+  Homebrew, the package manager, KiCad), the AVR emulator is built on the computer from simavr's
+  sources, KiCad's symbols come from KiCad's archive; every download is checked against a pinned
+  SHA-256; `tools/build_vendor.py` does the same in a checkout.
 - **Power electronics**: a voltage-controlled switch, a bridge rectifier, a triangle source, a sine
   reference (its RMS from a control voltage), a variable transformer (a variac set in volts), terminals
   (named output sockets, measured like probes), a 900 V power op-amp (PA94), high-voltage transistors
@@ -106,9 +110,7 @@ A new section of the window, *Circuits* (Ctrl+Shift+C), and the document *Circui
   off and says when the index failed; malformed circuit files and failed exports are reported, not
   raised; installing one tool no longer rewrites another's loaded library (a staged install), downloads
   are tried again and the source archives are checked against pinned SHA-256; the AVR emulator is
-  installed on demand and its shim ships with the package; the Windows vendor build looks in the right
-  MSYS2; the packaged apps bundle only their platform's vendor folder and their smoke test loads
-  ngspice and the emulator.
+  installed on demand and its shim ships with the package.
 - Examples: *Circuits* (an RC low pass, a transistor switch, an inverting amplifier, a half adder, an
   Arduino blinking an LED as fast as its potentiometer says, held on by a switch, watched by an
   oscilloscope, and a hybrid AC/DC lab power supply drawn with wires only, in framed blocks: DC, AC
@@ -128,8 +130,10 @@ A plugin can add an entry of the activity bar with a section of the sidebar, kin
 ### One typeface, a new mark
 
 - **Inter Tight** everywhere - menus, documents, flow nodes, schematics, the console and the editors
-  (numbers in columns with digits of one width) - bundled with openSciLab (`openscilab/ui/fonts`, SIL
-  Open Font License), so every platform shows the same letters.
+  (numbers in columns with digits of one width), so every platform shows the same letters. Not handed
+  on with openSciLab: the first start fetches Google Fonts' static weights and the license (SIL Open
+  Font License, checked against pinned SHA-256) into `<settings>/fonts` and waits for them a moment at
+  most; without a connection the system's font is used until a later start has them.
 - **A new logo**: three channels of a logic analyser in white, teal and blue on a graphite squircle;
   the header shows the mark alone, larger.
 

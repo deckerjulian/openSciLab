@@ -61,7 +61,7 @@ view* of the lab. Windows, macOS and Linux; GPL-3.0.
 | DreamSourceLab DSLogic Plus, U2Pro16, U3Pro16, U3Pro32 | USB; DSView firmware | logic analyzer up to 1 GHz, streams, record to disk | experimental, tested on a U2Pro16 |
 | Rigol DHO900 (DHO924S ...) | network: SCPI, or the bridge app on the instrument; USB (USBTMC) | 4 analog channels, edge trigger on them or on the 16 logic channels, large captures arriving progressively, generator, its screen live with its settings beside it (front panel, also in a window of its own), captures as set on the instrument | tested on a DHO924S (modified firmware NK v0.5.2): network, bridge app (installed from its document), USB; the logic channels D0–D15 too, together with the analog ones - they need a firmware that gives them out over SCPI (Rigol 00.01.05.00.00 or later by its release notes; the NK mod only with a patch of its library) |
 | Measuring devices on other computers | network; Python package `openscilab_device` | values, streams, outputs and commands with their time | beta |
-| Circuits (`circuit:<file>`) | built in; ngspice and the AVR emulator in openSciLab's vendor folder | the probes of a circuit simulated live as analog and logic channels; Arduino Uno, Nano, Mega 2560 and ATmega chips running a firmware file | new |
+| Circuits (`circuit:<file>`) | built in; ngspice and the AVR emulator installed into openSciLab's vendor folder when first needed (not bundled) | the probes of a circuit simulated live as analog and logic channels; Arduino Uno, Nano, Mega 2560 and ATmega chips running a firmware file | new |
 | Simulators (`sim:free`, `sim:uno`, `sim:uno_r4`, `sim:pico`, `sim:daq`, `sim:dho924s`, `remote-sim:…`) | built in | everything above, several at once, wired together | ready |
 
 New devices, node types for the flows and whole sections of the window (as *Circuits* is one) are
@@ -151,7 +151,7 @@ openscilab/
 ├── sigrok/      sigrokdecode compatible runtime for the protocol decoders
 ├── sdl/         Signal Description Language
 ├── ui/          Qt interface: shell, documents (data view, flow, panel, device ...), circuits/, widgets
-├── vendor/      tools of others per platform (ngspice, the AVR emulator; built by tools/build_vendor.py)
+├── vendor/      tools of others per platform, installed when needed, not in git (ngspice, the AVR emulator)
 ├── api.py, cli.py   Python API and command line
 openscilab_device/   the package for measuring devices on other computers
 decoders/        sigrok protocol decoders (libsigrokdecode, LogicAnalyzer 6.5) and c64bus

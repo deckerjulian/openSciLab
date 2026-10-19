@@ -17,15 +17,17 @@ kicad      KiCad's symbol libraries (the catalog)            CC-BY-SA-4.0 with t
 Where a tool is looked for, the first place that has it wins:
 
 1. the path in the settings (``circuits.ngspice_path``),
-2. ``openscilab/vendor/<platform>/`` - the applications bring it there; in a checkout
-   ``tools/build_vendor.py`` puts it there (the folder is not in git),
-3. ``<settings>/vendor/<platform>/`` - installed by openSciLab when the folder above cannot be written,
+2. ``openscilab/vendor/<platform>/`` - in a checkout ``tools/build_vendor.py`` puts it there (the folder
+   is not in git),
+3. ``<settings>/vendor/<platform>/`` - installed by openSciLab (always in a packaged application),
 4. the system: a KiCad installation (its libngspice and symbols), Homebrew, the package manager.
 
-A tool that is missing is installed (:func:`install`): the vendor archive of the platform from
-openSciLab's releases (checked against its SHA-256), else - for ngspice and the AVR library on macOS
-and Linux, with a C compiler - built from its pinned sources (``core/vendor_build.py``); KiCad's
-symbols come from KiCad's archive of a pinned version. Qt free; the user interface shows the progress.
+openSciLab hands on none of these tools: neither the applications nor the package bring them. A tool
+that is missing is fetched from its own project when it is first needed (:func:`install`): ngspice on
+Windows as the DLL package of ngspice's releases, on macOS and Linux - with a C compiler - built from
+ngspice's pinned sources; the AVR library built from simavr's pinned sources and the shim of the package
+(``core/vendor_build.py``); KiCad's symbols from KiCad's archive of a pinned version. Every download is
+checked against its SHA-256. Qt free; the user interface shows the progress.
 """
 
 from __future__ import annotations
@@ -38,6 +40,7 @@ import logging
 import os
 import platform
 import shutil
+import subprocess
 import sys
 import tarfile
 import tempfile
@@ -45,7 +48,6 @@ import threading
 import time
 import urllib.error
 import urllib.request
-import zipfile
 from collections.abc import Callable
 from dataclasses import dataclass
 
@@ -53,15 +55,10 @@ from . import settings
 
 log = logging.getLogger(__name__)
 
-#: the releases of openSciLab whose vendor archives are installed, the first that has one: this version's,
-#: then the newest build of main
-def releases() -> list[str]:
-    from .. import __version__
-
-    return [f"v{__version__}", "latest-build"]
-
-
-RELEASE_URL = "https://github.com/deckerjulian/openSciLab/releases/download/{release}/openSciLab-vendor-{platform}.zip"
+#: ngspice's own package of the shared library for Windows x64 (DLL, XSPICE code models), a 7-Zip archive
+NGSPICE_WINDOWS_URL = "https://downloads.sourceforge.net/project/ngspice/ng-spice-rework/{version}/ngspice-{version}_dll_64.7z"
+#: SHA-256 of that archive of ``vendor_build.NGSPICE_VERSION``
+NGSPICE_WINDOWS_SHA256 = "5bf5eec7db989f74849cdb32f7df62693f4f149cceeebcbd222eb35c2bb821eb"
 #: KiCad's symbol libraries of this version (the catalog reads KiCad 6 to 10)
 KICAD_SYMBOLS_VERSION = "10.0.7"
 #: SHA-256 of KiCad's archive of that version ("": not checked)
@@ -89,7 +86,7 @@ def platform_tag() -> str:
 
 
 def package_directory() -> str:
-    """The vendor folder of the package (the applications bring their tools there)."""
+    """The vendor folder of the package (a checkout: tools/build_vendor.py puts the tools there)."""
     return os.path.join(PACKAGE_DIRECTORY, "vendor", platform_tag())
 
 
@@ -290,49 +287,61 @@ def _download(url: str, progress: Progress | None, what: str, share: tuple[float
     return data
 
 
-def _install_release(target: str, progress: Progress | None, only: str | None = None) -> None:
-    """The vendor archive of this platform from openSciLab's releases, checked with its SHA-256; ``only``:
-    just that tool of it is taken (the others stay as they are)."""
-    problems = []
-    for release in releases():
-        try:
-            _install_archive(RELEASE_URL.format(release=release, platform=platform_tag()), target, progress, only)
-            return
-        except VendorError as error:
-            problems.append(str(error))
-            if "checksum" in str(error) or "outside its folder" in str(error):
-                raise
-    raise VendorError(problems[-1] if problems else "no release has a vendor archive")
+def _install_ngspice_windows(target: str, progress: Progress | None) -> None:
+    """ngspice's DLL package (Windows x64) into ``target/ngspice``: the DLLs into ``bin``, the code models
+    into ``lib/ngspice`` (where ``engines/ngspice.code_model_folders`` looks). Windows' own ``tar``
+    (libarchive, Windows 10 and later) unpacks the 7-Zip archive."""
+    from .vendor_build import NGSPICE_VERSION
 
-
-def _install_archive(url: str, target: str, progress: Progress | None, only: str | None = None) -> None:
-    """Unpack the vendor archive into a staging folder beside ``target`` and move the tools in whole
-    (``only``: just that one): a library that is loaded is never written over - it is renamed away."""
-    expected = _download(url + ".sha256", None, "the checksum of the vendor archive").decode("ascii", "replace").split()
-    data = _download(url, progress, "the vendor archive", (0.0, 0.9))
-    digest = hashlib.sha256(data).hexdigest()
-    if not expected or digest != expected[0].lower():
-        raise VendorError("the vendor archive did not match its checksum: it was not installed")
+    if platform_tag() != "windows-x64":
+        raise VendorError(f"ngspice has no package for {platform_tag()}")
+    tar = shutil.which("tar")
+    if tar is None:
+        raise VendorError("Windows' tar is missing to unpack ngspice's package")
+    data = _download(NGSPICE_WINDOWS_URL.format(version=NGSPICE_VERSION), progress, "ngspice", (0.0, 0.9),
+                     NGSPICE_WINDOWS_SHA256)
     os.makedirs(target, exist_ok=True)
     staging = tempfile.mkdtemp(prefix="vendor-", dir=target)
     try:
-        with zipfile.ZipFile(io.BytesIO(data)) as archive:
-            for member in archive.infolist():
-                path = os.path.normpath(os.path.join(staging, member.filename))
-                if not path.startswith(os.path.normpath(staging) + os.sep) and path != os.path.normpath(staging):
-                    raise VendorError(f"the vendor archive holds a path outside its folder: {member.filename}")
-            archive.extractall(staging)
-        for path in glob.glob(os.path.join(staging, "**", "*"), recursive=True):
-            if os.path.isfile(path) and (path.endswith((".dylib", ".so", ".cm")) or ".so." in path):
-                os.chmod(path, 0o755)
-        wanted = [only] if only else [name for name in os.listdir(staging) if os.path.isdir(os.path.join(staging, name))]
-        for name in wanted:
-            source = os.path.join(staging, name)
-            if not os.path.isdir(source):
-                raise VendorError(f"the vendor archive holds no {name}")
-            _swap_in(source, os.path.join(target, name))
+        archive = os.path.join(staging, "ngspice.7z")
+        with open(archive, "wb") as handle:
+            handle.write(data)
+        unpacked = os.path.join(staging, "unpacked")
+        os.makedirs(unpacked)
+        result = subprocess.run([tar, "-xf", archive, "-C", unpacked], capture_output=True, text=True, check=False)
+        if result.returncode != 0:
+            raise VendorError(f"ngspice's package could not be unpacked: {(result.stderr or result.stdout)[-500:]}")
+        root = os.path.join(unpacked, "Spice64_dll")
+        libraries = glob.glob(os.path.join(root, "dll-vs", "*.dll"))
+        if not any(os.path.basename(path).lower() == "ngspice.dll" for path in libraries):
+            raise VendorError("ngspice's package holds no ngspice.dll")
+        folder = os.path.join(staging, "ngspice")
+        os.makedirs(os.path.join(folder, "bin"))
+        os.makedirs(os.path.join(folder, "lib", "ngspice"))
+        for path in libraries:
+            shutil.copy2(path, os.path.join(folder, "bin"))
+        for path in glob.glob(os.path.join(root, "lib", "ngspice", "*.cm")):
+            shutil.copy2(path, os.path.join(folder, "lib", "ngspice"))
+        _swap_in(folder, os.path.join(target, "ngspice"))
     finally:
         shutil.rmtree(staging, ignore_errors=True)
+
+
+#: what to do when a tool could not be installed
+HINTS = {
+    "ngspice": {"darwin": "or install it with Homebrew: brew install libngspice",
+                "linux": "or install it with the package manager: sudo apt install libngspice0 (S-parameters need "
+                         "ngspice 44 or newer)"},
+    "simavr": {"darwin": "the emulator is built on this computer: xcode-select --install and brew install avr-gcc",
+               "linux": "the emulator is built on this computer: sudo apt install build-essential avr-libc",
+               "win32": "the emulator is built on this computer: MSYS2 with mingw-w64-x86_64-gcc and "
+                        "mingw-w64-x86_64-avr-libc"},
+}
+
+
+def _hint(name: str) -> str:
+    system = "win32" if sys.platform.startswith("win") else ("darwin" if sys.platform == "darwin" else "linux")
+    return HINTS.get(name, {}).get(system, "")
 
 
 def _swap_in(source: str, destination: str) -> None:
@@ -397,22 +406,25 @@ def install(name: str, progress: Progress | None = None, build: bool = True) -> 
         problems: list[str] = []
         if name == "kicad":
             _install_kicad(target, progress)
-        else:
+        elif name == "ngspice" and sys.platform.startswith("win"):
             try:
-                _install_release(target, progress, only=name)
+                _install_ngspice_windows(target, progress)
             except VendorError as error:
                 problems.append(str(error))
-                log.info("The vendor archive could not be installed: %s", error)
-            if find(name, system=False) is None and build:
-                from . import vendor_build
+        elif build:
+            from . import vendor_build
 
-                try:
-                    vendor_build.build(name, target, progress)
-                except VendorError as error:
-                    problems.append(str(error))
+            try:
+                vendor_build.build(name, target, progress)
+            except VendorError as error:
+                problems.append(str(error))
+        else:
+            problems.append(f"{TOOLS[name].title} is built on this computer, not downloaded")
         found = find(name, system=False)
         if found is None:
             reasons = "; ".join(dict.fromkeys(problem.rstrip(".") for problem in problems)) or "no way to install it"
+            if _hint(name):
+                reasons += f" - {_hint(name)}"
             raise VendorError(f"{TOOLS[name].title[0].upper()}{TOOLS[name].title[1:]} could not be installed: {reasons}.")
         if progress is not None:
             progress(f"{TOOLS[name].title} is installed", 1.0)

@@ -16,6 +16,16 @@ qt_plugins.ensure_loadable_plugins()
 FIXTURE_DECODERS = os.path.join(os.path.dirname(__file__), "fixtures", "decoders")
 
 
+def pytest_configure(config):
+    """The typeface (fetched like the application does, core/typeface.py) once for every run, in pytest's
+    cache: the settings of each test are a folder of their own. Without a connection it stays missing."""
+    if not os.environ.get("OPENSCILAB_FONTS_DIR"):
+        os.environ["OPENSCILAB_FONTS_DIR"] = str(config.cache.mkdir("fonts"))
+    from openscilab.core import typeface
+
+    typeface.download()
+
+
 @pytest.fixture(autouse=True)
 def isolated_settings(tmp_path, monkeypatch):
     """Keep the tests away from the real settings directory."""

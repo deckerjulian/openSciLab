@@ -293,25 +293,33 @@ the first label; no component may be called so). Keys this version does not know
 ## The tools
 
 ngspice, the AVR emulator and KiCad's symbols are found or installed into openSciLab's **vendor
-folder** (`openscilab/core/vendor.py`), so openSciLab stays standalone:
+folder** (`openscilab/core/vendor.py`). openSciLab hands on none of them - neither the applications
+nor the package contain them -, they come from their own projects onto the computer that uses them:
 
 1. the path in the settings (*Settings → Circuits*),
-2. `openscilab/vendor/<platform>/` - the applications bring ngspice and the AVR emulator there; in a
-   checkout `python tools/build_vendor.py` builds them (ngspice from its sources on macOS and Linux,
-   from MSYS2 on Windows; the AVR emulator needs avr-libc's headers),
-3. `<settings>/vendor/<platform>/` - installed by openSciLab,
+2. `openscilab/vendor/<platform>/` - in a checkout `python tools/build_vendor.py` puts them there
+   (ngspice from its sources on macOS and Linux, ngspice's DLL package on Windows; the AVR emulator
+   needs a C compiler and avr-libc's headers),
+3. `<settings>/vendor/<platform>/` - installed by openSciLab (always in the applications),
 4. the system: Homebrew (`brew install libngspice`), the package manager (`apt install libngspice0`),
    a KiCad installation (its libngspice and its symbols).
 
 What is missing is installed when it is first needed (*Settings → Circuits → Install the tools
 automatically*): ngspice when a circuit runs, the AVR emulator when a circuit with a microcontroller
-runs, KiCad's symbols when the catalog is first read. The vendor archive of the platform comes from
-openSciLab's release (checked against its SHA-256; only the missing tool is taken from it, a loaded
-library is never written over), else - on macOS and Linux with a C compiler - the tool is built from
-the pinned sources (checked against their SHA-256 too; the C shim of the emulator is part of the
-package, so a pip install can build it); KiCad's symbols from KiCad's archive. A banner in the circuit
-says what happens. There are archives for macOS (Apple silicon and Intel), Linux x86-64 and Windows
-x64; other platforms build from the sources.
+runs, KiCad's symbols when the catalog is first read. Every download is checked against a pinned
+SHA-256, a loaded library is never written over:
+
+- **ngspice**: on Windows x64 ngspice's own DLL package (`ngspice-<version>_dll_64.7z` from
+  ngspice's releases, unpacked with Windows' `tar`); on macOS and Linux built from ngspice's sources
+  (a C compiler and make; a few minutes) - or installed with Homebrew (`brew install libngspice`) or the
+  package manager (`apt install libngspice0`; S-parameters need ngspice 44 or newer).
+- **The AVR emulator**: built from simavr's sources and the C shim of the package on every platform -
+  a C compiler and avr-libc's headers are needed (macOS: `xcode-select --install`, `brew install
+  avr-gcc`; Linux: `apt install build-essential avr-libc`; Windows: MSYS2 with `mingw-w64-x86_64-gcc`
+  and `mingw-w64-x86_64-avr-libc`).
+- **KiCad's symbols**: KiCad's archive of a pinned version.
+
+A banner in the circuit says what happens and, when a tool could not be installed, what to install.
 
 ## Python
 
