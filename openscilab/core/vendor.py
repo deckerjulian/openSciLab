@@ -296,7 +296,10 @@ def _install_ngspice_windows(target: str, progress: Progress | None) -> None:
 
     if platform_tag() != "windows-x64":
         raise VendorError(f"ngspice has no package for {platform_tag()}")
-    tar = shutil.which("tar")
+    # (Windows' own tar - libarchive, it reads 7-Zip; a GNU tar of MSYS2 or Git earlier on the PATH does not
+    # and takes "D:" for another computer)
+    system_tar = os.path.join(os.environ.get("SystemRoot", r"C:\Windows"), "System32", "tar.exe")
+    tar = system_tar if os.path.isfile(system_tar) else shutil.which("tar")
     if tar is None:
         raise VendorError("Windows' tar is missing to unpack ngspice's package")
     data = _download(NGSPICE_WINDOWS_URL.format(version=NGSPICE_VERSION), progress, "ngspice", (0.0, 0.9),

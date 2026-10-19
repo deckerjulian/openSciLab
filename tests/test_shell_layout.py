@@ -72,10 +72,15 @@ def test_the_docks_start_at_their_widths(shell, qtbot):
     qtbot.waitUntil(lambda: shell.width() == 1600, timeout=5000)
 
     def widths() -> str:
+        central = shell.centralWidget()
         return (f"window {shell.width()}, sidebar {shell.sidebar_dock.width()} of {shell.dock_width('sidebar')}, "
                 f"inspector {shell.inspector_dock.width()} of {shell.dock_width('inspector')}, "
                 f"nodes {shell.nodes_dock.width()} of {shell.dock_width('node-palette')}; sidebar opened before "
-                f"{shell._sidebar_opened}, last sizing (asked, attempt, taken) {shell._last_dock_resize}")
+                f"{shell._sidebar_opened}, last sizing (asked, attempt, taken) {shell._last_dock_resize}; "
+                f"document {central.width()} (min {central.minimumSizeHint().width()}/{central.minimumWidth()}, "
+                f"max {central.maximumWidth()}), sidebar min {shell.sidebar_dock.minimumSizeHint().width()}/"
+                f"{shell.sidebar_dock.minimumWidth()} max {shell.sidebar_dock.maximumWidth()}, "
+                f"activity bar {shell.activity_bar.width()}")
 
     # in a wide window the docks have their widths of the theme - or what their contents need, which
     # depends on the platform's fonts (Linux needed more than 250 px for the sidebar)
