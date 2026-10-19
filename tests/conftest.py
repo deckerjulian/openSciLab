@@ -32,6 +32,45 @@ def isolated_settings(tmp_path, monkeypatch):
     preferences.reload()
 
 
+#: Qt's windows a test may leave that are no test's to delete (Qt keeps pointers to them)
+_QT_OWN_WINDOWS = ("QTipLabel", "QComboBoxPrivateContainer", "QWhatsThat", "QBalloonTip", "QCompleter",
+                   "QColorDialog", "QFileDialog")
+
+
+def _top_level_windows() -> dict[int, object]:
+    from PySide6.QtWidgets import QApplication
+    from shiboken6 import Shiboken
+
+    application = QApplication.instance()
+    if application is None:
+        return {}
+    return {Shiboken.getCppPointer(widget)[0]: widget for widget in application.topLevelWidgets()
+            if widget.parent() is None}
+
+
+@pytest.fixture(autouse=True)
+def windows_closed_after_the_test():
+    """The windows a test made and left (documents, dialogs, a whole shell) are deleted after it: some
+    thousand left by the tests before made every change of the application's font or palette - each
+    shell of a test makes one - take seconds on Linux, and timers of the tests came too late."""
+    before = set(_top_level_windows())
+    yield
+    from PySide6.QtCore import QCoreApplication, QEvent
+
+    left = [widget for key, widget in _top_level_windows().items()
+            if key not in before and widget.metaObject().className() not in _QT_OWN_WINDOWS]
+    for widget in left:
+        try:
+            if hasattr(widget, "force_close"):
+                widget.force_close()  # (the shell: without asking, its devices and timers stopped)
+            widget.hide()  # (not closed: a close event may ask a question nobody answers)
+            widget.deleteLater()
+        except RuntimeError:  # (deleted meanwhile)
+            pass
+    if left:
+        QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+
+
 @pytest.fixture(autouse=True)
 def no_usb_devices(monkeypatch):
     """The tests never touch real devices: no DSLogic and no USBTMC instrument through libusb, no

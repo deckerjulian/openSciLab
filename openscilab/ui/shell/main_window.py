@@ -653,7 +653,7 @@ class ShellWindow(QMainWindow):
             sidebar = self.sidebar_dock.width()
             self.nodes_dock.setVisible(wanted)
             if wanted and self.sidebar_dock.isVisible():  # (beside the sidebar, which keeps its width)
-                QTimer.singleShot(0, lambda: self._resize_docks_to(
+                QTimer.singleShot(0, self, lambda: self._resize_docks_to(
                     [self.sidebar_dock, self.nodes_dock], [sidebar, self.dock_width("node-palette")]))
 
     def poll_ports(self) -> None:
@@ -2629,7 +2629,7 @@ class ShellWindow(QMainWindow):
         self.sidebar_dock.setVisible(True)
         self.inspector_dock.setVisible(True)
         self.console_dock.setVisible(False)
-        QTimer.singleShot(0, self.size_docks)  # (once the restored layout is laid out)
+        QTimer.singleShot(0, self, self.size_docks)  # (once the restored layout is laid out)
 
     def dock_width(self, name: str) -> int:
         """The width the dock ``name`` (``sidebar``, ``inspector``, ``node-palette``) is sized to: its width
@@ -2653,7 +2653,7 @@ class ShellWindow(QMainWindow):
                 or (self.nodes_dock.isVisible() and self.nodes_dock.width() < self.dock_width("node-palette") * 0.6):
             self._sidebar_opened = True
             # (the node palette beside it keeps its width: it was squeezed to a strip before)
-            QTimer.singleShot(0, lambda: self._resize_docks_to(
+            QTimer.singleShot(0, self, lambda: self._resize_docks_to(
                 [self.sidebar_dock, self.nodes_dock] if self.nodes_dock.isVisible() else [self.sidebar_dock],
                 [self.dock_width("sidebar"), self.dock_width("node-palette")] if self.nodes_dock.isVisible()
                 else [self.dock_width("sidebar")]))
@@ -2671,13 +2671,13 @@ class ShellWindow(QMainWindow):
         taken = [dock.width() for dock in docks]
         self._last_dock_resize = (widths, attempt, taken)
         if attempt + 1 < self.DOCK_ATTEMPTS and taken != widths:
-            QTimer.singleShot(self.DOCK_RETRY, lambda: self._resize_docks_to(docks, widths, attempt + 1))
+            QTimer.singleShot(self.DOCK_RETRY, self, lambda: self._resize_docks_to(docks, widths, attempt + 1))
 
     def showEvent(self, event) -> None:  # noqa: N802 - Qt naming
         super().showEvent(event)
         if not self._docks_sized:
             self._docks_sized = True
-            QTimer.singleShot(0, self.size_docks)  # (once the window has its size)
+            QTimer.singleShot(0, self, self.size_docks)  # (once the window has its size)
 
     def _restore_state(self) -> bool:
         """The window as it was; whether its layout was restored."""
@@ -2700,7 +2700,7 @@ class ShellWindow(QMainWindow):
                 self.activity_bar.select(section)
             self.activity_bar.set_sidebar_visible(state.get("sidebar") is True)
             if state.get("maximized"):
-                QTimer.singleShot(0, self.showMaximized)
+                QTimer.singleShot(0, self, self.showMaximized)
         except (TypeError, ValueError):
             return restored
         return restored
