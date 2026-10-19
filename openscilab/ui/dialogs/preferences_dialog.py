@@ -211,9 +211,9 @@ class PreferencesDialog(QDialog):
                                 ("Model libraries", self.model_folders[0]), ("", self.install_tools),
                                 ("libngspice", ngspice_row), ("Tools", self.tools), ("", self.install_now)],
                    "ngspice simulates circuits, the AVR emulator runs the firmware of Arduinos, KiCad's libraries "
-                   "fill the catalog of components. openSciLab does not bring them: what is missing it installs into "
-                   "its vendor folder from their own projects (ngspice's package on Windows, else a build from "
-                   "the sources). Folders: "
+                   "fill the catalog of components. The applications bring ngspice and the emulator; what is missing "
+                   "openSciLab installs into its vendor folder from their own projects (ngspice's package on "
+                   "Windows, else a build from the sources). Folders: "
                    "several apart with the system's path separator. See docs/circuits.md.")
         self._show_tools()
 

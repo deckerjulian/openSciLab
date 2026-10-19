@@ -56,9 +56,8 @@ def parse_arguments(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
 
 
 def smoke_test(window, report: str) -> int:
-    """Check that a (packaged) application starts and finds its decoders, firmware images and libusb. The
-    libraries of Circuits (ngspice, the AVR emulator) are only reported: the application does not bring
-    them, they are installed on the computer when first needed (core/vendor.py)."""
+    """Check that a (packaged) application starts and finds its decoders, firmware images, libusb and the
+    libraries of Circuits (ngspice, the AVR emulator) it brings."""
     from .circuits import engines
     from .circuits.mcu import avr
     from .core import firmware
@@ -74,8 +73,8 @@ def smoke_test(window, report: str) -> int:
     emulator = avr.available()
     text = (
         f"openSciLab {__version__}: shell created, {decoders} decoders, {images} firmware images, "
-        f"libusb {'found' if libusb else 'MISSING'}, ngspice {'found' if ngspice else 'not installed'}, "
-        f"AVR emulator {'found' if emulator else 'not installed'}\n"
+        f"libusb {'found' if libusb else 'MISSING'}, ngspice {'found' if ngspice else 'MISSING'}, "
+        f"AVR emulator {'found' if emulator else 'MISSING'}\n"
     )
     if report == "-":
         sys.stderr.write(text)
@@ -83,7 +82,7 @@ def smoke_test(window, report: str) -> int:
         with open(report, "w", encoding="utf-8") as handle:
             handle.write(text)
     window.force_close()
-    return 0 if decoders and libusb else 1
+    return 0 if decoders and libusb and ngspice and emulator else 1
 
 
 def enable_driver_log() -> str:
@@ -148,9 +147,6 @@ def _gui(argv: Sequence[str]) -> int:
     # Fusion renders the style sheet identically on every platform.
     application.setStyle("Fusion")
     apply_palette(application)
-    from .core import typeface
-
-    typeface.ensure()  # (the first start fetches the typeface; a moment at most, else from the next start)
     apply_font(application)
     application.setStyleSheet(build_stylesheet())
 

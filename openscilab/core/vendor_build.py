@@ -14,7 +14,7 @@
   compiler and make).
 
 ``tools/build_vendor.py`` (the CI, a checkout) and :func:`openscilab.core.vendor.install` (when a tool is
-missing) call :func:`build`: openSciLab hands on no builds, every computer builds its own.
+missing in a source installation) call :func:`build`.
 """
 
 from __future__ import annotations

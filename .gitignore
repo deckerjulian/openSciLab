@@ -27,5 +27,3 @@ docs/roadmap/
 # tools of others, installed or built into the vendor folder (core/vendor.py, tools/build_vendor.py)
 /openscilab/vendor/*
 !/openscilab/vendor/README.md
-# the typeface, fetched at the first start (core/typeface.py; an old checkout had it here)
-/openscilab/ui/fonts/

@@ -338,15 +338,74 @@ jobs:
           pattern: firmware-BOARD_*
           delete-merged: true
 
+  vendor:
+    name: Vendor ${{ matrix.platform }}
+    needs: plan
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.plan.outputs.platforms) }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install the build tools (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends build-essential avr-libc bison flex
+
+      - name: Install the build tools (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          brew tap osx-cross/avr
+          brew install avr-gcc bison flex
+          echo "$(brew --prefix bison)/bin" >> "$GITHUB_PATH"
+
+      - name: Install the build tools (Windows)
+        if: runner.os == 'Windows'
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          release: false  # (the runner's MSYS2 at C:\msys64, where core/vendor_build.py finds avr-libc)
+          install: >-
+            mingw-w64-x86_64-gcc mingw-w64-x86_64-avr-libc
+
+      - name: Install PyYAML
+        run: python -m pip install PyYAML numpy
+
+      - name: Build ngspice and the AVR emulator
+        # (Windows: ngspice's own DLL package; every tool with its license text beside it)
+        env:
+          PATH_PREFIX: ${{ runner.os == 'Windows' && '/c/msys64/mingw64/bin' || '' }}
+        run: |
+          if [[ -n "$PATH_PREFIX" ]]; then export PATH="$PATH_PREFIX:$PATH"; export CC=gcc; fi
+          python tools/build_vendor.py --zip dist
+
+      - name: Upload the vendor folder
+        uses: actions/upload-artifact@v4
+        with:
+          name: vendor-${{ matrix.platform }}
+          path: dist/openSciLab-vendor-*
+          if-no-files-found: error
+
   app:
     name: App ${{ matrix.platform }}
-    needs: [tests, plan, firmware-images]
+    needs: [tests, plan, firmware-images, vendor]
     # Runs as well when the firmware was not rebuilt (firmware-images skipped).
     if: >-
       always()
       && needs.tests.result == 'success'
       && needs.plan.result == 'success'
       && (needs.firmware-images.result == 'success' || needs.firmware-images.result == 'skipped')
+      && needs.vendor.result == 'success'
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -388,6 +447,20 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: gh release download "$RELEASE_TAG" --pattern "*.uf2" --dir firmware/uf2
+
+      - name: Download the vendor folder (ngspice, the AVR emulator)
+        uses: actions/download-artifact@v4
+        with:
+          name: vendor-${{ matrix.platform }}
+          path: build/vendor
+
+      - name: Put the vendor folder into the package
+        env:
+          PLATFORM: ${{ matrix.platform }}
+        run: |
+          mkdir -p "openscilab/vendor/$PLATFORM"
+          python -c "import sys, zipfile; zipfile.ZipFile(sys.argv[1]).extractall(sys.argv[2])" \
+            "build/vendor/openSciLab-vendor-$PLATFORM.zip" "openscilab/vendor/$PLATFORM"
 
       - name: Install the Qt runtime libraries
         if: runner.os == 'Linux'
@@ -478,6 +551,9 @@ jobs:
             CHANGELOG.md
             LICENSE
             THIRD_PARTY_NOTICES.md
+            tools/build_vendor.py
+            openscilab/__init__.py
+            openscilab/core/
           sparse-checkout-cone-mode: false
           path: source
 
@@ -494,6 +570,8 @@ jobs:
         run: |
           mkdir upload
           find artifacts/app-* -type f -exec cp {} upload/ \;
+          # the sources of the tools the applications bring (simavr: GPL, ngspice's KLU: LGPL)
+          python3 source/tools/build_vendor.py --sources upload/
           cp artifacts/firmware-uf2/*.uf2 upload/
           (cd artifacts/firmware-uf2 && zip -q ../../upload/openSciLab-firmware-pico-uf2.zip ./*.uf2)
           if [[ -d artifacts/firmware-arduino ]]; then

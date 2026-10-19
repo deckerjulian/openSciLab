@@ -182,6 +182,7 @@ def test_ngspice_on_windows_is_its_own_dll_package(tmp_path, monkeypatch):
     (work / "Spice64_dll" / "dll-vs" / "ngspice.dll").write_bytes(b"new ngspice")
     (work / "Spice64_dll" / "dll-vs" / "libomp140.x86_64.dll").write_bytes(b"openmp")
     (work / "Spice64_dll" / "lib" / "ngspice" / "analog.cm").write_bytes(b"code model")
+    (work / "Spice64_dll" / "lib" / "ngspice" / "table.cm").write_bytes(b"GPL: left out")
     (work / "Spice64_dll" / "lib" / "ngspice" / "psp103.osdi").write_bytes(b"not taken")
     archive = tmp_path / "ngspice.7z"
     made = subprocess.run(["tar", "--format", "7zip", "-cf", str(archive), "-C", str(work), "Spice64_dll"],

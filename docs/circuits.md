@@ -293,18 +293,21 @@ the first label; no component may be called so). Keys this version does not know
 ## The tools
 
 ngspice, the AVR emulator and KiCad's symbols are found or installed into openSciLab's **vendor
-folder** (`openscilab/core/vendor.py`). openSciLab hands on none of them - neither the applications
-nor the package contain them -, they come from their own projects onto the computer that uses them:
+folder** (`openscilab/core/vendor.py`). The applications bring ngspice and the AVR emulator, each
+with its license text; a source installation gets them, and every installation KiCad's symbols, from
+their own projects:
 
 1. the path in the settings (*Settings → Circuits*),
-2. `openscilab/vendor/<platform>/` - in a checkout `python tools/build_vendor.py` puts them there
-   (ngspice from its sources on macOS and Linux, ngspice's DLL package on Windows; the AVR emulator
-   needs a C compiler and avr-libc's headers),
+2. `openscilab/vendor/<platform>/` - the applications bring ngspice and the AVR emulator there (the CI
+   builds them with `python tools/build_vendor.py`; a release carries the sources of both); in a
+   checkout that tool puts them there (ngspice from its sources on macOS and Linux, ngspice's DLL
+   package on Windows; the AVR emulator needs a C compiler and avr-libc's headers),
 3. `<settings>/vendor/<platform>/` - installed by openSciLab (always in the applications),
 4. the system: Homebrew (`brew install libngspice`), the package manager (`apt install libngspice0`),
    a KiCad installation (its libngspice and its symbols).
 
-What is missing is installed when it is first needed (*Settings → Circuits → Install the tools
+What is missing (in a source installation; KiCad's symbols everywhere) is installed when it is first
+needed (*Settings → Circuits → Install the tools
 automatically*): ngspice when a circuit runs, the AVR emulator when a circuit with a microcontroller
 runs, KiCad's symbols when the catalog is first read. Every download is checked against a pinned
 SHA-256, a loaded library is never written over:

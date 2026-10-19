@@ -17,15 +17,16 @@ kicad      KiCad's symbol libraries (the catalog)            CC-BY-SA-4.0 with t
 Where a tool is looked for, the first place that has it wins:
 
 1. the path in the settings (``circuits.ngspice_path``),
-2. ``openscilab/vendor/<platform>/`` - in a checkout ``tools/build_vendor.py`` puts it there (the folder
-   is not in git),
+2. ``openscilab/vendor/<platform>/`` - the applications bring ngspice and the AVR emulator there, each
+   with its license text (the CI builds the folder with ``tools/build_vendor.py``); in a checkout that
+   tool puts them there (the folder is not in git),
 3. ``<settings>/vendor/<platform>/`` - installed by openSciLab (always in a packaged application),
 4. the system: a KiCad installation (its libngspice and symbols), Homebrew, the package manager.
 
-openSciLab hands on none of these tools: neither the applications nor the package bring them. A tool
-that is missing is fetched from its own project when it is first needed (:func:`install`): ngspice on
-Windows as the DLL package of ngspice's releases, on macOS and Linux - with a C compiler - built from
-ngspice's pinned sources; the AVR library built from simavr's pinned sources and the shim of the package
+A tool that is missing - in a source installation, and KiCad's symbols, which no application brings -
+is fetched from its own project when it is first needed (:func:`install`): ngspice on Windows as the
+DLL package of ngspice's releases, on macOS and Linux - with a C compiler - built from ngspice's pinned
+sources; the AVR library built from simavr's pinned sources and the shim of the package
 (``core/vendor_build.py``); KiCad's symbols from KiCad's archive of a pinned version. Every download is
 checked against its SHA-256. Qt free; the user interface shows the progress.
 """
@@ -86,7 +87,7 @@ def platform_tag() -> str:
 
 
 def package_directory() -> str:
-    """The vendor folder of the package (a checkout: tools/build_vendor.py puts the tools there)."""
+    """The vendor folder of the package (the applications bring their tools there)."""
     return os.path.join(PACKAGE_DIRECTORY, "vendor", platform_tag())
 
 
@@ -321,7 +322,8 @@ def _install_ngspice_windows(target: str, progress: Progress | None) -> None:
         for path in libraries:
             shutil.copy2(path, os.path.join(folder, "bin"))
         for path in glob.glob(os.path.join(root, "lib", "ngspice", "*.cm")):
-            shutil.copy2(path, os.path.join(folder, "lib", "ngspice"))
+            if os.path.basename(path) != "table.cm":  # (GPL: not bundled, never loaded)
+                shutil.copy2(path, os.path.join(folder, "lib", "ngspice"))
         _swap_in(folder, os.path.join(target, "ngspice"))
     finally:
         shutil.rmtree(staging, ignore_errors=True)

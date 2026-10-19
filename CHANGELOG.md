@@ -37,13 +37,14 @@ A new section of the window, *Circuits* (Ctrl+Shift+C), and the document *Circui
   peak to peak, mean and frequency.
 - **The circuit as a device**: `circuit:<file>` gives the probes as analog and logic channels to the
   data view, flows and panels; a flow opens a circuit by its file.
-- **The tools in the vendor folder**: ngspice, the AVR emulator and KiCad's symbols are found or
-  installed into the vendor folder when first needed (*Settings → Circuits*). openSciLab hands on none
-  of them - the applications, the package and the releases do not contain them -: ngspice comes as
-  ngspice's own DLL package on Windows and is built from its sources on macOS and Linux (or taken from
-  Homebrew, the package manager, KiCad), the AVR emulator is built on the computer from simavr's
-  sources, KiCad's symbols come from KiCad's archive; every download is checked against a pinned
-  SHA-256; `tools/build_vendor.py` does the same in a checkout.
+- **The tools in the vendor folder**: the applications bring ngspice and the AVR emulator, each with
+  its license text (on Windows ngspice's own DLL package, without the GPL `table` code model); a
+  release carries the sources of both (simavr is GPL, ngspice's KLU LGPL). A source installation finds
+  them on the computer or installs them into the vendor folder when first needed (*Settings →
+  Circuits*), from their own projects: ngspice's DLL package on Windows, built from the sources on
+  macOS and Linux (or Homebrew, the package manager, KiCad), the AVR emulator built from simavr's
+  sources; KiCad's symbols come from KiCad's archive on request; every download is checked against a
+  pinned SHA-256; `tools/build_vendor.py` builds the folder in a checkout.
 - **Power electronics**: a voltage-controlled switch, a bridge rectifier, a triangle source, a sine
   reference (its RMS from a control voltage), a variable transformer (a variac set in volts), terminals
   (named output sockets, measured like probes), a 900 V power op-amp (PA94), high-voltage transistors
@@ -134,10 +135,8 @@ A plugin can add an entry of the activity bar with a section of the sidebar, kin
 ### One typeface, a new mark
 
 - **Inter Tight** everywhere - menus, documents, flow nodes, schematics, the console and the editors
-  (numbers in columns with digits of one width), so every platform shows the same letters. Not handed
-  on with openSciLab: the first start fetches Google Fonts' static weights and the license (SIL Open
-  Font License, checked against pinned SHA-256) into `<settings>/fonts` and waits for them a moment at
-  most; without a connection the system's font is used until a later start has them.
+  (numbers in columns with digits of one width) - bundled with openSciLab (`openscilab/ui/fonts`, SIL
+  Open Font License, its text beside the fonts), so every platform shows the same letters.
 - **A new logo**: three channels of a logic analyser in white, teal and blue on a graphite squircle;
   the header shows the mark alone, larger.
 

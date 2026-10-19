@@ -55,6 +55,8 @@ include = ["openscilab*"]
 # the C shim around simavr: the AVR emulator can be built from a pip install too (core/vendor_build.py)
 "openscilab.circuits.mcu" = ["shim/*.c", "shim/*.h"]
 "openscilab" = ["vendor/README.md"]
+# the typeface of the application (Inter Tight, SIL Open Font License)
+"openscilab.ui" = ["fonts/*.ttf", "fonts/OFL.txt"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

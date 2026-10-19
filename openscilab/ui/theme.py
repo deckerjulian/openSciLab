@@ -200,36 +200,40 @@ def font_size() -> int:
     return size if 9 <= size <= 24 else 12
 
 
-#: The typeface of the whole application: Inter Tight (rsms, SIL Open Font License) as static weights
-#: (regular, medium, semibold, bold, italic) so that every platform draws the same letters; fetched
-#: from Google Fonts at the first start (``core/typeface.py``), not handed on with openSciLab.
+#: The typeface of the whole application: Inter Tight (rsms, SIL Open Font License), bundled in
+#: ``openscilab/ui/fonts`` with its license as static weights (regular, medium, semibold, bold, italic)
+#: so that every platform draws the same letters; fixed-width text (console, editors, readouts) keeps
+#: the system's.
 FONT_FAMILY = "Inter Tight"
+FONT_FOLDER = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fonts")
 _loaded_family: Optional[str] = None
 
 
 def load_fonts() -> str:
-    """Register the typeface with Qt (once; needs a ``QGuiApplication``) and return its family, or the
-    family of the default font when the files are missing (not downloaded yet) or unreadable."""
+    """Register the bundled typeface with Qt (once; needs a ``QGuiApplication``) and return its family,
+    or the family of the default font when the files are missing or unreadable."""
     global _loaded_family
     if _loaded_family is not None:
         return _loaded_family
     from PySide6.QtGui import QFont, QFontDatabase
 
-    from ..core import typeface
-
     families: set[str] = set()
-    for path in sorted(typeface.font_files()):
-        font_id = QFontDatabase.addApplicationFont(path)
+    try:
+        names = sorted(name for name in os.listdir(FONT_FOLDER) if name.lower().endswith((".ttf", ".otf")))
+    except OSError:
+        names = []
+    for name in names:
+        font_id = QFontDatabase.addApplicationFont(os.path.join(FONT_FOLDER, name))
         if font_id >= 0:
             families.update(QFontDatabase.applicationFontFamilies(font_id))
         else:
-            log.warning("the font %s could not be loaded", os.path.basename(path))
+            log.warning("the font %s could not be loaded", name)
     _loaded_family = FONT_FAMILY if FONT_FAMILY in families else QFont().family()
     return _loaded_family
 
 
 def apply_font(application) -> None:
-    """Make the typeface the font of ``application`` (its size comes from the style sheet)."""
+    """Make the bundled typeface the font of ``application`` (its size comes from the style sheet)."""
     from PySide6.QtGui import QFont
 
     font = QFont(application.font())

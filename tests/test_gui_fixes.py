@@ -5,8 +5,6 @@ from __future__ import annotations
 
 import os
 
-import pytest
-
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtWidgets import QApplication
@@ -127,12 +125,9 @@ def test_one_typeface_everywhere_and_the_mark_alone(shell):
     from PySide6.QtGui import QFontInfo
     from PySide6.QtWidgets import QLabel
 
-    from openscilab.core import typeface
     from openscilab.ui.shell.main_window import LOGO_SIZE
     from openscilab.ui.theme import FONT_FAMILY, load_fonts, tabular_font
 
-    if not typeface.installed():
-        pytest.skip("the typeface could not be fetched (no connection)")
     assert load_fonts() == FONT_FAMILY == "Inter Tight"
     assert QFontInfo(QApplication.instance().font()).family() == FONT_FAMILY
     assert QFontInfo(tabular_font()).family() == FONT_FAMILY  # (numbers, code and the console too)

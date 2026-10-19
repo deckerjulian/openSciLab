@@ -84,9 +84,22 @@ templates += Tree(os.path.join(ROOT, "openscilab", "circuits", "models"),
                   prefix=os.path.join("openscilab", "circuits", "models"))
 templates += Tree(os.path.join(ROOT, "openscilab", "circuits", "mcu", "shim"),
                   prefix=os.path.join("openscilab", "circuits", "mcu", "shim"))
-# Not in the application, as openSciLab hands them on to nobody: the typeface (fetched at the first start,
-# core/typeface.py) and the tools of others of the vendor folder (ngspice, the AVR emulator, KiCad's
-# symbols: installed on the computer when they are first needed, core/vendor.py).
+# the typeface of the application (Inter Tight, SIL Open Font License; ui/theme.py load_fonts)
+templates += Tree(os.path.join(ROOT, "openscilab", "ui", "fonts"), prefix=os.path.join("openscilab", "ui", "fonts"))
+# the tools of others this platform's vendor folder holds (ngspice, the AVR emulator, with their license
+# texts: tools/build_vendor.py, core/vendor.py) - the application needs nothing installed
+_vendor = os.path.join(ROOT, "openscilab", "vendor")
+try:
+    from openscilab.core.vendor import platform_tag as _platform_tag
+
+    _platforms = [_platform_tag()]
+except Exception:  # noqa: BLE001 - every folder then
+    _platforms = sorted(os.listdir(_vendor)) if os.path.isdir(_vendor) else []
+for _platform in _platforms:
+    if os.path.isdir(os.path.join(_vendor, _platform)):
+        # (KiCad's symbols are installed on request, never bundled: THIRD_PARTY_NOTICES.md)
+        templates += Tree(os.path.join(_vendor, _platform), prefix=os.path.join("openscilab", "vendor", _platform),
+                          excludes=["*.a", "*.la", "include", "kicad-symbols", "*.old-*"])
 firmware_images = [
     (os.path.join("firmware", "uf2", os.path.basename(path)), path, "DATA")
     for path in sorted(glob.glob(os.path.join(ROOT, "firmware", "uf2", "*.uf2")))
