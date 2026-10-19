@@ -286,6 +286,11 @@ ICON = {"small": 12, "normal": 16, "large": 18, "activity": 20}
 SPACE_STEP = 4
 #: the fixed sizes the layouts share (px at 12 px text; :func:`size` scales them with the text)
 SIZES = {
+    # the docks of the window in a new layout - at most a share of the window (shell DOCK_SHARES), at
+    # least what their contents need
+    "sidebar": 250,
+    "inspector": 260,
+    "node-palette": 230,  # beside a flow that is edited
     "page-list": 150,  # the list of pages of a dialog (settings, capture setup)
     "recent": 220,  # the column of recent files on the start page
     "form-label": 110,  # a label column beside fields

@@ -23,6 +23,7 @@ from PySide6.QtWidgets import (
     QListWidget,
     QListWidgetItem,
     QMenu,
+    QSizePolicy,
     QStackedWidget,
     QVBoxLayout,
     QWidget,
@@ -57,6 +58,7 @@ class Sidebar(QStackedWidget):
         self._pages[key] = page
         self._contents[key] = widget
         self.addWidget(page)
+        self._only_the_current_counts()
 
     def section(self, key: str) -> QWidget:
         return self._contents[key]
@@ -64,6 +66,15 @@ class Sidebar(QStackedWidget):
     def show_section(self, key: str) -> None:
         if key in self._pages:
             self.setCurrentWidget(self._pages[key])
+            self._only_the_current_counts()
+
+    def _only_the_current_counts(self) -> None:
+        """The sidebar is as narrow as the section it shows allows: a hidden one (the catalog of Circuits)
+        does not widen it (a stack takes the minimum of all its pages, unless they are ignored)."""
+        for page in self._pages.values():
+            policy = QSizePolicy.Preferred if page is self.currentWidget() else QSizePolicy.Ignored
+            page.setSizePolicy(policy, QSizePolicy.Preferred)
+        self.updateGeometry()
 
     @property
     def current_key(self) -> Optional[str]:

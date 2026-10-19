@@ -196,6 +196,10 @@ theme). Checked by `tests/test_terminology.py`, `tests/test_theme_tokens.py` and
 - Bus rows of a long capture: a value that began exactly at the edge of a pixel column could be
   drawn one column off (the quick way of looking up a whole capture rounded the column edges
   differently from the runs); now both round the same.
+- **Docks sized for the screen**: the sidebar, the inspector and the node palette take their widths of
+  the theme (larger with the text size), at most a share of the window - on a small screen the document
+  keeps about half - and never less than their contents need (fonts of other platforms are wider); a
+  section the sidebar does not show no longer widens it (the catalog of *Circuits* did).
 - **The sidebar starts folded away the first time**: the activity bar (or Ctrl+B) opens it at its
   width (250 px), and again at that width when it takes more than a third of the window; after that
   it is as it was left.

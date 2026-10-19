@@ -74,7 +74,7 @@ from ..documents.panel import PanelDocument, open_panel_file
 from ..documents.waveform import WAVE_EXTENSIONS, WaveformDocument, open_waveform_file
 from ..flow.palette import NodePalette
 from ..icons import app_icon, icon, known, logo_pixmap, set_icon
-from ..theme import apply_palette, build_stylesheet, icon_px, set_role, set_variant, shell_stylesheet
+from ..theme import apply_palette, build_stylesheet, icon_px, set_role, set_variant, shell_stylesheet, size
 from ..theme import token as theme_token
 from .activity_bar import ActivityBar
 from .command_palette import (
@@ -104,10 +104,9 @@ SHELL_STATE_FILE = "shell-state.json"
 LAYOUTS_FILE = "shell-layouts.json"
 #: Version of the dock layout stored by the shell (a newer layout ignores older ones).
 SHELL_LAYOUT_VERSION = 3  # 2: the node palette is a dock of its own; 3: the docks sized when shown
-#: the width of the sidebar and of the inspector in a new layout (px)
-DOCK_WIDTHS = (250, 260)
-#: the width of the node palette when it shows beside the sidebar (px)
-NODES_WIDTH = 230
+#: the share of the window a dock takes at most when it is sized: on a small screen the docks are
+#: narrower than their widths of the theme (``size("sidebar")`` ...) and the document keeps half
+DOCK_SHARES = {"sidebar": 0.22, "inspector": 0.22, "node-palette": 0.18}
 CAPTURE_EXTENSIONS = (".lac", ".lac.gz", ".sr")
 FLOW_EXTENSIONS = (".flow.yaml", ".flow.yml")
 OPEN_FILE_FILTER = ("openSciLab files (*.lac *.lac.gz *.sr *.flow.yaml *.py *.panel.yaml *.wave.yaml *.sdl);;"
@@ -652,8 +651,8 @@ class ShellWindow(QMainWindow):
             sidebar = self.sidebar_dock.width()
             self.nodes_dock.setVisible(wanted)
             if wanted and self.sidebar_dock.isVisible():  # (beside the sidebar, which keeps its width)
-                QTimer.singleShot(0, lambda: self.resizeDocks([self.sidebar_dock, self.nodes_dock],
-                                                              [sidebar, NODES_WIDTH], Qt.Horizontal))
+                QTimer.singleShot(0, lambda: self._resize_docks_to(
+                    [self.sidebar_dock, self.nodes_dock], [sidebar, self.dock_width("node-palette")]))
 
     def poll_ports(self) -> None:
         """Read the serial ports in a thread (listing them takes up to a fifth of a second on
@@ -2630,9 +2629,18 @@ class ShellWindow(QMainWindow):
         self.console_dock.setVisible(False)
         QTimer.singleShot(0, self.size_docks)  # (once the restored layout is laid out)
 
+    def dock_width(self, name: str) -> int:
+        """The width the dock ``name`` (``sidebar``, ``inspector``, ``node-palette``) is sized to: its width
+        of the theme (larger with the text), at most its share of the window (:data:`DOCK_SHARES`), at
+        least what its contents need."""
+        dock = {"sidebar": self.sidebar_dock, "inspector": self.inspector_dock, "node-palette": self.nodes_dock}[name]
+        wanted = min(size(name), round(DOCK_SHARES[name] * self.width()))
+        return max(wanted, dock.minimumSizeHint().width(), dock.minimumWidth())
+
     def size_docks(self) -> None:
-        """The sidebar and the inspector at their widths of a new layout (:data:`DOCK_WIDTHS`)."""
-        self.resizeDocks([self.sidebar_dock, self.inspector_dock], list(DOCK_WIDTHS), Qt.Horizontal)
+        """The sidebar and the inspector at their widths of a new layout (:meth:`dock_width`)."""
+        self.resizeDocks([self.sidebar_dock, self.inspector_dock],
+                         [self.dock_width("sidebar"), self.dock_width("inspector")], Qt.Horizontal)
 
     def _sidebar_shown(self, visible: bool) -> None:
         """The sidebar opened: at its width the first time of a session, or when it takes more than a
@@ -2640,12 +2648,13 @@ class ShellWindow(QMainWindow):
         if not visible or not self.sidebar_dock.isVisible():
             return
         if not self._sidebar_opened or self.sidebar_dock.width() > self.width() / 3 \
-                or (self.nodes_dock.isVisible() and self.nodes_dock.width() < NODES_WIDTH * 0.6):
+                or (self.nodes_dock.isVisible() and self.nodes_dock.width() < self.dock_width("node-palette") * 0.6):
             self._sidebar_opened = True
             # (the node palette beside it keeps its width: it was squeezed to a strip before)
             QTimer.singleShot(0, lambda: self._resize_docks_to(
                 [self.sidebar_dock, self.nodes_dock] if self.nodes_dock.isVisible() else [self.sidebar_dock],
-                [DOCK_WIDTHS[0], NODES_WIDTH] if self.nodes_dock.isVisible() else [DOCK_WIDTHS[0]]))
+                [self.dock_width("sidebar"), self.dock_width("node-palette")] if self.nodes_dock.isVisible()
+                else [self.dock_width("sidebar")]))
 
     #: how often a dock that did not take its width is sized again, and how far apart (ms)
     DOCK_ATTEMPTS, DOCK_RETRY = 5, 40
