@@ -57,21 +57,38 @@ def test_the_node_palette_shows_beside_a_flow_that_is_edited(shell):
     assert shell.nodes_dock.isVisible() and view in shell.area.documents()
 
 
+def wait_for_width(qtbot, condition, widths) -> None:
+    """Wait until ``condition`` holds; a timeout says how wide everything was."""
+    try:
+        qtbot.waitUntil(condition, timeout=5000)
+    except qtbot.TimeoutError:
+        raise AssertionError(f"the docks did not take their widths: {widths()}") from None
+
+
 def test_the_docks_start_at_their_widths(shell, qtbot):
     from openscilab.ui.shell.main_window import DOCK_WIDTHS, NODES_WIDTH
+
+    # (room for both docks beside the document: in a window narrower than about 1050 px the sidebar
+    # cannot have its width - on the CI it did not have it now and then)
+    shell.resize(1600, 1000)
+    qtbot.waitUntil(lambda: shell.width() == 1600, timeout=5000)
+
+    def widths() -> str:
+        return (f"window {shell.width()}, sidebar {shell.sidebar_dock.width()}, inspector "
+                f"{shell.inspector_dock.width()}, nodes {shell.nodes_dock.width()}")
 
     # the sidebar starts folded away and opens at its width (not with the room of the hidden node
     # palette as well, nor as wide as a layout left it)
     assert not shell.sidebar_dock.isVisible()
-    qtbot.waitUntil(lambda: shell.inspector_dock.width() == DOCK_WIDTHS[1])
+    wait_for_width(qtbot, lambda: shell.inspector_dock.width() == DOCK_WIDTHS[1], widths)
     shell.toggle_sidebar()
-    qtbot.waitUntil(lambda: shell.sidebar_dock.width() == DOCK_WIDTHS[0])
+    wait_for_width(qtbot, lambda: shell.sidebar_dock.width() == DOCK_WIDTHS[0], widths)
     shell.resizeDocks([shell.sidebar_dock], [shell.width() // 2], Qt.Horizontal)  # dragged far too wide
     shell.toggle_sidebar()
     shell.toggle_sidebar()
-    qtbot.waitUntil(lambda: shell.sidebar_dock.width() == DOCK_WIDTHS[0])
+    wait_for_width(qtbot, lambda: shell.sidebar_dock.width() == DOCK_WIDTHS[0], widths)
     shell.new_flow()
-    qtbot.waitUntil(lambda: shell.nodes_dock.width() == NODES_WIDTH)
+    wait_for_width(qtbot, lambda: shell.nodes_dock.width() == NODES_WIDTH, widths)
     assert shell.sidebar_dock.width() == DOCK_WIDTHS[0]
     shell.sidebar_dock.setVisible(False)
     shell.reset_layout()
