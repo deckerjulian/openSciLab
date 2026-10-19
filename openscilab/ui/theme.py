@@ -202,8 +202,8 @@ def font_size() -> int:
 
 #: The typeface of the whole application: Inter Tight (rsms, SIL Open Font License), bundled in
 #: ``openscilab/ui/fonts`` with its license as static weights (regular, medium, semibold, bold, italic)
-#: so that every platform draws the same letters; fixed-width text (console, editors, readouts) keeps
-#: the system's.
+#: so that every platform draws the same letters - numbers in columns, code and the console too, with
+#: digits of one width (:func:`tabular_font`).
 FONT_FAMILY = "Inter Tight"
 FONT_FOLDER = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fonts")
 _loaded_family: Optional[str] = None

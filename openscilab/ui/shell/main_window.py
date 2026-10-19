@@ -481,6 +481,8 @@ class ShellWindow(QMainWindow):
         # the sidebar starts folded away the first time (the activity bar or Ctrl+B opens it, at a
         # sensible width); afterwards as it was left
         self._sidebar_opened = False
+        #: the last sizing of docks (asked widths, attempt, widths they took): what a test reports
+        self._last_dock_resize: tuple = ()
         self.activity_bar.set_sidebar_visible(False)
         self._docks_sized = bool(restore_state and self._restore_state())
         self.sidebar_dock.visibilityChanged.connect(self._sidebar_shown)
@@ -2657,15 +2659,18 @@ class ShellWindow(QMainWindow):
                 else [self.dock_width("sidebar")]))
 
     #: how often a dock that did not take its width is sized again, and how far apart (ms)
-    DOCK_ATTEMPTS, DOCK_RETRY = 5, 40
+    DOCK_ATTEMPTS, DOCK_RETRY = 25, 40
 
     def _resize_docks_to(self, docks: list[QDockWidget], widths: list[int], attempt: int = 0) -> None:
         """``docks`` at ``widths``; sized again a moment later while they are not (a dock just shown is
         laid out by an event of its own: on a busy computer that can come after the resize, which is lost)."""
         if not all(dock.isVisible() for dock in docks):
+            self._last_dock_resize = (widths, attempt, "hidden")
             return
         self.resizeDocks(docks, widths, Qt.Horizontal)
-        if attempt + 1 < self.DOCK_ATTEMPTS and any(dock.width() != width for dock, width in zip(docks, widths)):
+        taken = [dock.width() for dock in docks]
+        self._last_dock_resize = (widths, attempt, taken)
+        if attempt + 1 < self.DOCK_ATTEMPTS and taken != widths:
             QTimer.singleShot(self.DOCK_RETRY, lambda: self._resize_docks_to(docks, widths, attempt + 1))
 
     def showEvent(self, event) -> None:  # noqa: N802 - Qt naming

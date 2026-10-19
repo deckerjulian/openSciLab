@@ -317,9 +317,9 @@ SHA-256, a loaded library is never written over:
   (a C compiler and make; a few minutes) - or installed with Homebrew (`brew install libngspice`) or the
   package manager (`apt install libngspice0`; S-parameters need ngspice 44 or newer).
 - **The AVR emulator**: built from simavr's sources and the C shim of the package on every platform -
-  a C compiler and avr-libc's headers are needed (macOS: `xcode-select --install`, `brew install
-  avr-gcc`; Linux: `apt install build-essential avr-libc`; Windows: MSYS2 with `mingw-w64-x86_64-gcc`
-  and `mingw-w64-x86_64-avr-libc`).
+  a C compiler and avr-libc's headers are needed (macOS: `xcode-select --install`, `brew tap
+  osx-cross/avr`, `brew install avr-gcc`; Linux: `apt install build-essential avr-libc`; Windows:
+  MSYS2 (UCRT64) with `mingw-w64-ucrt-x86_64-gcc` and `mingw-w64-ucrt-x86_64-avr-libc`).
 - **KiCad's symbols**: KiCad's archive of a pinned version.
 
 A banner in the circuit says what happens and, when a tool could not be installed, what to install.

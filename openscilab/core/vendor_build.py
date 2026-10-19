@@ -8,8 +8,8 @@
 
 * ``simavr``: simavr's simulator core with the AVR cores openSciLab emulates and the shim of
   ``openscilab/circuits/mcu/shim`` into ``libopenscilab_avr`` (no libelf, no GDB server); needs a C compiler and
-  the register headers of avr-libc (Linux: ``apt install avr-libc``, macOS: ``brew install avr-gcc`` or
-  PlatformIO's AVR toolchain, Windows: MSYS2 ``mingw-w64-x86_64-avr-libc``).
+  the register headers of avr-libc (Linux: ``apt install avr-libc``, macOS: ``brew tap osx-cross/avr``, ``brew install avr-gcc`` or
+  PlatformIO's AVR toolchain, Windows: MSYS2 ``mingw-w64-ucrt-x86_64-avr-libc``).
 * ``ngspice``: ngspice as a shared library with its XSPICE code models (macOS, Linux; needs a C
   compiler and make).
 
@@ -124,7 +124,7 @@ def build_simavr(target: str, progress: Progress | None = None, source: str | No
         raise VendorError("no C compiler (cc, gcc, clang) to build the AVR emulator")
     include = avr_libc_include()
     if include is None:
-        raise VendorError("the headers of avr-libc are missing (apt install avr-libc, brew install avr-gcc, "
+        raise VendorError("the headers of avr-libc are missing (apt install avr-libc, brew tap osx-cross/avr and brew install avr-gcc, "
                           "or PlatformIO's AVR toolchain)")
     work = tempfile.mkdtemp(prefix="openscilab-simavr-")
     try:

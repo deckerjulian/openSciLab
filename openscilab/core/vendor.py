@@ -334,10 +334,10 @@ HINTS = {
     "ngspice": {"darwin": "or install it with Homebrew: brew install libngspice",
                 "linux": "or install it with the package manager: sudo apt install libngspice0 (S-parameters need "
                          "ngspice 44 or newer)"},
-    "simavr": {"darwin": "the emulator is built on this computer: xcode-select --install and brew install avr-gcc",
+    "simavr": {"darwin": "the emulator is built on this computer: xcode-select --install, brew tap osx-cross/avr and brew install avr-gcc",
                "linux": "the emulator is built on this computer: sudo apt install build-essential avr-libc",
-               "win32": "the emulator is built on this computer: MSYS2 with mingw-w64-x86_64-gcc and "
-                        "mingw-w64-x86_64-avr-libc"},
+               "win32": "the emulator is built on this computer: MSYS2 (UCRT64) with mingw-w64-ucrt-x86_64-gcc and "
+                        "mingw-w64-ucrt-x86_64-avr-libc"},
 }
 
 
