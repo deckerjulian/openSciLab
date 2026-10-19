@@ -109,7 +109,7 @@ def test_the_device_list_shows_a_row_per_connected_device(shell, monkeypatch):
     assert len(section.rows) == 1 and isinstance(section.rows[0], DeviceRow)
     row = section.rows[0]
     assert section.open_list.itemWidget(section.open_list.item(0)) is row
-    assert row.name_label.full_text() == "Simulation: Pico" and row.state_label.text() == "Ready"
+    assert row.name_label.full_text() == "Simulated Pico" and row.state_label.text() == "Ready"
     assert row.connection_label.full_text() == "sim:pico · simulated"
     assert row.settings_label.full_text().endswith("trigger: none") and " of signal" in row.load_label.text()
     assert row.bar.isHidden() == (row.summary.load is None)

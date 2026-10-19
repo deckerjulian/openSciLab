@@ -18,14 +18,14 @@ from . import DeviceBackend, DeviceEntry
 
 BACKEND_ID = "remote"
 SIM_BACKEND_ID = "remote-sim"
-DEMO_TITLES = {"climate": "Simulation: remote climate station", "audio": "Simulation: remote microphone",
-               "echo": "Simulation: remote echo",
+DEMO_TITLES = {"climate": "Simulated remote climate station", "audio": "Simulated remote microphone",
+               "echo": "Simulated remote echo",
                # the timings a remote device can have: a DAQ behind USB on another computer (drifting
                # sample clock, a sync line, a loopback), its clock following UTC as with PTP, its
-               # sample clock shared with openSciLab's instruments
-               "daq": "Simulation: remote DAQ (drifting clock, USB, sync line)",
-               "daq?timescale=utc": "Simulation: remote DAQ, clock follows UTC (PTP)",
-               "daq?shared_clock=1": "Simulation: remote DAQ, shared sample clock"}
+               # sample clock shared with openSciLab's devices
+               "daq": "Simulated remote DAQ (drifting clock, USB, sync line)",
+               "daq?timescale=utc": "Simulated remote DAQ, clock follows UTC (PTP)",
+               "daq?shared_clock=1": "Simulated remote DAQ, shared sample clock"}
 #: names of the devices (the titles say what they simulate)
 DEMO_NAMES = {"daq": "Remote DAQ", "daq?timescale=utc": "Remote DAQ (UTC)",
               "daq?shared_clock=1": "Remote DAQ (shared clock)"}
@@ -97,7 +97,8 @@ class RemoteSimulatorBackend(DeviceBackend):
             number += 1
             address = remote_address(demo_name, number, options)
         instrument = background.run(parent, "Starting the simulated device...", lambda: open_simulated_remote(address))
-        title = DEMO_NAMES.get(str(entry.value)) or DEMO_TITLES.get(str(entry.value), address).replace("Simulation: ", "")
+        title = (DEMO_NAMES.get(str(entry.value))
+                 or DEMO_TITLES.get(str(entry.value), address).removeprefix("Simulated "))
         instrument.name = title[:1].upper() + title[1:] + (f" ({number})" if number > 1 else "")
         return instrument
 

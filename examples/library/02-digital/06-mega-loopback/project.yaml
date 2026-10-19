@@ -1,0 +1,9 @@
+project: Loopback with state mode (Arduino Mega)
+description: One pattern on the Arduino Mega drives three outputs, wires take them back to inputs - an
+  analog signal (A0 to A1, read by the ADC), a digital signal (D34 to D35) and a clock (D3 to D2). The
+  monitor logs A1 and D35; a state capture takes D35 on each rising edge of the clock at D2 (the
+  interrupt INT4). Runs on the simulated Mega (sim:mega, wired the same way); on a real board wire
+  D34-D35, A0-A1 and D3-D2 and set the device to arduino:<port>.
+devices:
+  mega: sim:mega
+open: [flows/loopback.flow.yaml]

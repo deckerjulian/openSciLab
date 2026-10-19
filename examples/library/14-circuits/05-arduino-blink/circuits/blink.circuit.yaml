@@ -1,0 +1,36 @@
+circuit: Arduino blink
+description: 'An Arduino Uno runs its firmware: the potentiometer sets how fast the LED blinks, the switch keeps it on; an oscilloscope shows the LED and A0.'
+version: 1
+components:
+  U1: {type: mcu.uno, at: [0, 0], params: {firmware: ../firmware/blink_pot.hex}}
+  R1: {type: resistor, at: [-160, 130], params: {value: '330'}}
+  D1: {type: led, at: [-250, 130], mirror: true, params: {value: LED_GREEN}}
+  GND1: {type: ground, at: [-310, 170]}
+  SW1: {type: switch, at: [-160, -90]}
+  GND2: {type: ground, at: [-220, -50]}
+  RV1: {type: potentiometer, at: [160, -130], rotation: 90, params: {value: 10k, position: '0.2'}}
+  GND4: {type: ground, at: [160, -70]}
+  GND3: {type: ground, at: [130, 70]}
+  P1: {type: probe.logic, at: [-130, 130], params: {name: LED}}
+  XSC1: {type: probe.scope, at: [420, 20], params: {time_div: 200 ms, volts_div: 1 V, offset: 2.5 V, level: 2.5 V}}
+  GND5: {type: ground, at: [420, 120]}
+wires:
+  - [[-100, 130], [-130, 130]]
+  - [[-190, 130], [-220, 130]]
+  - [[-280, 130], [-310, 130], [-310, 170]]
+  - [[-100, -90], [-130, -90]]
+  - [[-190, -90], [-220, -90], [-220, -50]]
+  - [[100, -130], [140, -130]]
+  - [[100, -10], [240, -10], [240, -190], [160, -190], [160, -160]]
+  - [[160, -100], [160, -70]]
+  - [[100, 30], [130, 30], [130, 70]]
+  - [[250, -10], [330, -10]]
+  - [[250, 10], [330, 10]]
+  - [[-110, 130], [-110, 170]]
+  - [[120, -130], [120, -80]]
+  - [[420, 100], [420, 120]]
+labels:
+  - {name: LED, at: [250, -10]}
+  - {name: A0, at: [250, 10]}
+  - {name: LED, at: [-110, 170]}
+  - {name: A0, at: [120, -80]}

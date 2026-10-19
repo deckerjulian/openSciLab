@@ -43,13 +43,13 @@ def edge_times(blocks) -> np.ndarray:
 ALIGN = """
 flow: Align
 nodes:
-  uno: {type: device.instrument, address: "sim:uno"}
-  la: {type: device.instrument, address: "sim:free"}
-  pico: {type: device.instrument, address: "sim:pico"}
-  sync: {type: timing.sync, pin: D7, duration: 1.4 s}
+  uno: {type: device.device, address: "sim:uno"}
+  la: {type: device.device, address: "sim:free"}
+  pico: {type: device.device, address: "sim:pico"}
+  sync: {type: time.sync, pin: D7, duration: 1.4 s}
   ref: {type: device.stream, channels: [D5], rate: 100 kHz, duration: 1.6 s}
   rec: {type: device.stream, channels: [GP15], rate: 100 kHz, duration: 1.6 s}
-  align: {type: timing.align}
+  align: {type: time.align}
 edges:
   - uno.device -> sync.device
   - la.device -> ref.device
@@ -80,8 +80,8 @@ def test_a_sync_signal_aligns_a_usb_instrument_with_a_reference(tmp_path):
 CALIBRATE = """
 flow: Calibrate
 nodes:
-  pico: {type: device.instrument, address: "sim:pico"}
-  cal: {type: timing.calibrate, pin: GP16, channel: GP17, rate: 100 kHz, repeats: 8}
+  pico: {type: device.device, address: "sim:pico"}
+  cal: {type: time.latency, pin: GP16, channel: GP17, rate: 100 kHz, repeats: 8}
 edges:
   - pico.device -> cal.device
 """
@@ -99,7 +99,7 @@ def test_a_loopback_measures_the_latency_and_streams_use_it(tmp_path):
     flow = """
 flow: S
 nodes:
-  pico: {type: device.instrument, address: "sim:pico"}
+  pico: {type: device.device, address: "sim:pico"}
   rec: {type: device.stream, channels: [GP12], rate: 100 kHz, duration: 0.5 s}
 edges:
   - pico.device -> rec.device
@@ -127,7 +127,7 @@ def test_a_simulator_without_usb_knows_its_time(tmp_path):
     flow = """
 flow: S
 nodes:
-  la: {type: device.instrument, address: "sim:free"}
+  la: {type: device.device, address: "sim:free"}
   rec: {type: device.stream, channels: [D1], rate: 100 kHz, duration: 0.2 s}
 edges:
   - la.device -> rec.device
@@ -140,12 +140,12 @@ edges:
 DAQ = """
 flow: Daq
 nodes:
-  uno: {type: device.instrument, address: "sim:uno"}
-  la: {type: device.instrument, address: "sim:free"}
-  daq: {type: device.instrument, address: "%s"}
-  sync: {type: timing.sync, pin: D7, duration: 1.8 s}
+  uno: {type: device.device, address: "sim:uno"}
+  la: {type: device.device, address: "sim:free"}
+  daq: {type: device.device, address: "%s"}
+  sync: {type: time.sync, pin: D7, duration: 1.8 s}
   ref: {type: device.stream, channels: [D5], rate: 100 kHz, duration: 2 s}
-  align: {type: remote.sync, sync: sync}
+  align: {type: remote.align, sync: sync}
 edges:
   - uno.device -> sync.device
   - la.device -> ref.device
@@ -159,7 +159,7 @@ DAQ_WIRING = "    la: [{from: \"uno:D7\", to: D5}]\n    daq: [{from: \"uno:D7\",
 def test_a_remote_daq_records_openscilabs_sync_signal(tmp_path, address):
     _engine, values = run(DAQ % address, tmp_path, DAQ_WIRING)
     scatter = values["align.uncertainty"][-1].value
-    edges = values["align.edges"][-1].value
+    edges = values["align.matched"][-1].value
     # the DAQ samples at 10 kHz: its edges are at most a sample (100 µs) off, the reference 10 µs
     assert edges >= 10 and scatter < 60e-6
 
@@ -254,11 +254,11 @@ def test_the_time_settings_and_the_card(qapp, tmp_path):
     chosen = dialog.chosen()
     assert chosen["timing.host_clock"] == "ptp" and chosen["timing.host_accuracy"] == pytest.approx(2e-5)
     dialog._forget_latencies()
-    assert dialog.latencies.text() == "none" and timing.stored_latency("Pico|pico:x|stream|100000") is None
+    assert dialog.latencies.text() == "–" and timing.stored_latency("Pico|pico:x|stream|100000") is None
     flow = """
 flow: S
 nodes:
-  pico: {type: device.instrument, address: "sim:pico"}
+  pico: {type: device.device, address: "sim:pico"}
   rec: {type: device.stream, channels: [GP12], rate: 100 kHz, duration: 0.2 s}
 edges:
   - pico.device -> rec.device

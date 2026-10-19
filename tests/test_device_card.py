@@ -53,14 +53,14 @@ def row_of(card, pin: str) -> int:
 
 def test_the_card_shows_the_pins(card):
     tabs = [card.tabs.tabText(index) for index in range(card.tabs.count())]
-    assert tabs == ["Pins", "Signals", "Events", "Send", "Timing", "Details"]
+    assert tabs == ["Pins", "Signals", "Events", "Send", "Timing", "Overview"]
     assert not card.strip.isHidden() and not card.pin_table.isColumnHidden(COL_MODE)
     assert [pin.name for pin in card.strip.pins][:3] == ["D0", "D1", "D2"]
     mode = card.pin_table.cellWidget(row_of(card, "D0"), COL_MODE)
     assert isinstance(mode, QComboBox) and not mode.isEnabled()  # reserved: greyed out
     assert "reserved" in card.pin_table.item(row_of(card, "D0"), COL_CAN).text()
     assert card.pin_table.item(row_of(card, "A0"), COL_CHANNEL).text() == "A0"  # analog input 0
-    assert card.pin_table.item(row_of(card, "D2"), COL_CHANNEL).text() == "0"  # logic channel 0
+    assert card.pin_table.item(row_of(card, "D2"), COL_CHANNEL).text() == "CH1"  # logic channel 0, as the data view numbers it
     modes = card.pin_table.cellWidget(row_of(card, "D9"), COL_MODE)
     assert [modes.itemData(index) for index in range(modes.count())] == ["input", "input_pullup", "output", "pwm"]
     assert not card.grab().isNull()
@@ -130,12 +130,12 @@ def test_actions_are_markers_in_a_running_capture(shell, card, make_dataview, as
     window._begin_capture(session)
     assert wait_for(lambda: window.model.is_live)
     assert card.write("D7", 1)
-    assert [bookmark.name for bookmark in window.model.bookmarks] == ["Simulation: Arduino Uno: D7 = 1"]
+    assert [bookmark.name for bookmark in window.model.bookmarks] == ["Simulated Arduino Uno: D7 = 1"]
     assert wait_for(lambda: not window.driver.is_capturing, 20)
     for _ in range(20):
         QApplication.processEvents()
     names = [bookmark.name for bookmark in window.model.bookmarks]
-    assert names == ["Simulation: Arduino Uno: D7 = 1"]  # kept in the completed capture
+    assert names == ["Simulated Arduino Uno: D7 = 1"]  # kept in the completed capture
     marker = window.model.bookmarks[0].sample
     samples = window.model.session.capture_channels[0].samples
     edge = int(np.argmax(samples))
@@ -160,7 +160,7 @@ def test_recording_the_monitor_into_an_analyzer_document(shell, card, asked):
     assert "D3" in names and [channel.channel_name for channel in session.analog_channels][:1] == ["A0"]
     d3 = session.capture_channels[names.index("D3")].samples
     assert d3[0] == 0 and d3[-1] == 1
-    assert [bookmark.name for bookmark in document.model.bookmarks] == ["Simulation: Arduino Uno: D7 = 1"]
+    assert [bookmark.name for bookmark in document.model.bookmarks] == ["Simulated Arduino Uno: D7 = 1"]
     assert document.dirty
 
 
@@ -195,7 +195,7 @@ def test_capturing_happens_in_the_data_view(shell):
     instrument = open_simulated("free")
     shell.hub.add(instrument)
     card = shell.open_device_card(instrument)
-    assert not hasattr(card, "capture_page") and card.data_button.text() == "Capture..."
+    assert not hasattr(card, "capture_page") and card.data_button.text() == "Data view"
     assert card.start_capture()
     view = card.controller.view
     assert isinstance(view, DataView) and view.source is card.controller and view.instrument is instrument

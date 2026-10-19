@@ -16,7 +16,7 @@ def test_edges_between_the_blocks_of_a_stream_are_counted():
     flow = yaml_io.loads("""
 flow: t
 nodes:
-  la: {type: device.instrument, address: sim:free}
+  la: {type: device.device, address: sim:free}
   stream: {type: device.stream, channels: [D15], rate: 1 MHz, duration: 200 ms}
   count: {type: measure.count, edge: rising}
 edges:
@@ -48,7 +48,7 @@ def test_the_buffer_joins_the_captures_of_a_stream():
     flow = yaml_io.loads("""
 flow: t
 nodes:
-  la: {type: device.instrument, address: sim:free}
+  la: {type: device.device, address: sim:free}
   stream: {type: device.stream, channels: [D15, D8], rate: 1 MHz, duration: 100 ms}
   buffer: {type: data.buffer, length: 30 ms}
 edges:
@@ -70,7 +70,7 @@ def test_a_capture_in_virtual_time_sees_pulses_started_when_it_was_armed():
     flow = yaml_io.loads("""
 flow: t
 nodes:
-  uno: {type: device.instrument, address: sim:uno}
+  uno: {type: device.device, address: sim:uno}
   capture: {type: device.capture, channels: [D3], rate: 100 kHz, samples: 448, trigger: {edge: rising, source: D3}}
   pulse: {type: gpio.pulse, pin: D7, width: 1 ms}
 edges:

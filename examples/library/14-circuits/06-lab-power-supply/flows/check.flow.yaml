@@ -1,0 +1,21 @@
+flow: The supply regulates
+description: A second after power on, with RV_DC at 20 % (46 V) and RV_AC at 0, OUT gives 46 V and the rails are 10 V beyond it.
+nodes:
+  supply: {type: device.device, address: "circuit:circuits/power-supply.circuit.yaml", at: [0, 0]}
+  settled: {type: control.timer, interval: 1 s, count: 1, delay: 1 s, at: [0, 224]}
+  capture: {type: device.capture, channels: [OUT, VPOS, VNEG], rate: 10 kHz, duration: 500 ms, at: [288, 0]}
+  out: {type: measure.mean, at: [576, 0]}
+  pos: {type: measure.mean, at: [576, 224]}
+  neg: {type: measure.mean, at: [576, 448]}
+  out_check: {type: report.check, expected: 46, tolerance: 1.5, unit: V, title: OUT, at: [864, 0]}
+  pos_check: {type: report.check, expected: 56, tolerance: 3, unit: V, title: VPOS, at: [864, 224]}
+  neg_check: {type: report.check, expected: -56, tolerance: 3, unit: V, title: VNEG, at: [864, 448]}
+edges:
+  - supply.device -> capture.device
+  - settled.tick -> capture.arm
+  - capture.OUT -> out.in
+  - capture.VPOS -> pos.in
+  - capture.VNEG -> neg.in
+  - out.out -> out_check.in
+  - pos.out -> pos_check.in
+  - neg.out -> neg_check.in

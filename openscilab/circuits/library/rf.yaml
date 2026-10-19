@@ -1,0 +1,74 @@
+# openSciLab's own components: RF (S-parameter analyses, ngspice 44 or newer)
+- type: rf.port
+  title: Port
+  category: RF
+  prefix: P
+  keywords: port rf s-parameter vna network analyzer impedance
+  description: A port of an S-parameter analysis (pin 1 against pin 2) with its reference impedance; number the ports 1, 2, ...
+  symbol:
+    shapes:
+      - {circle: [0, 0, 14]}
+      - {text: "P", at: [0, -3], size: 9}
+      - {line: [-6, 6, 6, 6]}
+    pins:
+      - {number: "1", name: "+", at: [0, -30], angle: 90, length: 16}
+      - {number: "2", name: "-", at: [0, 30], angle: 270, length: 16}
+    reference: {at: [20, -6], align: left}
+    value: {at: [20, 8], align: left}
+    pin_names: false
+  params:
+    - {name: number, label: Port number, default: "1", min: 1, description: Its number in the S-matrix (S11 is port 1 to port 1).}
+    - {name: impedance, label: Impedance, unit: Ω, default: "50", min: 0, description: The reference impedance.}
+  show: [number, impedance]
+  spice: "{ref:V} {pin.1} {pin.2} DC 0 AC 1 portnum {number} z0 {impedance}"
+
+- type: rf.tline
+  title: Transmission line
+  category: RF
+  prefix: TL
+  keywords: transmission line coax cable stub tline delay
+  description: A lossless transmission line (pins 1-2 one end, 3-4 the other) of its impedance and electrical length.
+  symbol:
+    shapes:
+      - {rect: [-30, -8, 30, 8]}
+      - {line: [-30, 8, 30, 8], width: 2}
+    pins:
+      - {number: "1", at: [-50, 0], angle: 0, length: 20}
+      - {number: "2", at: [-40, 20], angle: 270, length: 12}
+      - {number: "3", at: [50, 0], angle: 180, length: 20}
+      - {number: "4", at: [40, 20], angle: 270, length: 12}
+    reference: {at: [0, -16]}
+    value: {at: [0, 22]}
+    pin_names: false
+  params:
+    - {name: impedance, label: Impedance, unit: Ω, default: "50", min: 0, description: The characteristic impedance.}
+    - {name: length, label: Length, default: "0.1", min: 0, description: The length in metres.}
+    - {name: velocity, label: Velocity factor, default: "0.66", min: 0.01, max: 1, description: "Its speed against the speed of light (coax 0.66, air 1)."}
+  show: [impedance, length]
+  spice: "{ref:T} {pin.1} {pin.2} {pin.3} {pin.4} Z0={impedance} TD={{length/(velocity*299792458)}}"
+
+- type: rf.attenuator
+  title: Attenuator
+  category: RF
+  prefix: AT
+  keywords: attenuator pad pi rf dB
+  description: A resistive Pi attenuator matched to its impedance (pins 1 in, 2 out, 3 ground).
+  symbol:
+    shapes:
+      - {rect: [-24, -14, 24, 14], fill: background}
+      - {text: "dB", at: [0, 0], size: 9}
+    pins:
+      - {number: "1", at: [-40, 0], angle: 0, length: 16}
+      - {number: "2", at: [40, 0], angle: 180, length: 16}
+      - {number: "3", at: [0, 30], angle: 270, length: 16}
+    reference: {at: [0, -22]}
+    value: {at: [0, 40]}
+    pin_names: false
+  params:
+    - {name: value, label: Attenuation, default: "10", min: 0.01, description: The attenuation in dB.}
+    - {name: impedance, label: Impedance, unit: Ω, default: "50", min: 0, description: The impedance it is matched to.}
+  show: [value]
+  spice: |
+    {ref:R}a {pin.1} {pin.3} {{impedance*(10**(value/20)+1)/(10**(value/20)-1)}}
+    {ref:R}b {pin.1} {pin.2} {{impedance*(10**(value/20)-10**(-value/20))/2}}
+    {ref:R}c {pin.2} {pin.3} {{impedance*(10**(value/20)+1)/(10**(value/20)-1)}}

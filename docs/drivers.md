@@ -58,7 +58,7 @@ from `instrument_facets()`, which `Instrument.from_driver()` adds – so the dev
 scripts and the command line all get them; it also keeps the device's watchdog satisfied
 (`core.instrument.KeepAlive`). The capabilities it reports the capabilities it reports (`CAPABILITY_GPIO`,
 `CAPABILITY_ANALOG`, ... in `driver/base.py`, see `facets_of()`) say which facets it has.
-Nothing in the application asks for the kind of device: documents, nodes and the device card
+Nothing in the application asks for the kind of device: documents, nodes and the document of a device
 ask for facets.
 
 The capability strings and the facets they unlock are specified in
@@ -72,12 +72,12 @@ reference for a new device.
 | Facet | A device implements | Used by |
 | --- | --- | --- |
 | `CaptureFacet` | the driver (below) | analyzer documents, `device.capture`/`device.stream` nodes |
-| `GpioFacet` | `pins()`, `set_mode(pin, mode)`, `mode(pin)`, `write(pin, value)`, `write_many(values)`, `read(pin)`, `pulse(pin, width, level, count, period)`, `pwm(pin, frequency, duty)` → actual frequency, `safe_all()`; raise `InstrumentError` for reserved pins | device card, `gpio.*` nodes |
-| `MonitorFacet` | `start(rate, pins, analog)`, `stop()`, `running`; reports go to `_emit(MonitorState)` | device card (monitor, *Record*), `device.monitor` |
-| `AnalogInFacet` | `read(pins)` → volts | `gpio.read` (analog) |
-| `AnalogOutFacet` | `set_voltage(pin, volts)`, `voltage_range(pin)` | device card, `gpio.dac` |
+| `GpioFacet` | `pins()`, `set_mode(pin, mode)`, `mode(pin)`, `write(pin, value)`, `write_many(values)`, `read(pin)`, `pulse(pin, width, level, count, period)`, `pwm(pin, frequency, duty)` → actual frequency, `safe_all()`; raise `InstrumentError` for reserved pins | the device's document, `gpio.*` nodes |
+| `MonitorFacet` | `start(rate, pins, analog)`, `stop()`, `running`; reports go to `_emit(MonitorState)` | the device's document (monitor, *Record*), `device.monitor` |
+| `AnalogInFacet` | `read(pins)` → volts | `gpio.input` (analog) |
+| `AnalogOutFacet` | `set_voltage(pin, volts)`, `voltage_range(pin)` | the device's document, `gpio.analog_output` |
 | `GeneratorFacet` | `outputs()` → `OutputInfo`, `start(output, waveform)`, `stop(output)`, `running(output)`, `sync_out()`; `transmits(protocol)`, `transmit(protocol, data, pins, **settings)` for UART/SPI/I²C sent by the device | waveform document, `gen.*` nodes, *Send* tab |
-| `CacheFacet` | `entries()` → `CacheEntry`, `delete(id)`, `set_limit(bytes)` | *Cache* tab of the device card |
+| `CacheFacet` | `entries()` → `CacheEntry`, `delete(id)`, `set_limit(bytes)` | *Cache* tab of the device's document |
 | `SimulationFacet` | `channel_names()`, `pin_names()`, `scenarios()`, `signals()`, `apply_signals(config)`, `circuit()`, `wires()`, `wiring()`/`set_wiring(wires)`, `profile_wiring()`, `usb()`/`set_usb(usb)`, `knows_time()`, `drift()`/`set_drift(ppm)`, `inject(fault, value)`, `add_event_listener(listener)`; wires to other simulators: `endpoint()`, `follow(net, endpoint, source_net, delay)`, `unfollow(net)`, `trigger_output_net(output)`, `trigger_input_net(name)` (simulators only, `driver/simulated`) | *Signals*, *Events* and *Timing* tabs of a simulator, *Devices → Simulate faults*; the same in the application and in a device process |
 
 Pins are described by `PinInfo` (name, pin capabilities, capture channel, reason when
@@ -110,7 +110,7 @@ Everything else has a default for a simple device and is overridden when the dev
 | `blast_frequency` | 0: no blast mode | the device has a faster single-shot mode |
 | `max_loop_count` | 254 (255 bursts) | 0 hides the burst options |
 | `has_self_test`, `run_self_test()`, `self_test_description` | no self-test | the device can test itself |
-| `describe()` | the identification | board, firmware and connection for the *Details* tab of the device card |
+| `describe()` | the identification | board, firmware and connection for the *Overview* tab of the device's document |
 | `device_details()` | none | the firmware reports details |
 | `supports_bootloader`, `enter_bootloader()` | no | the firmware can be updated from the application |
 | `restart()` (capability `RESTART`) | no | the device can restart on request and answers again on the same connection (*Restart device* on its card) |
@@ -165,12 +165,12 @@ none is connected (like a Pico board in bootloader mode).
 A backend comes to the device list from its plugin, which calls
 `register_backend(MyDeviceBackend())` in its `setup_ui()` ([Plugins](#plugins)); `backends()`
 (`ui/devices/__init__.py`) lists them in the order the plugins load, openSciLab's own first. A kind
-that finds its devices (`detect`) needs no backend at all. Devices are opened from the device list of the shell; the device card then
+that finds its devices (`detect`) needs no backend at all. Devices are opened from the device list of the shell; the device's document then
 captures with them (`ui/devices/capture.py`), the data view shows the captures.
 
 A driver whose firmware the application can update sets `supports_bootloader` (UF2 boards) or
 `firmware_update_method` (`"avrdude"`, `"bossac"`, `"esptool"`, `"adb"`, see
-`core/firmware.py`); *Devices → Install or update firmware…* and the device card offer it then
+`core/firmware.py`); *Devices → Boards and firmware* and the device's document offer it then
 (today only UF2 boards are wired up).
 
 ## Plugins
@@ -224,7 +224,7 @@ kinds.register("mydevice", open_mydevice, title="My analyzer", detect=find_mydev
 | `simulator` | the device is a simulator itself: a simulated flow opens it as it is |
 
 That is all: the device list shows what `detect()` finds and opens it by its address, a flow uses
-`{type: device.instrument, address: "mydevice:/dev/ttyUSB0"}`, the command line
+`{type: device.device, address: "mydevice:/dev/ttyUSB0"}`, the command line
 `openscilab-cli capture -d mydevice:/dev/ttyUSB0 ...` and scripts `api.open("mydevice:...")`. Facets
 beyond captures come from the driver's `instrument_facets()` (see above).
 
@@ -285,6 +285,48 @@ flow. A node type of openSciLab cannot be replaced: a plugin that tries is repor
 fails. `icon` names one of the icons of the application (`openscilab/ui/icons.py`; another name
 shows the icon of nodes). *Help → Plugins…* and `openscilab-cli plugins` list the nodes of each
 plugin; a flow with a node of a plugin that is not there says which plugin it needs.
+
+### Sections and documents of a plugin
+
+A plugin can add an area of its own to the window: an entry of the activity bar with a section of
+the sidebar (beside *Project* and *Devices*) and kinds of documents - files with their endings that
+*File → New*, *File → Open*, the Project section, the session and *Help → Plugins* know. It registers
+them in `setup_ui()` (`openscilab/ui/sections.py`); `examples/plugins/notes_section.py` is a complete
+example, openSciLab's own *Circuits* (`openscilab/plugins/circuits.py`) a large one:
+
+```python
+def setup_ui():
+    from openscilab.ui.icons import register_icon
+    from openscilab.ui.sections import register_document_type, register_section
+
+    register_icon("note", "<path d='M5 3h10l4 4v14H5z'/><path d='M8 12h8M8 16h6'/>")
+    register_section("notes", "Notes", "note", NotesSection, shortcut="Ctrl+Shift+M",
+                     on_show=lambda widget: widget.refresh())
+    register_document_type("note", "Note", (".note.txt",), open_note, new_note, icon="note",
+                           folder="notes", description="A text note of the project")
+```
+
+| `register_section(...)` | Meaning |
+| --- | --- |
+| `key`, `title`, `icon` | its key (lower case letters, digits, `_ - .`; not `project`, `devices`, `nodes`, `start`, `settings`), its name, an icon of `ui/icons.py` or one of `register_icon` |
+| `factory(services)` | builds its widget for a window; `services` is what it may ask of the window (below) |
+| `shortcut`, `on_show(widget)` | a key to show it; called whenever it is shown (to list what changed) |
+
+| `register_document_type(...)` | Meaning |
+| --- | --- |
+| `kind`, `title`, `suffixes` | its `document_kind`, its name (*File → New*, filters, messages), the endings of its files |
+| `open(path, services)` | its document of a file; raises one of `errors` (default `OSError`, `ValueError`) for a file it cannot read |
+| `new(services)` | a new, empty document (`None`: not in *File → New*) |
+| `icon`, `filter`, `folder`, `description` | its icon, the entry of the open dialog, a folder every project has for its files (listed in the Project section), the tool tip of *File → New* |
+
+A document is a `DocumentWidget` (`ui/documents/base.py`): the window shows its tool bar, menus,
+inspector, undo and run state as for its own documents (docs/design.md, rule 7); a document that
+runs something has `runnable` and the run protocol, and a `fast_box` (a `Switch`) for *Real time |
+Virtual time*. `services` (`ui/shell/services.py`) offers `open_file`, `add_document`, `activate`,
+`active_document`, `documents`, `active_project` with the signal `project_changed`,
+`active_document_changed`, `documents_changed`, `notify`, `select_section`, `show_settings`,
+`show_data`, `remember`, `data_folder(document)`, `hub` and `window` (only as the parent of dialogs). A section that cannot be
+built is reported like a plugin that failed; the window opens without it.
 
 ## Tests
 

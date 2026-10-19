@@ -589,7 +589,7 @@ def test_run_a_dsl_script_and_override_a_device(tmp_path, capsys):
         "from openscilab.lab import flow, nodes as n\n"
         "with flow('Script') as f:\n"
         "    dev = f.device('dev', 'pico:/dev/none')\n"
-        "    n.device.capture(dev, channels=['D15'], samples=100) >> n.data.file(path='x.csv')\n"
+        "    n.device.capture(dev, channels=['D15'], samples=100) >> n.data.write(path='x.csv')\n"
         "f.run()  # does nothing under 'openscilab run'\n"
     )
     status = cli.main(["run", str(script), "--fast", "--device", "dev=sim:free", "--data-dir", str(tmp_path), "-q"])
@@ -601,7 +601,7 @@ def test_run_a_flow_of_the_project_by_its_name(tmp_path, monkeypatch, capsys):
     (tmp_path / "project.yaml").write_text("project: P\ndevices:\n  la: sim:free\n")
     (tmp_path / "flows").mkdir()
     (tmp_path / "flows" / "count.flow.yaml").write_text(
-        "flow: Count\nnodes:\n  la: {type: device.instrument}\n"
+        "flow: Count\nnodes:\n  la: {type: device.device}\n"
         "  cap: {type: device.capture, channels: [D15], rate: 1 MHz, samples: 1000}\n"
         "  n: {type: measure.count}\nedges:\n  - la.device -> cap.device\n  - cap.D15 -> n.in\n")
     monkeypatch.chdir(tmp_path)

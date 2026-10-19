@@ -60,7 +60,7 @@ class MeasureDialog(QDialog):
         parent: Optional[QWidget] = None,
     ) -> None:
         super().__init__(parent)
-        self.setWindowTitle("Measurements")
+        self.setWindowTitle("Measure")
         self.resize(1120, 440)
 
         layout = dialog_layout(self)

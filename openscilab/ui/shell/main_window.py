@@ -8,14 +8,16 @@
 
 ::
 
-    ┌ header: project · Ctrl+K · Start/Stop/Pause · devices ───────────────────────────┐
-    │ activity │ sidebar  │ documents (tab groups, splitters)        │ inspector       │
-    │  bar     │          ├──────────────────────────────────────────┴─────────────────┤
-    │          │          │ console: problems · execution · log · python               │
-    └ status ──────────────────────────────────────────────────────────────────────────┘
+    ┌ header: logo · Ctrl+K · New ▾ Open Save · Examples ▾ · Run Pause Stop · time · devices ┐
+    │ activity │ sidebar  │ documents (tab groups, splitters)        │ inspector             │
+    │  bar     │          ├──────────────────────────────────────────┴───────────────────────┤
+    │          │          │ console: problems · execution · log · python                     │
+    └ status: note · problems · run · time · unsaved ────────────────────────────────────────┘
 
-Documents (:mod:`..documents`) bring their menus, actions and toolbar; the shell shows the menus
-of the active document between *Edit* and *View* and passes *Save*, *Save as* and *Close* on.
+Documents (:mod:`..documents`) bring their menus, actions and tool bar; the shell shows the menus
+of the active document between *Edit* and *View*, passes *Save*, *Save as* and *Close* on and
+drives what the document runs (*Run*, the run protocol of ``documents/base.py``). The rules all
+parts follow are in ``docs/design.md``.
 """
 
 from __future__ import annotations
@@ -52,26 +54,28 @@ from PySide6.QtWidgets import (
 import openscilab
 
 from ... import __version__
-from ...core import fuzzy, preferences, recent, settings
+from ...core import preferences, recent, settings
 from ...core.hub import EVENT_REMOVED, Hub
 from ...core.instrument import Instrument, InstrumentStatus
 from ...driver.base import BoardMismatchError, DeviceConnectionError, FirmwareOutdatedError
 from ...driver.simulated import follow_routes
 from ...sigrok.provider import SigrokProvider
 from .. import background, devices, messages
+from .. import sections as plugin_sections
 from ..devices.hub_bridge import HubBridge
 from ..devices.simulated import fill_simulation_menu
 from ..dialogs.device_dialogs import AboutDialog
 from ..documents.dataview import DataView
 from ..documents.base import Document
-from ..documents.chart import view_document
+from ..documents.chart import CHART_KINDS, VALUE_KINDS, ViewsDocument
 from ..documents.device import DeviceDocument
 from ..documents.flow import FlowDocument, open_flow_file
 from ..documents.panel import PanelDocument, open_panel_file
 from ..documents.waveform import WAVE_EXTENSIONS, WaveformDocument, open_waveform_file
 from ..flow.palette import NodePalette
-from ..icons import app_icon, icon, logo_pixmap, set_icon
-from ..theme import ACCENT, TEXT_MUTED, apply_palette, build_stylesheet, icon_px, set_role, set_variant, shell_stylesheet
+from ..icons import app_icon, icon, known, logo_pixmap, set_icon
+from ..theme import apply_palette, build_stylesheet, icon_px, set_role, set_variant, shell_stylesheet
+from ..theme import token as theme_token
 from .activity_bar import ActivityBar
 from .command_palette import (
     Command,
@@ -84,13 +88,18 @@ from .console import Console
 from .console import Problem as ConsoleProblem
 from .documents import DocumentArea
 from .inspector import Inspector
-from .sidebar import ProjectSection, SearchSection, Sidebar, data_kind
+from .services import ShellServices
+from .sidebar import ProjectSection, Sidebar, data_kind
 from .start_page import StartPage, native
+
+
+#: the size of the mark at the start of the header (logical pixels)
+LOGO_SIZE = 34
 
 log = logging.getLogger(__name__)
 
 DOCUMENTATION_URL = "https://github.com/deckerjulian/openSciLab/wiki"
-UPSTREAM_DOCUMENTATION_URL = "https://github.com/gusmanb/logicanalyzer/wiki"
+
 SHELL_STATE_FILE = "shell-state.json"
 LAYOUTS_FILE = "shell-layouts.json"
 #: Version of the dock layout stored by the shell (a newer layout ignores older ones).
@@ -115,7 +124,7 @@ class DevicesSection(QWidget):
     #: how often the rows of the connected devices show what they do now, while the list is shown (ms)
     STATUS_INTERVAL_MS = 1000
 
-    #: an open instrument was chosen (device card)
+    #: an open instrument was chosen (its document)
     instrument_activated = Signal(object)
     #: a device list entry was chosen (connect it)
     entry_activated = Signal(object)
@@ -159,11 +168,11 @@ class DevicesSection(QWidget):
             "unplug", "Disconnect all devices...", self.disconnect_all_requested.emit)
         self.list = QListWidget(self)
         self.list.setFrameShape(QFrame.NoFrame)
-        self.list.setToolTip("Double-click to connect")
+        self.list.setToolTip("Click a device to connect it")
+        # one click connects a device (as everywhere in the sidebar, a click opens), and opens or
+        # closes the group of the simulators
         self.list.itemActivated.connect(self._entry_activated)
-        # the group of the simulators opens and closes with one click
-        self.list.itemClicked.connect(lambda item: item.data(Qt.UserRole) == SIMULATOR_GROUP
-                                      and self.toggle_simulators())
+        self.list.itemClicked.connect(self._entry_clicked)
         self.available_part = self.parts.add(Part("available", "Available", self.list), 2)
         self.available_part.add_button("refresh", "Look for devices again", lambda: self.refresh())
         # boards that cannot be used yet (e.g. without the firmware of this application)
@@ -187,17 +196,19 @@ class DevicesSection(QWidget):
         layout.addWidget(self.firmware_button)
         buttons = QHBoxLayout()
         buttons.setContentsMargins(6, 4, 6, 0)
-        self.hardware_button = QPushButton("Hardware...", self)
+        self.hardware_button = QPushButton("Boards and firmware", self)
         set_icon(self.hardware_button, "chip")
-        self.hardware_button.setToolTip("Every board and device with its firmware; install or update the firmware")
+        self.hardware_button.setToolTip("Every board on this computer with its firmware: install or update it")
         self.hardware_button.clicked.connect(self.hardware_requested.emit)
         buttons.addWidget(self.hardware_button, 1)
-        self.refresh_button = QPushButton("Refresh", self)
-        set_icon(self.refresh_button, "refresh")
-        self.refresh_button.clicked.connect(self.refresh)
-        buttons.addWidget(self.refresh_button)
         layout.addLayout(buttons)
         self.refresh_open()
+
+    def _entry_clicked(self, item: QListWidgetItem) -> None:
+        if item.data(Qt.UserRole) == SIMULATOR_GROUP:
+            self.toggle_simulators()
+        else:
+            self._entry_activated(item)
 
     def show_error(self, text: str) -> None:
         self.error_banner.set_message(html.escape(text), "Dismiss" if text else None)
@@ -220,10 +231,10 @@ class DevicesSection(QWidget):
             return
         instrument = item.data(Qt.UserRole)
         menu = QMenu(self)
-        menu.addAction(icon("devices"), "Device card", lambda: self.instrument_activated.emit(instrument))
-        menu.addAction(icon("nodes"), "Add to the flow", lambda: self.flow_node_requested.emit(instrument))
+        menu.addAction(icon("devices"), "Open", lambda: self.instrument_activated.emit(instrument))
+        menu.addAction(icon("nodes"), "Use in a flow", lambda: self.flow_node_requested.emit(instrument))
         if instrument.capture is not None:
-            menu.addAction(icon("channels"), "Show data", lambda: self.data_requested.emit(instrument))
+            menu.addAction(icon("channels"), "Data view", lambda: self.data_requested.emit(instrument))
         menu.addSeparator()
         menu.addAction(icon("unplug"), "Disconnect", lambda: self.disconnect_requested.emit(instrument))
         if len(self.hub) > 1:
@@ -300,7 +311,7 @@ class DevicesSection(QWidget):
         for entry in detected:
             item = QListWidgetItem(icon("chip"), entry.label, self.list)
             item.setData(Qt.UserRole, entry)
-            item.setToolTip("Double-click to connect")
+            item.setToolTip("Click to connect")
         if not detected:
             item = QListWidgetItem("No device detected", self.list)
             item.setFlags(Qt.NoItemFlags)
@@ -321,10 +332,9 @@ class DevicesSection(QWidget):
             font.setBold(True)
             group.setFont(font)
             for entry in simulated if opened else []:
-                item = QListWidgetItem(icon("plus"), "    " + entry.label.removeprefix("Simulation: ").removeprefix(
-                    "Simulated ").replace(" (firmware protocol)", ", firmware protocol"), self.list)
+                item = QListWidgetItem(icon("plus"), "    " + simulator_label(entry.label), self.list)
                 item.setData(Qt.UserRole, entry)
-                item.setToolTip(entry.label)
+                item.setToolTip(f"{entry.label}: click to connect")
         notice = None
         for backend in devices.backends():
             try:
@@ -341,6 +351,13 @@ class DevicesSection(QWidget):
 
 #: the item of the device list that opens and closes the simulators
 SIMULATOR_GROUP = "simulators"
+
+
+def simulator_label(label: str) -> str:
+    """The name of a simulator in the group of the simulators (*Arduino Uno*, not *Simulated
+    Arduino Uno*: the group says it)."""
+    return label.removeprefix("Simulated ").replace(
+        " (firmware protocol)", ", firmware protocol")
 
 
 def drives_outputs(instrument: Instrument) -> bool:
@@ -376,7 +393,7 @@ def ports_of(instrument: Instrument) -> list[str]:
 
 
 def device_node_id(instrument: Instrument) -> str:
-    """A node id for an instrument (``uno`` for *Simulation: Arduino Uno* at ``sim:uno``)."""
+    """A node id for an instrument (``uno`` for *Simulated Arduino Uno* at ``sim:uno``)."""
     import re
 
     base = instrument.uri.split(":", 1)[-1].split("/")[-1] if instrument.uri else instrument.name
@@ -399,6 +416,10 @@ class ShellWindow(QMainWindow):
         from ... import plugins
 
         plugins.load(ui=True)  # devices of plugins: before the device list asks for them
+        #: what sections and documents of plugins may ask of the window (ui/sections.py)
+        self.services = ShellServices(self)
+        #: the sections of plugins in this window: key -> (spec, widget)
+        self._plugin_sections: dict[str, tuple] = {}
         self.setWindowIcon(app_icon())
         self.resize(1440, 900)
         apply_palette(self)
@@ -451,13 +472,19 @@ class ShellWindow(QMainWindow):
         self.area.active_changed.connect(self._on_active_changed)
         self.area.document_updated.connect(self._sync_document_state)
         self.area.documents_changed.connect(self._on_documents_changed)
+        self.area.documents_changed.connect(self.services.documents_changed)
         self.hub_bridge.changed.connect(self._on_hub_event)
 
         self.start_page: Optional[StartPage] = None
         self._default_state = self.saveState(SHELL_LAYOUT_VERSION)
         #: the docks take their widths when the window is shown (before, the sidebar gets the room of
         #: the hidden node palette as well); not when a layout of the user was restored
+        # the sidebar starts folded away the first time (the activity bar or Ctrl+B opens it, at a
+        # sensible width); afterwards as it was left
+        self._sidebar_opened = False
+        self.activity_bar.set_sidebar_visible(False)
         self._docks_sized = bool(restore_state and self._restore_state())
+        self.sidebar_dock.visibilityChanged.connect(self._sidebar_shown)
         self._on_active_changed(None)
         self._update_title()
 
@@ -471,58 +498,71 @@ class ShellWindow(QMainWindow):
         bar.setIconSize(QSize(icon_px(14), icon_px(14)))
         self.logo = self._logo(bar)
         self.palette_button = QPushButton(f"Search commands...   {native('Ctrl+K')}", bar)
-        set_icon(self.palette_button, "command")
-        self.palette_button.setToolTip(f"Search the commands, files and nodes ({native('Ctrl+K')})")
+        set_icon(self.palette_button, "search")
+        self.palette_button.setToolTip(f"Every command, open document and recent file, by name ({native('Ctrl+K')})")
         self.palette_button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.palette_button.setMaximumWidth(360)
         self.palette_button.clicked.connect(self.show_command_palette)
-        # Run controls of the active flow (enabled by flow documents, step 0c/0d).
-        self.run_button = QPushButton("Start", bar)
+        # Run, Pause and Stop of the active document - a flow, a panel, a capture, a waveform
+        # (docs/design.md, rule 3: no document has run buttons of its own)
+        self.run_button = QPushButton("Run", bar)
         set_variant(self.run_button, "primary")
         set_icon(self.run_button, "play")
         self.pause_button = QPushButton("Pause", bar)
         set_variant(self.pause_button, "tool")
         set_icon(self.pause_button, "pause")
-        self.pause_button.setToolTip("Pause")
+        self.pause_button.setToolTip(f"Pause the run ({native('F6')})")
         self.stop_button = QPushButton("Stop", bar)
         set_variant(self.stop_button, "danger")
         set_icon(self.stop_button, "stop")
-        self.stop_button.setToolTip("Stop")
+        self.stop_button.setToolTip(f"Stop ({native('Shift+F5')})")
         for button in (self.run_button, self.pause_button, self.stop_button):
             button.setEnabled(False)
         self.run_button.clicked.connect(lambda: self._run_command("start_run"))
         self.pause_button.clicked.connect(lambda: self._run_command("pause_run"))
         self.stop_button.clicked.connect(lambda: self._run_command("stop_run"))
+        # how the time of the active flow or panel passes: two halves of one switch
+        self.time_switch = QWidget(bar)
+        self.time_switch.setObjectName("segmented")
+        time_layout = QHBoxLayout(self.time_switch)
+        time_layout.setContentsMargins(0, 0, 0, 0)
+        time_layout.setSpacing(0)
+        self.real_time_button = QToolButton(self.time_switch)
+        self.real_time_button.setText("Real time")
+        self.real_time_button.setToolTip("The flow runs with the clock: devices as they are")
+        self.virtual_time_button = QToolButton(self.time_switch)
+        self.virtual_time_button.setText("Virtual time")
+        self.virtual_time_button.setToolTip("The flow runs as fast as it can in a time of its own, with the same "
+                                            "result every run (simulators only)")
+        for position, button in (("first", self.real_time_button), ("last", self.virtual_time_button)):
+            button.setCheckable(True)
+            button.setProperty("segment", position)
+            button.setAutoRaise(False)
+            time_layout.addWidget(button)
+        self.real_time_button.clicked.connect(lambda: self.set_virtual_time(False))
+        self.virtual_time_button.clicked.connect(lambda: self.set_virtual_time(True))
         self.header = bar
         self.addToolBar(Qt.TopToolBarArea, bar)
 
     def _logo(self, parent: QWidget) -> QWidget:
-        """The mark and the name of openSciLab."""
+        """The mark of openSciLab (its name in the tooltip: the mark stands for itself)."""
         widget = QWidget(parent)
         widget.setObjectName("logo")
         widget.setToolTip(f"openSciLab {__version__}")
+        widget.setAccessibleName("openSciLab")
         layout = QHBoxLayout(widget)
-        layout.setContentsMargins(2, 0, 4, 0)
-        layout.setSpacing(6)
+        layout.setContentsMargins(4, 0, 6, 0)
         mark = QLabel(widget)
-        mark.setPixmap(logo_pixmap(28, self.devicePixelRatioF() or 1.0))
+        mark.setPixmap(logo_pixmap(LOGO_SIZE, self.devicePixelRatioF() or 1.0))
         layout.addWidget(mark)
-        name = QLabel(widget)
-        name.setTextFormat(Qt.RichText)
-        name.setText(f"<span style='color:{TEXT_MUTED}; font-weight:400'>open</span>"
-                     f"<span style='color:{ACCENT}; font-weight:700'>Sci</span>"
-                     f"<span style='font-weight:700'>Lab</span>")
-        set_role(name, "heading")
-        layout.addWidget(name)
         return widget
 
     def _build_activity_and_sidebar(self) -> None:
         self.activity_bar = ActivityBar(self)
         self.activity_bar.add_section("project", "Project", "folder", "Ctrl+Shift+E")
         self.activity_bar.add_section("devices", "Devices", "devices", "Ctrl+Shift+D")
-        self.activity_bar.add_section("search", "Search", "search", "Ctrl+Shift+F")
         self.action_start_page = QAction(icon("home"), "Start", self)
-        self.action_start_page.setToolTip("The start page: templates, recent files")
+        self.action_start_page.setToolTip("The start page: simulators, devices, examples, recent files")
         self.action_start_page.triggered.connect(self.show_start_page)
         self.activity_bar.add_command("start", self.action_start_page)
         self.action_activity_settings = QAction(icon("gear"), "Settings", self)
@@ -553,6 +593,7 @@ class ShellWindow(QMainWindow):
         self.devices_section.disconnect_requested.connect(self.disconnect_instrument)
         self.devices_section.disconnect_all_requested.connect(self.disconnect_all)
         self.sidebar.add_section("devices", "Devices", self.devices_section)
+        self._add_plugin_sections()
         # the node palette: beside the flow that is edited (see _update_nodes_dock), not a section
         self.nodes_section = NodePalette(parent=self)
         self.nodes_section.node_requested.connect(self._add_node_to_active_flow)
@@ -560,8 +601,6 @@ class ShellWindow(QMainWindow):
         self.devices_section.firmware_requested.connect(self.show_hardware)
         self.devices_section.hardware_requested.connect(self.show_hardware)
         self._refresh_device_presets()
-        self.search_section = SearchSection(self._search, self.sidebar)
-        self.sidebar.add_section("search", "Search", self.search_section)
 
         self.sidebar_dock = QDockWidget("Sidebar", self)
         self.sidebar_dock.setObjectName("sidebar-dock")
@@ -648,14 +687,40 @@ class ShellWindow(QMainWindow):
         if not first and self.sidebar_dock.isVisible() and self.sidebar.current_key == "devices":
             self.devices_section.refresh()
 
+    def _add_plugin_sections(self) -> None:
+        """The sections plugins added (``ui/sections.py``), after Project and Devices; one that cannot
+        be built is reported like a plugin that failed, the window opens."""
+        from ... import plugins
+
+        for spec in plugin_sections.sections():
+            try:
+                widget = spec.factory(self.services)
+            except Exception as error:  # noqa: BLE001 - a plugin must not stop the window
+                log.warning("The section %s of %s could not be built", spec.key, spec.module, exc_info=True)
+                plugins.section_failed(spec.module, error)
+                continue
+            self.activity_bar.add_section(spec.key, spec.title, known(spec.icon, "layers"), spec.shortcut)
+            self.sidebar.add_section(spec.key, spec.title, widget)
+            self._plugin_sections[spec.key] = (spec, widget)
+
+    def plugin_section(self, key: str) -> Optional[QWidget]:
+        """The widget of the section ``key`` of a plugin in this window."""
+        entry = self._plugin_sections.get(key)
+        return entry[1] if entry else None
+
     def _show_section(self, key: str) -> None:
         self.sidebar.show_section(key)
         if key == "devices":
             self.devices_section.refresh()
         elif key == "project":
             self.project_section.refresh_recent()
-        elif key == "search":
-            self.search_section.input.setFocus()
+        elif key in self._plugin_sections:
+            spec, widget = self._plugin_sections[key]
+            if spec.on_show is not None:
+                try:
+                    spec.on_show(widget)
+                except Exception:  # noqa: BLE001 - reported, the section stays
+                    log.warning("The section %s could not be refreshed", key, exc_info=True)
 
     def _build_inspector(self) -> None:
         self.inspector = Inspector(self)
@@ -676,6 +741,10 @@ class ShellWindow(QMainWindow):
         self.console_dock = QDockWidget("Console", self)
         self.console_dock.setObjectName("console-dock")
         self.console_dock.setWidget(self.console)
+        # like the sidebar and the inspector: no title bar of its own (its tabs say what it is, Ctrl+J
+        # and View → Console show and hide it)
+        self.console_dock.setTitleBarWidget(QWidget(self.console_dock))
+        self.console_dock.setFeatures(QDockWidget.DockWidgetClosable)
         self.addDockWidget(Qt.BottomDockWidgetArea, self.console_dock)
         self.resizeDocks([self.console_dock], [170], Qt.Vertical)
         # The console starts closed; Ctrl+J opens it.
@@ -685,19 +754,29 @@ class ShellWindow(QMainWindow):
 
     def _build_status(self) -> None:
         status = QStatusBar(self)
-        self.mode_label = QLabel("Real time", status)
-        status.addPermanentWidget(self.mode_label)
-        self.devices_label = QLabel("No devices", status)
-        status.addPermanentWidget(self.devices_label)
-        self.saved_label = QLabel("", status)
-        status.addPermanentWidget(self.saved_label)
         # errors and warnings of the open flows; a click shows them
-        self.problems_button = QPushButton("", status)
-        self.problems_button.setFlat(True)
+        self.problems_button = QToolButton(status)
+        self.problems_button.setObjectName("status-problems")
+        self.problems_button.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+        self.problems_button.setAutoRaise(True)
         self.problems_button.setToolTip("Problems of the open flows (click to show them)")
         self.problems_button.clicked.connect(lambda: self.show_console("Problems"))
         self.problems_button.setVisible(False)
-        status.insertPermanentWidget(0, self.problems_button)
+        status.addPermanentWidget(self.problems_button)
+        self.mode_label = QLabel("Real time", status)
+        status.addPermanentWidget(self.mode_label)
+        # the connected devices; a click shows the device list
+        self.devices_label = QToolButton(status)
+        self.devices_label.setObjectName("status-devices")
+        self.devices_label.setText("No devices")
+        self.devices_label.setIcon(icon("devices"))
+        self.devices_label.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+        self.devices_label.setAutoRaise(True)
+        self.devices_label.setToolTip("The connected devices (click to show the device list)")
+        self.devices_label.clicked.connect(lambda: self.activity_bar.select("devices"))
+        status.addPermanentWidget(self.devices_label)
+        self.saved_label = QLabel("", status)
+        status.addPermanentWidget(self.saved_label)
         self.setStatusBar(status)
         status.messageChanged.connect(lambda text: text and self.console.message(text))
 
@@ -718,20 +797,33 @@ class ShellWindow(QMainWindow):
     def _build_menus(self) -> None:
         menu_bar = self.menuBar()
 
-        # ---------------------------------------------------------- Project
-        self.project_menu = menu_bar.addMenu("&Project")
+        # ------------------------------------------------------------- File
+        self.project_menu = menu_bar.addMenu("&File")
+        # (one order everywhere: this menu, the header's New, the start page)
         self.new_menu = self.project_menu.addMenu(icon("file-plus"), "&New")
-        self.action_new_data_view = self._action("&Data view", self.new_data_view, icon_name="channels")
-        self.new_menu.addAction(self.action_new_data_view)
         self.action_new_flow = self._action("&Flow", self.new_flow, QKeySequence.New, icon_name="nodes")
         self.new_menu.addAction(self.action_new_flow)
-        self.action_new_waveform = self._action("&Waveform", self.new_waveform, icon_name="wave")
-        self.new_menu.addAction(self.action_new_waveform)
         self.action_new_panel = self._action("&Panel", self.new_panel, icon_name="panel")
         self.new_menu.addAction(self.action_new_panel)
-        self.action_new_project = self._action("New pro&ject...", self.new_project_dialog,
-                                               icon_name="file-plus")
-        self.project_menu.addAction(self.action_new_project)
+        self.action_new_data_view = self._action("&Data view", self.new_data_view, icon_name="channels")
+        self.new_menu.addAction(self.action_new_data_view)
+        self.action_new_waveform = self._action("&Waveform", self.new_waveform, icon_name="wave")
+        self.new_menu.addAction(self.action_new_waveform)
+        #: File → New entries of the kinds of documents of plugins: kind -> action
+        self.plugin_new_actions: dict[str, QAction] = {}
+        for spec in plugin_sections.document_types():
+            if spec.new is None:
+                continue
+            action = self._action(f"&{spec.title}", lambda kind=spec.kind: self.new_document(kind),
+                                  icon_name=known(spec.icon, "file-plus"))
+            if spec.description:
+                action.setToolTip(spec.description)
+            self.new_menu.addAction(action)
+            self.plugin_new_actions[spec.kind] = action
+        self.new_menu.addSeparator()
+        self.action_new_project = self._action("Pro&ject from an example...", self.new_project_dialog,
+                                               icon_name="layers")
+        self.new_menu.addAction(self.action_new_project)
         self.action_open = self._action("&Open file...", self.open_file_dialog, QKeySequence.Open, "folder")
         self.project_menu.addAction(self.action_open)
         self.action_open_project = self._action("Open pro&ject...", self.open_project_dialog, "Ctrl+Shift+O",
@@ -745,10 +837,12 @@ class ShellWindow(QMainWindow):
         self.project_menu.addAction(self.action_save)
         self.action_save_as = self._action("Save &as...", self.save_active_as, "Ctrl+Shift+S", "save")
         self.project_menu.addAction(self.action_save_as)
-        self.action_save_project = self._action("Save &project as...", lambda: self.save_project_as(), icon_name="folder")
+        self.action_save_project = self._action("Save &project as...", lambda: self.save_project_as(), icon_name="layers")
         self.project_menu.addAction(self.action_save_project)
         self.action_save_template = self._action("Save project as &template...", self.save_as_template,
                                                  icon_name="bookmark")
+        self.action_save_template.setToolTip("Keep the project as a template of your own: the start page and "
+                                             "Examples offer it first")
         self.project_menu.addAction(self.action_save_template)
         self.action_close = self._action("&Close document", self.close_active, QKeySequence("Ctrl+W"), "close")
         self.project_menu.addAction(self.action_close)
@@ -814,6 +908,25 @@ class ShellWindow(QMainWindow):
         self._rebuild_layout_menu()
         self.view_menu.addAction(self.action_start_page)
 
+        # -------------------------------------------------------------- Run
+        # what the active document runs: a flow, a panel, a capture, a waveform
+        self.run_menu = menu_bar.addMenu("&Run")
+        self.action_run = self._action("&Run", lambda: self._run_command("start_run"), "F5", "play")
+        self.action_pause = self._action("&Pause", lambda: self._run_command("pause_run"), "F6", "pause")
+        self.action_step = self._action("S&tep", lambda: self._run_command("step_run"), "F10", "arrow-right")
+        self.action_stop = self._action("&Stop", lambda: self._run_command("stop_run"), "Shift+F5", "stop")
+        for action in (self.action_run, self.action_pause, self.action_step, self.action_stop):
+            self.run_menu.addAction(action)
+        self.run_menu.addSeparator()
+        self.action_virtual_time = self._action("&Virtual time", lambda: self.set_virtual_time(
+            self.action_virtual_time.isChecked()), checkable=True)
+        self.action_virtual_time.setToolTip("Run the flow as fast as it can in a time of its own (simulators only)")
+        self.run_menu.addAction(self.action_virtual_time)
+        self.action_simulate = self._action("Use &simulators for every device", lambda: self.set_simulated(
+            self.action_simulate.isChecked()), checkable=True)
+        self.action_simulate.setToolTip("Run the flow with a simulator in place of each of its devices")
+        self.run_menu.addAction(self.action_simulate)
+
         # ---------------------------------------------------------- Devices
         self.devices_menu = menu_bar.addMenu("De&vices")
         self.action_connect = self._action("&Connect...", self.connect_dialog, "Ctrl+Shift+K", icon_name="plug")
@@ -821,9 +934,9 @@ class ShellWindow(QMainWindow):
         self.devices_menu.addAction(self._action("Show the &device list", lambda: self.activity_bar.select("devices"),
                                                  icon_name="devices"))
         self.devices_menu.addSeparator()
-        # the open devices: their card, their data, disconnecting them (rebuilt when the menu opens)
-        self.card_menu = self.devices_menu.addMenu(icon("devices"), "Device &card")
-        self.data_menu_devices = self.devices_menu.addMenu(icon("channels"), "Show &data")
+        # the open devices: their document, their data view, disconnecting them (rebuilt when the menu opens)
+        self.card_menu = self.devices_menu.addMenu(icon("devices"), "&Open device")
+        self.data_menu_devices = self.devices_menu.addMenu(icon("channels"), "&Data view of")
         self.disconnect_menu = self.devices_menu.addMenu(icon("unplug"), "D&isconnect")
         self.action_disconnect_all = self._action("Disconnect &all devices...", self.disconnect_all,
                                                   icon_name="unplug")
@@ -831,31 +944,28 @@ class ShellWindow(QMainWindow):
         self.devices_menu.aboutToShow.connect(self._fill_device_menus)
         self._fill_device_menus()
         self.devices_menu.addSeparator()
-        self.action_hardware = self._action("Connected &hardware", self.show_hardware, icon_name="chip")
+        self.action_hardware = self._action("&Boards and firmware", self.show_hardware, icon_name="chip")
+        self.action_hardware.setToolTip("Every board on this computer with its firmware: install or update it")
         self.devices_menu.addAction(self.action_hardware)
-        self.action_update_firmware = self._action("Install or &update firmware...", self.show_hardware,
-                                                   icon_name="chip")
-        self.devices_menu.addAction(self.action_update_firmware)
-        self.devices_menu.addAction(self._action("&Forget multi device sets...", self.forget_known_devices,
-                                                 icon_name="trash"))
-        self.simulation_menu = self.devices_menu.addMenu(icon("chip"), "Simulate &faults")
+        self.simulation_menu = self.devices_menu.addMenu(icon("warning"), "Simulated &faults")
         self.simulation_menu.aboutToShow.connect(lambda: fill_simulation_menu(self.simulation_menu, self.hub))
         fill_simulation_menu(self.simulation_menu, self.hub)
+        self.devices_menu.addAction(self._action("&Forget sets of several Picos...", self.forget_known_devices,
+                                                 icon_name="trash"))
 
-        # ------------------------------------------------------------- Help
-        # --------------------------------------------------------- Templates
+        # --------------------------------------------------------- Examples
         # every project of the library, a sub menu per category; one opens as a copy to start from
-        self.examples_menu = menu_bar.addMenu("&Templates")
+        self.examples_menu = menu_bar.addMenu("E&xamples")
         self._build_examples_menu()
 
+        # ------------------------------------------------------------- Help
         self.help_menu = menu_bar.addMenu("&Help")
         self.help_menu.addAction(self._action("&Keyboard shortcuts...", self.show_shortcuts, icon_name="keyboard"))
         self.help_menu.addAction(self._action("Online &documentation",
                                               lambda: webbrowser.open(DOCUMENTATION_URL), icon_name="book"))
-        self.help_menu.addAction(self._action("Online documentation of the &original software (gusmanb)",
-                                              lambda: webbrowser.open(UPSTREAM_DOCUMENTATION_URL), icon_name="book"))
-        self.help_menu.addAction(self._action("Decoder search &paths...", self.show_decoder_paths, icon_name="folder"))
-        self.help_menu.addAction(self._action("P&lugins...", self.show_plugins, icon_name="folder"))
+        self.help_menu.addSeparator()
+        self.help_menu.addAction(self._action("Protocol &decoders...", self.show_decoder_paths, icon_name="list"))
+        self.help_menu.addAction(self._action("P&lugins...", self.show_plugins, icon_name="layers"))
         self.help_menu.addAction(self._action("Open the &log folder", self.open_log_folder, icon_name="folder"))
         self.help_menu.addSeparator()
         self.help_menu.addAction(self._action("&About openSciLab", lambda: AboutDialog(self).exec(), icon_name="info"))
@@ -868,20 +978,33 @@ class ShellWindow(QMainWindow):
         return self.area.active_document()
 
     def add_document(self, document: QWidget, activate: bool = True) -> QWidget:
+        # what every document tells the shell: notes for the status bar, the state of its run
+        message = getattr(document, "message", None)
+        if message is not None:
+            message.connect(self.notify)
+        run_state = getattr(document, "run_state_changed", None)
+        if run_state is not None:
+            run_state.connect(self._run_state_changed)
+        for switch in (getattr(document, "fast_box", None), getattr(document, "sim_box", None)):
+            if switch is not None:
+                switch.toggled.connect(lambda _checked: self._update_run_buttons())
         if isinstance(document, FlowDocument):
             self._wire_flow_document(document)
         elif isinstance(document, DataView):
             document.play_requested.connect(self.new_waveform)
+            document.inspector_requested.connect(lambda: self.inspector_dock.setVisible(True))
             document.device_card_requested.connect(self.open_device_card)
             document.devices_requested.connect(lambda: self.activity_bar.select("devices"))
         elif isinstance(document, PanelDocument):
             document.flow_provider = self.open_flow_document
             document.flow_requested.connect(self.show_document_or_file)
             document.execution_line.connect(self.console.execution.add)
-            document.run_state_changed.connect(self._run_state_changed)
-            document.fast_box.toggled.connect(lambda _checked: self._update_run_buttons())
         self.area.add_document(document, activate=activate)
         return document
+
+    def notify(self, text: str, timeout: int = 6000) -> None:
+        """A short note in the status bar (and the log of the console): what was done, what passed."""
+        self.statusBar().showMessage(text, timeout)
 
     def decoders(self):
         """The decoders of a new data view: its own list, the decoder registry shared by all."""
@@ -908,6 +1031,15 @@ class ShellWindow(QMainWindow):
                 return document
         return None
 
+    def new_document(self, kind: str) -> Optional[QWidget]:
+        """A new document of a kind a plugin added (*File → New*)."""
+        spec = plugin_sections.document_type_of_kind(kind)
+        if spec is None or spec.new is None:
+            return None
+        document = spec.new(self.services)
+        self.add_document(document)
+        return document
+
     def new_flow(self, flow=None, activate: bool = True) -> FlowDocument:
         """A new flow document (an empty flow, or ``flow``); the node palette shows beside it."""
         document = FlowDocument(flow, hub=self.hub)
@@ -922,14 +1054,11 @@ class ShellWindow(QMainWindow):
 
         document.problems_changed.connect(problems)
         document.console_requested.connect(self.show_console)
-        document.message.connect(lambda text: self.statusBar().showMessage(text, 6000))
         document.execution_line.connect(self.console.execution.add)
         document.view_requested.connect(lambda node, kind, value, options, doc=document: self.show_view(
             doc, node, kind, value, options))
         document.open_requested.connect(lambda child: self.area.activate(child) if child in self.area.documents()
                                         else self.add_document(child))
-        document.run_state_changed.connect(self._run_state_changed)
-        document.fast_box.toggled.connect(lambda _checked: self._update_run_buttons())
         document.panel_requested.connect(lambda doc=document: self.new_panel(flow_document=doc))
         document.open_panels = lambda: [doc for doc in self.area.documents() if isinstance(doc, PanelDocument)]
         document.panel_open_requested.connect(self.show_document_or_file)
@@ -938,23 +1067,46 @@ class ShellWindow(QMainWindow):
         document.destroyed.connect(lambda *_args, key=str(id(document)): self.console.problems.set_problems(key, []))
         problems(document.problems())
 
+    def _flow_to_edit(self) -> FlowDocument:
+        """The flow new nodes go into: the active flow, else the flow last worked on, else a new one."""
+        document = self.active_document()
+        if isinstance(document, FlowDocument):
+            return document
+        last = getattr(self, "_last_flow", None)
+        if last is not None and last in self.area.documents():
+            self.area.activate(last)
+            return last
+        return self.new_flow()
+
     def _add_node_to_active_flow(self, text: str) -> Optional[str]:
-        """Add a node (a type, or a preset of :func:`~..flow.canvas.encode_node`) to the active flow."""
+        """Add a node (a type, or a preset of :func:`~..flow.canvas.encode_node`) to the flow to edit."""
         from ..flow.canvas import decode_node
 
         type_name, node_id, params = decode_node(text)
-        document = self.active_document()
-        if not isinstance(document, FlowDocument):
-            document = self.new_flow()
+        document = self._flow_to_edit()
         return document.add_node(type_name, document._center(), node_id, **params)
 
     def add_instrument_to_flow(self, instrument: Instrument) -> Optional[str]:
-        """A device node for an instrument of the device list in the active flow."""
+        """*Use in a flow*: a device node for an instrument in the flow to edit (the active one, the
+        one last worked on, or a new flow); the flow comes to the front."""
         from ...lab.model import DEVICE_NODE
         from ..flow.canvas import encode_node
 
-        return self._add_node_to_active_flow(encode_node(DEVICE_NODE, device_node_id(instrument),
-                                                         {"address": instrument.uri}))
+        address = instrument.uri
+        document = self._flow_to_edit()
+        existing = next((node_id for node_id, node in document.flow.nodes.items()
+                         if node.type == DEVICE_NODE and node.params.get("address") == address), None)
+        if existing is not None:  # (already in it: shown instead of a second one)
+            document.scene.select_nodes([existing])
+            self.area.activate(document)
+            return existing
+        node = self._add_node_to_active_flow(encode_node(DEVICE_NODE, device_node_id(instrument),
+                                                         {"address": address}))
+        self.area.activate(document)
+        if node:
+            self.notify(f"{instrument.name} is the node '{node}' of {document.title}: wire its 'device' output to "
+                        "the nodes that use it")
+        return node
 
     def device_presets(self) -> list:
         """The devices the node palette offers: open instruments, the project's devices, simulators."""
@@ -979,9 +1131,13 @@ class ShellWindow(QMainWindow):
         if not hasattr(self, "problems_button"):
             return
         errors, warnings = self.console.problems.counts()
-        parts = ([f"✕ {errors}"] if errors else []) + ([f"⚠ {warnings}"] if warnings else [])
-        self.problems_button.setText("  ".join(parts))
-        self.problems_button.setVisible(bool(parts))
+        if errors or warnings:
+            self.problems_button.setIcon(icon("error" if errors else "warning",
+                                              theme_token("run.error" if errors else "status.warning")))
+        words = ([f"{errors} error{'s' if errors != 1 else ''}"] if errors else []) + (
+            [f"{warnings} warning{'s' if warnings != 1 else ''}"] if warnings else [])
+        self.problems_button.setText(", ".join(words))
+        self.problems_button.setVisible(bool(words))
 
     def show_problem(self, problem) -> None:
         """Where a problem is: its flow document, the node selected and in view."""
@@ -999,40 +1155,79 @@ class ShellWindow(QMainWindow):
         self.console_dock.setVisible(True)
         self.console.show_tab(tab)
 
-    def _run_command(self, name: str) -> None:
-        """The buttons in the header: the main action of the active document (run a flow or panel,
-        capture with a device card, capture again in a data view)."""
+    def _runnable(self) -> Optional[Document]:
+        """The active document when it runs something (the run protocol of ``documents/base.py``)."""
         document = self.active_document()
-        if getattr(document, "runnable", False):
+        return document if isinstance(document, Document) and document.runnable else None
+
+    def _run_command(self, name: str) -> None:
+        """Run, Pause, Step, Stop (header, Run menu, F5 …) for the active document: run a flow or a
+        panel, capture with a device or in a data view, play a waveform."""
+        document = self._runnable()
+        if document is not None:
+            if name == "step_run" and not document.can_step:
+                return
             getattr(document, name)()
-            if isinstance(document, (FlowDocument, PanelDocument)):
+            if isinstance(document, (FlowDocument, PanelDocument)) and name == "start_run":
                 self.show_console("Execution")
         self._update_run_buttons()
 
+    def set_virtual_time(self, virtual: bool) -> None:
+        """The active flow or panel runs in virtual time (``True``) or in real time."""
+        document = self._runnable()
+        if document is not None and document.time_modes:
+            document.set_virtual_time(virtual)
+        self._update_run_buttons()
+
+    def set_simulated(self, simulated: bool) -> None:
+        """The active flow runs with simulators in place of its devices."""
+        document = self._runnable()
+        if document is not None and document.simulates_devices:
+            document.set_simulated(simulated)
+        self._update_run_buttons()
+
     def _update_run_buttons(self) -> None:
-        document = self.active_document()
-        runnable = bool(getattr(document, "runnable", False))
-        state = getattr(document, "run_state", "idle") if runnable else "idle"
+        document = self._runnable()
+        state = document.run_state if document is not None else "idle"
         running = state not in ("idle", "finished", "stopped", "error")
-        can_start = getattr(document, "can_start_run", True) if runnable else False
-        self.run_button.setEnabled(runnable and can_start and (not running or state == "paused"))
-        self.run_button.setText("Continue" if state == "paused" else (getattr(document, "run_label", "Start")
-                                                                       if runnable else "Start"))
+        paused = state == "paused"
+        can_start = document is not None and document.can_start_run and (not running or paused)
+        label = document.run_label if document is not None else "Run"
+        self.run_button.setEnabled(can_start)
+        self.run_button.setText("Resume" if paused else label)
+        self.run_button.setToolTip(("Resume the paused run" if paused else (
+            document.run_tooltip if document is not None and document.run_tooltip else
+            "Run what the active document runs: a flow, a panel, a capture, a waveform")) + f" ({native('F5')})")
         self.header.schedule()  # (the text changed: the header lays itself out again)
-        self.run_button.setToolTip(getattr(document, "run_tooltip", "Run the active flow or panel")
-                                   if runnable else "Run the active flow or panel")
-        self.pause_button.setEnabled(runnable and running and state != "paused"
-                                     and getattr(document, "can_pause", True))
-        self.stop_button.setEnabled(runnable and running)
+        can_pause = document is not None and running and not paused and document.can_pause
+        self.pause_button.setEnabled(can_pause)
+        self.stop_button.setEnabled(document is not None and running)
+        self.action_run.setEnabled(can_start)
+        self.action_run.setText("&Resume" if paused else f"&{label}")
+        self.action_pause.setEnabled(can_pause)
+        self.action_step.setEnabled(document is not None and document.can_step)
+        self.action_stop.setEnabled(document is not None and running)
         # the time the active flow or panel runs in
-        fast = getattr(document, "fast_box", None) if runnable else None
-        self.mode_label.setVisible(fast is not None)
-        if fast is not None:
-            self.mode_label.setText("Virtual time" if fast.isChecked() else "Real time")
+        timed = document is not None and document.time_modes
+        virtual = timed and document.virtual_time()
+        self.header.set_available("time", timed)
+        self.time_switch.setEnabled(timed and not running)
+        self.real_time_button.setChecked(timed and not virtual)
+        self.virtual_time_button.setChecked(virtual)
+        self.action_virtual_time.setEnabled(timed and not running)
+        self.action_virtual_time.setChecked(virtual)
+        simulates = document is not None and document.simulates_devices
+        self.action_simulate.setEnabled(simulates and not running)
+        self.action_simulate.setChecked(simulates and document.simulated())
+        self.mode_label.setVisible(timed or running)
+        words = {"running": "Running", "paused": "Paused"}
+        parts = ([words[state]] if state in words else []) + (
+            ["Virtual time" if virtual else "Real time"] if timed else [])
+        self.mode_label.setText(" · ".join(parts))
 
     def show_view(self, source: QWidget, node: str, kind: str, value, options: dict) -> Optional[QWidget]:
         """Show what a view node of a running flow sends: the scope in a data view, charts and
-        values in documents of their own (one per node, updated while the flow runs)."""
+        values as tiles of the flow's views document (updated while the flow runs)."""
         key = (id(source), node)
         documents = getattr(self, "_view_documents", {})
         self._view_documents = documents
@@ -1053,14 +1248,20 @@ class ShellWindow(QMainWindow):
             if created or renamed:
                 document._update_title()
             return document
-        if document is None:
-            document = view_document(kind, options.get("title") or node)
-            if document is None:
+        # the other views: tiles of one document per flow (not a tab per node)
+        views = documents.get((id(source), None))
+        if views is None or views not in self.area.documents():
+            if kind not in CHART_KINDS + VALUE_KINDS:
                 return None  # checks and report sections have no view
-            documents[key] = document
-            self.add_document(document, activate=False)
-        document.show_value(value, options)
-        return document
+            views = ViewsDocument(getattr(source, "title", "flow"))
+            documents[(id(source), None)] = views
+            self.add_document(views, activate=False)
+        views.set_flow_title(getattr(source, "title", views.flow_title))
+        shown = views.show_value(node, kind, value, options)
+        if options.get("front") and shown is not None:  # (asked for: the data of a node)
+            self.area.activate(views)
+            views.scroll.ensureWidgetVisible(views.tiles[node])
+        return shown
 
     def show_run_data(self, source: FlowDocument, key: str, title: str, session, front: bool = True) -> DataView:
         """A data view with run data of ``source`` (one per ``key``: the whole run, a node); it is
@@ -1105,6 +1306,20 @@ class ShellWindow(QMainWindow):
         active = self.active_document()
         if flow_path is None and flow_document is None and isinstance(active, FlowDocument):
             flow_document = active
+        if flow_path is None and flow_document is None and panel is None:
+            # a panel works with a flow: which one (an open flow, or a new one)
+            flows = [document for document in self.area.documents()
+                     if isinstance(document, FlowDocument) and document.parent_document is None]
+            if len(flows) == 1:
+                flow_document = flows[0]
+            else:
+                options = [document.title for document in flows] + ["A new flow"]
+                choice = messages.choose(self, "New panel", "Which flow does the panel operate?", options,
+                                         "A panel's switches, sliders and buttons send into the flow, its numbers, "
+                                         "LEDs and charts show what the flow sends.")
+                if choice is None:
+                    return None
+                flow_document = flows[choice] if choice < len(flows) else self.new_flow()
         while flow_document is not None and flow_document.parent_document is not None:
             flow_document = flow_document.parent_document  # a subflow: the flow it belongs to
         if flow_path is None and flow_document is not None and flow_document.path \
@@ -1153,7 +1368,8 @@ class ShellWindow(QMainWindow):
         capturing = [instrument for instrument in self.hub.instruments() if instrument.capture is not None]
         if not capturing:
             self.activity_bar.select("devices")
-            self.statusBar().showMessage("Connect a device in the device list; the data view captures with it", 8000)
+            self.notify("Connect a device in the device list (or try a simulator): the data view captures with it",
+                        10000)
             return document
         chosen = capturing[0] if len(capturing) == 1 else self.choose_capture_device(capturing)
         if chosen is not None:
@@ -1165,12 +1381,11 @@ class ShellWindow(QMainWindow):
 
         self.examples_menu.clear()
         self.example_actions: dict[str, QAction] = {}
-        self.examples_menu.addAction(self.action_save_template)
         catalog = examples.catalog()
         if not catalog:
-            self.examples_menu.addAction("No templates found").setEnabled(False)
+            self.examples_menu.addAction("No examples found").setEnabled(False)
             return
-        self.examples_menu.addAction(icon("home"), "All templates (start page)", self.show_start_page)
+        self.examples_menu.addAction(icon("home"), "All examples (start page)", self.show_start_page)
         self.examples_menu.addSeparator()
         for category in catalog:
             submenu = self.examples_menu.addMenu(category.title)
@@ -1201,7 +1416,7 @@ class ShellWindow(QMainWindow):
         root = self.project_root_of(self.active_document())
         if root is None:
             messages.info(self, title, "The active document is not part of a project.",
-                          "Open a project, or start one from a template, and save it as a template of your own.")
+                          "Open a project, or start one from an example, and save it as a template of your own.")
             return None
         documents = [document for document in self.area.documents() if self.project_root_of(document) == root]
         changed = [document for document in documents if document.dirty and document.path]
@@ -1226,7 +1441,7 @@ class ShellWindow(QMainWindow):
             messages.error(self, title, "The template could not be saved.", str(error))
             return None
         self._templates_changed()
-        self.statusBar().showMessage(f'Template "{template.title}" saved: Templates → My templates', 8000)
+        self.notify(f'Template "{template.title}" saved: Examples → Your templates', 8000)
         return template.key
 
     def delete_template(self, key: str) -> bool:
@@ -1259,7 +1474,7 @@ class ShellWindow(QMainWindow):
 
         example = examples.find(key)
         if example is None:
-            messages.warning(self, "Templates", f"The template '{key}' is not available.")
+            messages.warning(self, "Examples", f"The example '{key}' is not available.")
             return None
         return self._open_project_copy(example.path, example.name, folder, example.title)
 
@@ -1280,7 +1495,7 @@ class ShellWindow(QMainWindow):
             return None
         if temporary:
             self.temporary_projects.add(os.path.abspath(root))
-            self.statusBar().showMessage("A temporary project: saving asks where to keep it", 8000)
+            self.notify(f"{what}: a copy of the example in a temporary folder – Save asks where to keep it", 10000)
         else:
             recent.add(root, "projects")
         opened = None
@@ -1300,7 +1515,7 @@ class ShellWindow(QMainWindow):
 
         none = "No device (open a capture file)"
         names = [instrument.name for instrument in instruments] + [none]
-        name, accepted = QInputDialog.getItem(self, "Logic Analyzer", "Capture with:", names, 0, False)
+        name, accepted = QInputDialog.getItem(self, "Data view", "Capture with:", names, 0, False)
         if not accepted or name == none:
             return None
         return instruments[names.index(name)]
@@ -1324,13 +1539,13 @@ class ShellWindow(QMainWindow):
             opened = opened or self.open_file(path)
         if opened is None:
             messages.info(self, "Open project", f"{os.path.basename(root.rstrip(os.sep))} has no flow or panel to open.",
-                          "Add one with Project → New, then save it into the project's flows or panels folder.")
+                          "Add one with File → New, then save it into the project's flows or panels folder.")
             return None
         recent.add(root, "projects")
         return opened
 
     def new_project_dialog(self) -> Optional[QWidget]:
-        """*Project → New project…*: the start page, with the projects of the library to start from."""
+        """*File → New → Project from an example…*: the start page, with the examples to start from."""
         page = self.show_start_page()
         page.filter_edit.setFocus()
         return page
@@ -1342,12 +1557,12 @@ class ShellWindow(QMainWindow):
             return None
         if not os.path.exists(os.path.join(root, "project.yaml")):
             messages.warning(self, "Open project", f"{os.path.basename(root)} is not an openSciLab project.",
-                             "A project folder has a project.yaml; Project → New project from template creates one.")
+                             "A project folder has a project.yaml; File → New → Project from an example creates one.")
             return None
         return self.open_project(root)
 
     def open_file_dialog(self) -> None:
-        path, _ = QFileDialog.getOpenFileName(self, "Open file", "", OPEN_FILE_FILTER)
+        path, _ = QFileDialog.getOpenFileName(self, "Open file", "", plugin_sections.open_dialog_filter(OPEN_FILE_FILTER))
         if path:
             self.open_file(path)
 
@@ -1396,6 +1611,17 @@ class ShellWindow(QMainWindow):
             self.add_document(document)
             self._remember(path)
             return document
+        document_type = plugin_sections.document_type_for(path)
+        if document_type is not None:
+            try:
+                document = document_type.open(path, self.services)
+            except document_type.errors as error:
+                messages.error(self, f"Open {document_type.title.lower()}",
+                               f"{os.path.basename(path)} could not be opened.", str(error))
+                return None
+            self.add_document(document)
+            self._remember(path)
+            return document
         if lowered.endswith(CAPTURE_EXTENSIONS):
             active = self.active_document()
             if isinstance(active, DataView) and active.model.session is None and not active.dirty:
@@ -1413,9 +1639,11 @@ class ShellWindow(QMainWindow):
             # tables, logs and reports open in the application the system has for them
             QDesktopServices.openUrl(QUrl.fromLocalFile(os.path.abspath(path)))
             return None
+        added = "".join(f", {spec.title.lower()}s ({', '.join(spec.suffixes)})"
+                        for spec in plugin_sections.document_types())
         messages.warning(self, "Open file", f"{os.path.basename(path)} is not a file openSciLab can open.",
-                         "Supported: captures (.lac, .lac.gz, .sr), flows (.flow.yaml, Python scripts with a flow) "
-                         "panels (.panel.yaml) and waveforms (.wave.yaml, .sdl).")
+                         "Supported: captures (.lac, .lac.gz, .sr), flows (.flow.yaml, Python scripts with a flow), "
+                         f"panels (.panel.yaml), waveforms (.wave.yaml, .sdl){added}.")
         return None
 
     # ----------------------------------------------------------------- data
@@ -1582,6 +1810,7 @@ class ShellWindow(QMainWindow):
             return document
         document = DeviceDocument(instrument, self.hub, controller=self.capture_controller(instrument))
         document.data_requested.connect(self.show_data)
+        document.flow_requested.connect(self.add_instrument_to_flow)
         document.disconnect_requested.connect(self.disconnect_instrument)
         document.reconnect_requested.connect(self.reconnect_instrument)
         document.action_performed.connect(self.mark_action)
@@ -1984,10 +2213,11 @@ class ShellWindow(QMainWindow):
         return build_stylesheet() + shell_stylesheet()
 
     def _fill_header_tools(self) -> None:
-        """The header's entries: the logo, the basic elements to make one of (flow, panel, data view,
-        waveform, project), Open, Save and the examples; the search; the run controls. It adapts to
-        the width of the window and is customized with a right click (``ui/widgets/toolbar.py``)."""
-        from ..widgets.toolbar import HIGH, LOW, NORMAL
+        """The header's entries: the logo, the search, *New* (flow, panel, data view, waveform,
+        project – in the order of File → New), Open, Save and the examples; Run, Pause, Stop and the
+        time of the run. It adapts to the width of the window and is customized with a right click
+        (``ui/widgets/toolbar.py``)."""
+        from ..widgets.toolbar import HIGH, NORMAL
 
         bar = self.header
 
@@ -2007,36 +2237,28 @@ class ShellWindow(QMainWindow):
             return button
 
         new = native(QKeySequence(QKeySequence.New).toString())
-        #: one button for every kind of document: they are what openSciLab is made of
-        self.new_tools = {
-            "flow": tool("Flow", "nodes", f"A new flow ({new})", action=self.action_new_flow),
-            "panel": tool("Panel", "panel", "A new panel: the front of an instrument for a flow - switches, sliders "
-                          "and buttons that operate it, numbers, LEDs and charts that show its values",
-                          action=self.action_new_panel),
-            "data_view": tool("Data view", "channels", "A new data view: capture, or open a capture",
-                              action=self.action_new_data_view),
-            "waveform": tool("Waveform", "wave", "A new waveform for a generator", action=self.action_new_waveform),
-            "project": tool("Project", "layers", "A new project from a template (the start page)",
-                            action=self.action_new_project),
-        }
-        self.open_tool = tool("Open", "folder", "Open a file (Ctrl+O)", action=self.action_open)
-        self.save_tool = tool("Save", "save", "Save (Ctrl+S)", action=self.action_save)
-        self.examples_tool = tool("Templates", "book", "Start a project from a template (every example is one)",
+        # New: one button, its menu is File → New (flow, panel, data view, waveform, project)
+        self.new_tool = tool("New", "plus", f"A new flow, panel, data view, waveform or project (a flow: {new})",
+                             menu=self.new_menu)
+        self.new_tool.setPopupMode(QToolButton.MenuButtonPopup)
+        self.new_tool.clicked.connect(lambda _checked=False: self.action_new_flow.trigger())
+        self.new_tool.setToolTip(f"A new flow ({new}); the arrow: a panel, data view, waveform or project")
+        self.open_tool = tool("Open", "folder", f"Open a file ({native('Ctrl+O')})", action=self.action_open)
+        self.save_tool = tool("Save", "save", f"Save ({native('Ctrl+S')})", action=self.action_save)
+        self.examples_tool = tool("Examples", "book", "Start from an example project (each runs with simulators)",
                                   menu=self.examples_menu)
         bar.add_widget("logo", self.logo, "Logo", "logo", HIGH, pinned=True)
         # the search right after the logo: the first place to look for anything
         bar.add_widget("search", self.palette_button, "Search commands", "search", HIGH)
-        for key, title, priority in (("flow", "New flow", NORMAL), ("panel", "New panel", NORMAL),
-                                     ("data_view", "New data view", NORMAL), ("waveform", "New waveform", NORMAL),
-                                     ("project", "New project from a template", LOW)):
-            bar.add_widget(f"new-{key}", self.new_tools[key], title, "new", priority)
+        bar.add_widget("new", self.new_tool, "New", "file", HIGH)
         bar.add_widget("open", self.open_tool, "Open a file", "file", HIGH, text=False)
         bar.add_widget("save", self.save_tool, "Save", "file", HIGH, text=False)
-        bar.add_widget("templates", self.examples_tool, "Templates", "file", NORMAL)
+        bar.add_widget("examples", self.examples_tool, "Examples", "file", NORMAL)
         bar.add_stretch("stretch-left")
-        bar.add_widget("run", self.run_button, "Start / Capture", "run", HIGH, pinned=True)
+        bar.add_widget("run", self.run_button, "Run", "run", HIGH, pinned=True)
         bar.add_widget("pause", self.pause_button, "Pause", "run", HIGH, text=False)
         bar.add_widget("stop", self.stop_button, "Stop", "run", HIGH, text=False)
+        bar.add_widget("time", self.time_switch, "Real time / virtual time", "time", NORMAL)
         bar.add_stretch("stretch-right")
         bar.finish()
 
@@ -2088,7 +2310,14 @@ class ShellWindow(QMainWindow):
             self.raise_priority()
         if "appearance.theme" in changes:
             choice = messages.choose(self, "Theme", "The new theme applies when openSciLab starts again.",
-                                     ["Restart now", "Later"])
+                                     ["Restart now", "Later"], cancel=False)
+            if choice == 0:
+                self.restart()
+        elif any(key in changes for key in ("circuits.kicad_symbols", "circuits.model_folders", "circuits.use_kicad",
+                                            "circuits.ngspice_path", "circuits.simavr_path")):
+            # (the catalog and the engine processes are built once per run)
+            choice = messages.choose(self, "Circuits", "The libraries and tools of Circuits are read when openSciLab "
+                                     "starts again.", ["Restart now", "Later"], cancel=False)
             if choice == 0:
                 self.restart()
 
@@ -2214,6 +2443,8 @@ class ShellWindow(QMainWindow):
 
     # ---------------------------------------------------- active document
     def _on_active_changed(self, document: Optional[QWidget]) -> None:
+        if isinstance(document, FlowDocument):
+            self._last_flow = document  # (Use in a flow puts devices there)
         menu_bar = self.menuBar()
         for action in self._document_menu_actions:
             menu_bar.removeAction(action)
@@ -2233,6 +2464,7 @@ class ShellWindow(QMainWindow):
         self._document_section.setVisible(bool(self._document_file_actions))
 
         self._sync_document_state(document)
+        self.services.active_document_changed.emit(document)
         self.project_section.set_data_folder(self.data_folder(document))  # also lists it again
         self._refresh_device_presets()
         registry = document.registry if isinstance(document, FlowDocument) else None
@@ -2261,6 +2493,7 @@ class ShellWindow(QMainWindow):
         project = getattr(document, "project", None)
         if project is not self.project_section.project:
             self.project_section.set_project(project)
+            self.services.project_changed.emit(project)
 
     def _run_state_changed(self, state: str) -> None:
         self._update_run_buttons()
@@ -2270,7 +2503,7 @@ class ShellWindow(QMainWindow):
     def _update_inspector(self, document: Optional[QWidget]) -> None:
         widget = document.inspector_widget() if isinstance(document, Document) else None
         title = f"{document.title}" if document is not None and widget is not None else "Inspector"
-        empty = "No document open" if document is None else f"{document.title} has no properties to edit here."
+        empty = "No document open" if document is None else "Nothing to set here"
         self.inspector.show_widget(widget, owner=document, title=title, empty_text=empty)
 
     def _on_documents_changed(self) -> None:
@@ -2329,7 +2562,7 @@ class ShellWindow(QMainWindow):
         menus = [self.project_menu, self.edit_menu]
         if isinstance(document, Document) and not self.area.is_detached(document):
             menus += document.document_menus()
-        menus += [self.view_menu, self.devices_menu, self.examples_menu, self.help_menu]
+        menus += [self.view_menu, self.run_menu, self.devices_menu, self.examples_menu, self.help_menu]
         result = commands_from_menus(menus)
         if isinstance(document, Document):
             result += commands_from_actions(document.document_actions(), document.title)
@@ -2349,9 +2582,6 @@ class ShellWindow(QMainWindow):
         self._palette.popup()
         return self._palette
 
-    def _search(self, query: str) -> list[tuple[str, str, Callable]]:
-        commands = fuzzy.rank(query, self.commands(), key=lambda command: command.title)
-        return [(command.title, command.shortcut, command.callback) for command in commands if command.enabled]
 
     # ============================================================== layouts
     def _layouts(self) -> dict:
@@ -2404,6 +2634,19 @@ class ShellWindow(QMainWindow):
         """The sidebar and the inspector at their widths of a new layout (:data:`DOCK_WIDTHS`)."""
         self.resizeDocks([self.sidebar_dock, self.inspector_dock], list(DOCK_WIDTHS), Qt.Horizontal)
 
+    def _sidebar_shown(self, visible: bool) -> None:
+        """The sidebar opened: at its width the first time of a session, or when it takes more than a
+        third of the window (a layout of a smaller window, a dock dragged wide)."""
+        if not visible or not self.sidebar_dock.isVisible():
+            return
+        if not self._sidebar_opened or self.sidebar_dock.width() > self.width() / 3 \
+                or (self.nodes_dock.isVisible() and self.nodes_dock.width() < NODES_WIDTH * 0.6):
+            self._sidebar_opened = True
+            # (the node palette beside it keeps its width: it was squeezed to a strip before)
+            QTimer.singleShot(0, lambda: self.resizeDocks(
+                [self.sidebar_dock, self.nodes_dock] if self.nodes_dock.isVisible() else [self.sidebar_dock],
+                [DOCK_WIDTHS[0], NODES_WIDTH] if self.nodes_dock.isVisible() else [DOCK_WIDTHS[0]], Qt.Horizontal))
+
     def showEvent(self, event) -> None:  # noqa: N802 - Qt naming
         super().showEvent(event)
         if not self._docks_sized:
@@ -2429,8 +2672,7 @@ class ShellWindow(QMainWindow):
             section = state.get("section")
             if section in self.activity_bar.keys():
                 self.activity_bar.select(section)
-            if state.get("sidebar") is False:
-                self.activity_bar.set_sidebar_visible(False)
+            self.activity_bar.set_sidebar_visible(state.get("sidebar") is True)
             if state.get("maximized"):
                 QTimer.singleShot(0, self.showMaximized)
         except (TypeError, ValueError):
@@ -2524,11 +2766,17 @@ class ShellWindow(QMainWindow):
         added = [f"{kind.kind}: {kind.title}{' (device process)' if kind.process else ''}"
                  for kind in kinds.registered()]
         nodes = [f"{spec.type}: {spec.title} ({plugin.name})" for plugin in found for spec in plugins.nodes(plugin)]
+        added_sections = [f"{spec.key}: {spec.title} ({plugin.name})" for plugin in found if plugin.module is not None
+                          for spec in plugin_sections.of_module(plugin.module.__name__)[0]]
+        added_types = [f"{spec.kind}: {spec.title} ({', '.join(spec.suffixes)}; {plugin.name})" for plugin in found
+                       if plugin.module is not None for spec in plugin_sections.of_module(plugin.module.__name__)[1]]
         folders = "\n".join(plugins.directories())
         failed = plugins.problems()
         details = (
             "\n".join(lines or ["(no plugins)"]) + "\n\nKinds of devices they add:\n" + "\n".join(added or ["(none)"])
             + "\n\nNodes they add to the flows:\n" + "\n".join(nodes or ["(none)"])
+            + "\n\nSections they add to the sidebar:\n" + "\n".join(added_sections or ["(none)"])
+            + "\n\nKinds of documents they add:\n" + "\n".join(added_types or ["(none)"])
             + f"\n\nPlugins are loaded from:\n{folders}\nand from installed packages (entry points "
             f"'{plugins.GROUP}') when openSciLab starts: restart it for a new plugin. See docs/drivers.md."
             + "".join(f"\n\n{plugin.details}" for plugin in failed)

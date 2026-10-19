@@ -104,7 +104,7 @@ def test_a_registered_device_is_listed_and_connected(application, minimal_backen
 
     card = shell.active_document()
     assert isinstance(card.instrument.capture.driver, MinimalDriver)
-    assert card.data_button.isEnabled() and card.action_settings.isVisible() and card.profiles_button.isEnabled()
+    assert card.data_button.isEnabled() and card.action_settings.isVisible()
     # Functions the device does not offer are not on its Details tab
     assert not card.action_bootloader.isVisible() and not card.action_self_test.isVisible()
     assert not card.action_network.isVisible() and not card.action_generated.isVisible()

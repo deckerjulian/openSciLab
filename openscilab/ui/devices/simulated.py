@@ -4,7 +4,7 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""Simulated instruments in the device list (*Simulation: Arduino Uno*, ...) and the fault
+"""Simulated instruments in the device list (*Simulated Arduino Uno*, ...) and the fault
 injection of *Devices → Simulate faults*."""
 
 from __future__ import annotations
@@ -107,7 +107,7 @@ def fill_simulation_menu(menu: QMenu, hub: Hub) -> None:
     menu.clear()
     simulated = [instrument for instrument in hub.instruments() if is_simulated(instrument)]
     if not simulated:
-        menu.addAction("No simulated instrument is open").setEnabled(False)
+        menu.addAction("No simulated device is open").setEnabled(False)
         return
     for instrument in simulated:
         submenu = menu.addMenu(instrument.name)

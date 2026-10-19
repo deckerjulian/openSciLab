@@ -10,7 +10,7 @@ here first, then in Python and in the firmware.
 
 A device reports a list of capabilities (the Pico firmware in the answer `CAPS:` to command 8,
 other drivers in `capabilities()`). The application never asks for the type of a device: what a
-document, a node or the device card offers follows from these strings and the facets they unlock.
+document, a node or the document of a device offers follows from these strings and the facets they unlock.
 
 * **Capability**: the string, exactly as in the constant. Strings ending in `=` carry a parameter
   directly behind it; the others are reported alone or, where the *Parameter* column says so,

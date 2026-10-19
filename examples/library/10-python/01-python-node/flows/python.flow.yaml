@@ -25,8 +25,8 @@ nodes:
           ctx.emit("average", signals.Scalar(name="average", unit="V", value=sum(recent) / len(recent),
                                              at=ctx.now()))
     at: [272, 0]
-  raw: {type: view.strip_chart, title: Damped oscillation, window: 3 s, at: [272, 184]}
-  averaged: {type: view.strip_chart, title: Moving average, window: 3 s, at: [544, 0]}
+  raw: {type: view.chart, title: Damped oscillation, window: 3 s, at: [272, 184]}
+  averaged: {type: view.chart, title: Moving average, window: 3 s, at: [544, 0]}
 edges:
   - source.value -> smooth.x
   - source.value -> raw.in

@@ -1,0 +1,8 @@
+project: Arduino blink
+description: 'An emulated Arduino Uno runs a firmware file (firmware/blink_pot.hex, built from blink_pot.c): turn
+  the potentiometer while it runs (drag it) and the LED blinks faster or slower; close the switch (click it) and
+  the LED stays on. The oscilloscope below the schematic shows the LED and A0, the serial monitor what the firmware
+  says.'
+open:
+- circuits/blink.circuit.yaml
+- flows/blink.flow.yaml

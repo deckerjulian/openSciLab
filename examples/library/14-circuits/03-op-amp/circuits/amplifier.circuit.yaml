@@ -1,0 +1,27 @@
+circuit: Inverting amplifier
+description: An operational amplifier (TL072 model) amplifies a sine ten times, inverted.
+version: 1
+components:
+  U1: {type: opamp, at: [200, 0], params: {value: TL072}}
+  PWR1: {type: power, at: [200, -80], params: {net: +12V, voltage: 12 V}}
+  PWR2: {type: power, at: [200, 80], rotation: 180, params: {net: -12V, voltage: -12 V}}
+  V1: {type: source.sine, at: [0, 40], params: {amplitude: 0.5 V, frequency: 1 kHz}}
+  R1: {type: resistor, at: [80, 20], params: {value: 1k}}
+  R2: {type: resistor, at: [200, -140], params: {value: 10k}}
+  GND1: {type: ground, at: [0, 120]}
+  GND2: {type: ground, at: [130, 60]}
+  P1: {type: probe.v, at: [0, 20], params: {name: IN}}
+  P2: {type: probe.v, at: [280, 0], params: {name: OUT}}
+wires:
+  - [[200, -80], [200, -50]]
+  - [[200, 80], [200, 50]]
+  - [[0, 10], [0, 20], [50, 20]]
+  - [[110, 20], [150, 20]]
+  - [[0, 70], [0, 120]]
+  - [[150, -20], [130, -20], [130, 60]]
+  - [[140, 20], [140, -140], [170, -140]]
+  - [[230, -140], [280, -140], [280, 0], [260, 0]]
+labels: []
+analyses:
+  ac: {start: 10 Hz, stop: 10 MHz, points: '30'}
+  tran: {stop: 3 ms, step: 5 us}

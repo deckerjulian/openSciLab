@@ -44,7 +44,7 @@ def test_record_and_stop_keep_everything_that_arrived(shell):
     assert shell.record_stream(instrument)
     assert controller.is_capturing and controller.recording_since is not None
     text, kind = controller.state_text()
-    assert text.startswith("Recording 00:0") and "free" in text and kind == "busy"
+    assert text.startswith("Streaming to disk 00:0") and "free" in text and kind == "busy"
     assert wait(lambda: controller.recorded_samples > 0)
     time.sleep(0.5)
     controller.abort()

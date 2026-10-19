@@ -27,7 +27,7 @@ from PySide6.QtGui import QColor, QImage, QPainter, QPen
 from PySide6.QtWidgets import QSizePolicy, QWidget
 
 from .. import colors
-from ..theme import ACCENT
+from ..theme import ACCENT, qcolor
 from ..view_model import CaptureViewModel
 
 PREVIEW_HEIGHT = 120
@@ -195,7 +195,7 @@ class SamplePreviewer(QWidget):
             bounds.height(),
         )
         # What lies outside of the waveform view is dimmed; the view is outlined in the accent
-        shade = QColor(0, 0, 0, 55)
+        shade = qcolor("display.shade")
         painter.fillRect(QRectF(0, 0, view.left(), bounds.height()), shade)
         painter.fillRect(QRectF(view.right(), 0, bounds.width() - view.right(), bounds.height()), shade)
         painter.setPen(QPen(QColor(ACCENT), 1))

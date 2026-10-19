@@ -734,6 +734,11 @@ static void configurePingPongDMAs(CHANNEL_MODE channelMode, irq_handler_t handle
 
     dma_channel_set_irq0_enabled(dmaPingPong1, true); //Enable IRQ 0
 
+    //A finished or aborted earlier use of the channels leaves their interrupt flags set (RP2040-E13:
+    //an abort raises it too); the handler would count a pass at once
+    dma_channel_acknowledge_irq0(dmaPingPong0);
+    dma_channel_acknowledge_irq0(dmaPingPong1);
+
     //Set interrupt handler and enable it
     activeDmaHandler = handler;
     irq_set_exclusive_handler(DMA_IRQ_0, handler);

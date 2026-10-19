@@ -6,18 +6,26 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""Dark theme used by every window of the application.
+"""The look of every window: colours, text sizes, spacing and the style sheet.
 
-Widgets opt into semantic styles through dynamic properties instead of inline
-colours, so every window looks the same:
+This module is the only place with colours and sizes (``tests/test_theme_tokens.py`` checks it;
+the rules are in ``docs/design.md``). Everything else asks for them:
 
-* ``role`` on labels: ``hint``, ``heading``, ``title``, ``error``, ``warning``,
-  ``success`` and the ``chip-*`` badges; on frames: ``banner-info``,
-  ``banner-warning``, ``banner-error``, ``card`` and ``toolbar-group``;
-* ``variant`` on buttons: ``primary`` (the main action of a window) and
-  ``danger`` (stops or destroys something).
+* **Colours** by name: :func:`token` (``"TEXT"``, ``"type.analog"``, ``"group.measure"``,
+  ``"display.grid.major"`` ...) or :func:`qcolor`; the palette of the shell (UPPERCASE names) and
+  the tokens of the lab (dotted names) answer through the same function, in the theme of the run.
+  The waveform display of the data view (``display.*``) stays dark in both themes, like the screen
+  of an instrument.
+* **Spacing** in steps of 4 px: :func:`space`; **icons** in four sizes: :data:`ICON`.
+* **Styles** through dynamic properties instead of inline colours:
 
-Use :func:`set_role` / :func:`set_variant` to change them after the widget is shown.
+  * ``role`` on labels: ``hint``, ``heading``, ``title``, ``section``, ``error``, ``warning``,
+    ``success`` and the ``chip-*`` badges; on frames: ``banner-info``, ``banner-warning``,
+    ``banner-error``, ``card``, ``tile`` and ``viewbar``;
+  * ``variant`` on buttons: ``primary`` (the main action of a window), ``danger`` (stops or destroys
+    something), ``link`` and ``tool`` (a flat button of a tool bar).
+
+  Use :func:`set_role` / :func:`set_variant` to change them after the widget is shown.
 """
 
 from __future__ import annotations
@@ -192,6 +200,65 @@ def font_size() -> int:
     return size if 9 <= size <= 24 else 12
 
 
+#: The typeface of the whole application: Inter Tight (rsms, SIL Open Font License), bundled in
+#: ``openscilab/ui/fonts`` as static weights (regular, medium, semibold, bold, italic) so that every
+#: platform draws the same letters; fixed-width text (console, editors, readouts) keeps the system's.
+FONT_FAMILY = "Inter Tight"
+FONT_FOLDER = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fonts")
+_loaded_family: Optional[str] = None
+
+
+def load_fonts() -> str:
+    """Register the bundled typeface with Qt (once; needs a ``QGuiApplication``) and return its family,
+    or the family of the default font when the files are missing or unreadable."""
+    global _loaded_family
+    if _loaded_family is not None:
+        return _loaded_family
+    from PySide6.QtGui import QFont, QFontDatabase
+
+    families: set[str] = set()
+    try:
+        names = sorted(name for name in os.listdir(FONT_FOLDER) if name.lower().endswith((".ttf", ".otf")))
+    except OSError:
+        names = []
+    for name in names:
+        font_id = QFontDatabase.addApplicationFont(os.path.join(FONT_FOLDER, name))
+        if font_id >= 0:
+            families.update(QFontDatabase.applicationFontFamilies(font_id))
+        else:
+            log.warning("the font %s could not be loaded", name)
+    _loaded_family = FONT_FAMILY if FONT_FAMILY in families else QFont().family()
+    return _loaded_family
+
+
+def apply_font(application) -> None:
+    """Make the bundled typeface the font of ``application`` (its size comes from the style sheet)."""
+    from PySide6.QtGui import QFont
+
+    font = QFont(application.font())
+    font.setFamily(load_fonts())
+    font.setHintingPreference(QFont.PreferNoHinting)  # (the shapes as designed, as on macOS)
+    application.setFont(font)
+
+
+def tabular_font(font=None):
+    """The application's typeface (a copy of ``font``, else of the application's) with digits of one
+    width (the OpenType feature ``tnum``): for numbers that stand in columns or change while they are
+    read, for code and the console - everything is written in the one typeface."""
+    from PySide6.QtGui import QFont, QGuiApplication
+
+    if font is None:
+        application = QGuiApplication.instance()
+        font = application.font() if application is not None else QFont()
+    result = QFont(font)
+    result.setFamily(load_fonts())
+    try:
+        result.setFeature(QFont.Tag("tnum"), 1)
+    except (AttributeError, TypeError):  # (Qt before 6.7: the digits of Inter Tight are close to even)
+        pass
+    return result
+
+
 def density(size: Optional[int] = None) -> float:
     """How tight the controls are: 1 at 12 px text, smaller with smaller text (never larger)."""
     return min((size or font_size()) / DRAWN_FOR, 1.0)
@@ -207,6 +274,68 @@ def scaled(pixels: int, size: Optional[int] = None) -> int:
 def icon_px(base: int = 16, size: Optional[int] = None) -> int:
     """An icon of ``base`` pixels at the density of the text (even sizes: icons stay sharp)."""
     return max(10, 2 * round(base * density(size) / 2))
+
+
+#: The four icon sizes of the application (before :func:`icon_px` scales them to the text):
+#: ``small`` in lists, tabs and the header of a part, ``normal`` on buttons and in tool bars,
+#: ``large`` on tiles and section headings, ``activity`` in the activity bar.
+ICON = {"small": 12, "normal": 16, "large": 18, "activity": 20}
+
+#: one step of the spacing grid (px at 12 px text)
+SPACE_STEP = 4
+#: the fixed sizes the layouts share (px at 12 px text; :func:`size` scales them with the text)
+SIZES = {
+    "page-list": 150,  # the list of pages of a dialog (settings, capture setup)
+    "recent": 220,  # the column of recent files on the start page
+    "form-label": 110,  # a label column beside fields
+    "swatch": 14,  # a coloured square that opens a colour picker
+    "icon-button": 32,  # a button that shows only an icon beside a field or list
+    "tab-close": 16,  # the close button of a tab
+    "note": 64,  # a field for a few lines of text
+    "note-tall": 80,
+    "meter": 4,  # the bar of a load meter
+    "minimap-width": 190,
+    "minimap-height": 124,
+    # Circuits
+    "catalog-width": 260,  # the catalog of components (sidebar part), its preview
+    "catalog-height": 520,
+    "catalog-preview": 110,
+    "results-list": 260,  # the list of analyses beside their charts
+    "scope-side": 250,  # the column of settings and readouts beside an oscilloscope's screen
+    "scope-screen-width": 320,
+    "scope-screen-height": 200,
+    "smith-chart": 260,
+    "search-popup-width": 340,  # the catalog search over the canvas
+    "search-popup-height": 560,
+}
+
+
+def size(name: str, text: Optional[int] = None) -> int:
+    """One of the shared :data:`SIZES`, at the density of the text."""
+    return scaled(SIZES[name], text)
+
+
+def space(steps: float = 1, size: Optional[int] = None) -> int:
+    """``steps`` of the 4 px spacing grid, at the density of the text (``space(2)`` = 8 px)."""
+    return scaled(round(steps * SPACE_STEP), size)
+
+
+def smaller_font(font, steps: float = 1.0, minimum: float = 7.0):
+    """A copy of ``font`` ``steps`` points smaller (labels painted beside the main text)."""
+    from PySide6.QtGui import QFont
+
+    smaller = QFont(font)
+    smaller.setPointSizeF(max(font.pointSizeF() - steps, minimum))
+    return smaller
+
+
+def scaled_font(font, factor: float):
+    """A copy of ``font`` ``factor`` times as large (the big numbers of a display)."""
+    from PySide6.QtGui import QFont
+
+    larger = QFont(font)
+    larger.setPointSizeF(font.pointSizeF() * factor)
+    return larger
 
 
 _SPACING = re.compile(r"(?<![\w-])((?:padding|margin|spacing|min-height|min-width|max-height|max-width|height|width"
@@ -264,6 +393,9 @@ QLabel[role="section"] {{ color: {TEXT_MUTED}; font-size: {size - 1}px; font-wei
 QLabel[role="error"] {{ color: {ERROR}; }}
 QLabel[role="warning"] {{ color: {WARNING}; }}
 QLabel[role="success"] {{ color: {SUCCESS}; }}
+QLabel[role="value"] {{ font-size: {round(size * 2.2)}px; font-weight: 700; }}
+QLabel[role="value-large"] {{ font-size: {size * 4}px; font-weight: 700; }}
+{_tone_rules()}
 QLabel[role^="chip"] {{
     border-radius: 9px;
     padding: 2px 9px;
@@ -492,6 +624,15 @@ QPushButton[variant="link"]:hover:!disabled {{
     background: transparent;
     text-decoration: underline;
 }}
+QPushButton[align="left"] {{ text-align: left; }}
+QToolButton[variant="flat"], QPushButton[variant="flat"] {{
+    background: transparent;
+    border: none;
+    padding: 0;
+    min-height: 0;
+}}
+QFrame[role="accent-line"] {{ background-color: {ACCENT}; border: none; }}
+QListWidget[role="plain"] {{ background: transparent; border: none; }}
 
 /* --------------------------------------------------------------- inputs */
 QLineEdit, QComboBox, QSpinBox, QDoubleSpinBox, QPlainTextEdit, QTextEdit {{
@@ -768,6 +909,21 @@ QDockWidget::close-button {{
 """
 
 
+def _tone_rules() -> str:
+    """Text in the colour of a token (:func:`set_tone`): device states, run states, results."""
+    return "\n".join(f'QLabel[tone="{name}"] {{ color: {value}; }}' for name, value in TOKENS[THEME_MODE].items()
+                     if name.startswith(("device.", "run.", "status.")))
+
+
+def set_tone(widget: QWidget, name: Optional[str]) -> QWidget:
+    """Colour the text of a label with a token of the lab (``"device.connected"``, ``"run.error"``,
+    ``"status.warning"``); ``None`` for the normal colour."""
+    if widget.property("tone") != name:
+        widget.setProperty("tone", name)
+        _repolish(widget)
+    return widget
+
+
 def _repolish(widget: QWidget) -> None:
     style = widget.style()
     style.unpolish(widget)
@@ -804,14 +960,11 @@ def set_variant(button: QWidget, variant: Optional[str]) -> QWidget:
     return button
 
 
-JITTER_LOW = QColor(27, 128, 5)
-JITTER_MEDIUM = QColor(163, 81, 10)
-JITTER_HIGH = QColor(184, 0, 0)
-
-
 # ------------------------------------------------------------------ lab tokens
-#: Colour tokens of the lab (shell, devices, flows), for the dark theme the application uses and
-#: a light variant. Widgets read them through :func:`token`, never as literal colours.
+#: Colour tokens of the lab (shell, devices, flows, charts), for the dark theme and a light variant.
+#: Widgets read them through :func:`token`, never as literal colours. Node groups (``group.*``) are
+#: muted header tints 20-25° of hue apart; signal types (``type.*``) are the saturated colours of
+#: ports and wires, so a node's group and the types of its ports are never confused.
 TOKENS = {
     "dark": {
         # device status (sidebar, header chips, device card)
@@ -838,21 +991,79 @@ TOKENS = {
         "run.done": "#7fd18b",
         "run.error": "#ff7f7f",
         "run.breakpoint": "#d05656",
+        # node groups of the flow editor (header tint, palette, minimap)
+        "group.generator": "#be6360",
+        "group.gpio": "#be8560",
+        "group.device": "#bea260",
+        "group.time": "#bbbe60",
+        "group.control": "#98be60",
+        "group.decoder": "#63be60",
+        "group.measure": "#60bea6",
+        "group.remote": "#60b1be",
+        "group.signal": "#6097be",
+        "group.view": "#6077be",
+        "group.convert": "#6c60be",
+        "group.data": "#9260be",
+        "group.report": "#be609b",
+        "group.structure": "#8a8a92",
+        "group.subflow": "#a3a3ab",
+        "group.plugin": "#a3a3ab",
+        # series of charts (strip charts, XY, panels): one palette everywhere
+        "trace.0": "#4b8ae6",
+        "trace.1": "#7fd18b",
+        "trace.2": "#e8b04b",
+        "trace.3": "#e07fd1",
+        "trace.4": "#58c4c4",
+        "trace.5": "#ff9a62",
+        "trace.6": "#b0a3ff",
+        "trace.7": "#c9c9cf",
+        # results of checks and self-tests
+        "status.ok": "#7fd18b",
+        "status.warning": "#e8b04b",
+        "status.fail": "#ff7f7f",
         # shell surfaces
         "shell.activity": "#1c1c1f",
-        "shell.sidebar": "#242427",
-        "shell.header": "#242427",
-        "shell.tab.active": "#303033",
-        "shell.tab.inactive": "#242427",
         # painted parts of documents
         "canvas.dots": "rgba(255,255,255,14)",
         "canvas.hint": "rgba(255,255,255,110)",
+        # circuits (the schematic editor)
+        "circuit.symbol": "#d6d6dc",
+        "circuit.body": "#2a2a30",
+        "circuit.wire": "#7fd18b",
+        "circuit.wire.selected": "#e8b04b",
+        "circuit.junction": "#7fd18b",
+        "circuit.pin": "#a3a3ab",
+        "circuit.pin.open": "#ff7f7f",
+        "circuit.label": "#e8b04b",
+        "circuit.text": "#c9c9cf",
+        "circuit.probe": "#58c4c4",
+        "circuit.value": "#9bc4ff",
+        "circuit.high": "#ff7f7f",
+        "circuit.low": "#4b8ae6",
+        "circuit.current": "#e8b04b",
+        "circuit.selection": "#4b8ae6",
+        "circuit.unsimulated": "#a3a3ab",
+        "circuit.comment": "#b9a97a",
+        "circuit.voltage.positive": "#3fe06a",
+        "circuit.voltage.zero": "#7c7c86",
+        "circuit.voltage.negative": "#ff4d5a",
+        "circuit.flow": "#ffd84d",
+        "circuit.group": "#8a8aa0",
+        "circuit.group.blue": "#4b8ae6",
+        "circuit.group.green": "#5fbf6f",
+        "circuit.group.yellow": "#e8c04b",
+        "circuit.group.red": "#e46a6a",
+        "circuit.group.purple": "#a983e8",
+        "circuit.group.gray": "#9a9aa6",
         "comment.fill": "#4a4430",
         "comment.border": "#6e5626",
         "comment.border.selected": "#e8b04b",
         "comment.text": "#fbe6c2",
         "wire.invalid": "#ff7f7f",
         "led.off": "#3a3a3f",
+        "led.on": "#7fd18b",
+        "screen": "#000000",
+        "shadow": "#000000",
         "pin.idle": "#2a2a2e",
         "pin.output": "#5a4520",
         "pin.high": "#7fd18b",
@@ -885,19 +1096,73 @@ TOKENS = {
         "run.done": "#1f8a3a",
         "run.error": "#c62828",
         "run.breakpoint": "#b33a3a",
+        "group.generator": "#993633",
+        "group.gpio": "#995c33",
+        "group.device": "#997a33",
+        "group.time": "#969933",
+        "group.control": "#709933",
+        "group.decoder": "#369933",
+        "group.measure": "#339980",
+        "group.remote": "#338b99",
+        "group.signal": "#336e99",
+        "group.view": "#334c99",
+        "group.convert": "#413399",
+        "group.data": "#693399",
+        "group.report": "#993374",
+        "group.structure": "#77777f",
+        "group.subflow": "#5a5a63",
+        "group.plugin": "#5a5a63",
+        "trace.0": "#1f62c4",
+        "trace.1": "#1f8a3a",
+        "trace.2": "#a86b00",
+        "trace.3": "#a53a96",
+        "trace.4": "#1d8585",
+        "trace.5": "#c4581a",
+        "trace.6": "#5a48d6",
+        "trace.7": "#55555e",
+        "status.ok": "#1f7a35",
+        "status.warning": "#9a6200",
+        "status.fail": "#c62828",
         "shell.activity": "#e4e4e8",
-        "shell.sidebar": "#f2f2f4",
-        "shell.header": "#f2f2f4",
-        "shell.tab.active": "#ffffff",
-        "shell.tab.inactive": "#ebebee",
         "canvas.dots": "rgba(0,0,0,30)",
         "canvas.hint": "rgba(0,0,0,120)",
+        "circuit.symbol": "#2a2a30",
+        "circuit.body": "#fbfbfd",
+        "circuit.wire": "#1f8a3a",
+        "circuit.wire.selected": "#a86b00",
+        "circuit.junction": "#1f8a3a",
+        "circuit.pin": "#55555e",
+        "circuit.pin.open": "#c62828",
+        "circuit.label": "#a86b00",
+        "circuit.text": "#3a3a42",
+        "circuit.probe": "#1d8585",
+        "circuit.value": "#1f62c4",
+        "circuit.high": "#c62828",
+        "circuit.low": "#1f62c4",
+        "circuit.current": "#a86b00",
+        "circuit.selection": "#1f62c4",
+        "circuit.unsimulated": "#77777f",
+        "circuit.comment": "#7a6a3a",
+        "circuit.voltage.positive": "#169a3c",
+        "circuit.voltage.zero": "#9a9aa4",
+        "circuit.voltage.negative": "#d42a3a",
+        "circuit.flow": "#d99a00",
+        "circuit.group": "#8a8a9a",
+        "circuit.group.blue": "#3b78d8",
+        "circuit.group.green": "#3fa04f",
+        "circuit.group.yellow": "#d8a420",
+        "circuit.group.red": "#d04848",
+        "circuit.group.purple": "#8a5fd0",
+        "circuit.group.gray": "#80808c",
         "comment.fill": "#fbf1d6",
         "comment.border": "#e2c27e",
         "comment.border.selected": "#9a6200",
         "comment.text": "#4a3a10",
         "wire.invalid": "#c62828",
         "led.off": "#d6d6dc",
+        "led.on": "#1f8a3a",
+        "screen": "#000000",
+        "shadow": "#000000",
         "pin.idle": "#e2e2e7",
         "pin.output": "#f2dfb4",
         "pin.high": "#1f8a3a",
@@ -910,26 +1175,114 @@ TOKENS = {
     },
 }
 
+#: The waveform display of the data view (traces, rulers, overview, the charts of its captures):
+#: dark in both themes, like the screen of an instrument.
+DISPLAY_TOKENS = {
+    "display.background": "#1c1c1f",
+    "display.background.alternate": "#1f1f23",
+    "display.row.separator": "#2c2c31",
+    "display.grid.major": "#3a3a40",
+    "display.grid.minor": "#28282d",
+    "display.grid.plot": "#34343a",
+    "display.sample.line": "#34343a",
+    "display.text": "#ffffff",
+    "display.text.dim": "#969aa0",
+    "display.line.user": "#5ad1e6",
+    "display.line.trigger": "#f0a53c",
+    "display.line.burst": "#e1e1e8",
+    "display.burst": "#e0af1d",
+    "display.burst.fill": "rgba(224,175,29,128)",
+    "display.selection": "rgba(90,140,220,70)",
+    "display.selection.edge": "rgba(120,170,255,160)",
+    "display.cursor.a": "#62c4ff",
+    "display.cursor.b": "#ff80c4",
+    "display.bookmark": "#8cd678",
+    "display.search.hit": "rgba(255,214,90,150)",
+    "display.search.current": "#ffd65a",
+    "display.ruler.background": "#242428",
+    "display.ruler.border": "#3a3a40",
+    "display.ruler.major": "#8c8c96",
+    "display.ruler.minor": "#52525a",
+    "display.ruler.text": "#c8c8d0",
+    "display.level.low": "#787880",
+    "display.bus": "#8aaeff",
+    "display.bus.text": "#9696a0",
+    "display.shade": "rgba(0,0,0,55)",
+    "display.hover": "rgba(255,255,255,10)",
+    "display.hover.edge": "rgba(255,255,255,20)",
+    "display.hatch": "rgba(255,255,255,22)",
+    "display.band": "rgba(255,255,255,8)",
+    "display.band.strong": "rgba(255,255,255,18)",
+    "display.popup": "rgba(18,18,20,235)",
+    "display.popup.border": "rgba(255,255,255,120)",
+    "display.ink": "#000000",
+    "display.ink.dark": "#141418",
+}
+#: Colours of the channels of a new capture: 16 distinct hues of similar brightness, softer than pure
+#: RGB, which read well on the dark display and next to each other (channel n: entry n % 16).
+DISPLAY_CHANNELS = (
+    "#f2a33a", "#56b6f7", "#6ccb85", "#ef6f78", "#ad8af0", "#48ccc0", "#f0cf58", "#e685cb",
+    "#8aaeff", "#a2cf62", "#ff9466", "#5fc4e6", "#d8a472", "#b3a5f2", "#76d3a6", "#e3db78",
+)
+#: Colours of the analog tracks of the display (after the digital palette)
+DISPLAY_ANALOG = ("#f5c542", "#4fc3f7", "#e57373", "#81c784", "#ba68c8", "#ffb74d", "#4db6ac", "#f06292")
+for _mode in TOKENS:
+    TOKENS[_mode].update(DISPLAY_TOKENS)
+#: the series of charts, in order
+TRACE_COUNT = 8
+#: what the colour picker of a panel widget offers first
+DEFAULT_PICK = "#4caf50"
+#: white and black for text on a colour of any lightness (:func:`contrast`)
+WHITE = "#ffffff"
+BLACK = "#000000"
 
 
 def token(name: str, mode: Optional[str] = None) -> str:
-    """The colour of the token ``name`` (e.g. ``"type.analog"``) in ``mode`` (default: current)."""
-    return TOKENS[mode or THEME_MODE][name]
+    """The colour of ``name`` in ``mode`` (default: the theme of the run): a token of the lab
+    (``"type.analog"``, ``"group.measure"``, ``"display.grid.major"``) or a colour of the shell's
+    palette (``"TEXT"``, ``"BORDER"``)."""
+    mode = mode or THEME_MODE
+    tokens = TOKENS[mode]
+    if name in tokens:
+        return tokens[name]
+    return PALETTES[mode][name]
 
 
-def qcolor(name: str) -> QColor:
-    """A token as a ``QColor`` (tokens may be ``#rrggbb`` or ``rgba(r,g,b,a)``)."""
-    value = token(name)
+def to_qcolor(value: str) -> QColor:
+    """A colour written as ``#rrggbb`` or ``rgba(r,g,b,a)`` as a ``QColor``."""
     if value.startswith("rgba("):
         red, green, blue, alpha = (int(part) for part in value[5:-1].split(","))
         return QColor(red, green, blue, alpha)
     return QColor(value)
 
 
+def qcolor(name: str, mode: Optional[str] = None) -> QColor:
+    """A token as a ``QColor`` (tokens may be ``#rrggbb`` or ``rgba(r,g,b,a)``)."""
+    return to_qcolor(token(name, mode))
+
+
 def type_color(type_name: str, mode: Optional[str] = None) -> str:
     """Colour of a signal type (``Digital``, ``Analog``, ...) for wires and ports."""
     key = f"type.{type_name.lower()}"
     return TOKENS[mode or THEME_MODE].get(key, TOKENS[mode or THEME_MODE]["type.any"])
+
+
+def group_color(group: str, mode: Optional[str] = None) -> str:
+    """The colour of a node group (``measure``, ``signal`` ...); groups of plugins get a neutral one
+    unless they named a token of their own."""
+    tokens = TOKENS[mode or THEME_MODE]
+    return tokens.get(group if group.startswith("group.") else f"group.{group}", tokens["group.plugin"])
+
+
+def trace_color(index: int, mode: Optional[str] = None) -> str:
+    """The colour of the ``index``-th series of a chart (one palette for every chart)."""
+    return TOKENS[mode or THEME_MODE][f"trace.{index % TRACE_COUNT}"]
+
+
+def contrast(color: QColor) -> QColor:
+    """Black or white, whichever reads better on ``color``."""
+    yiq = (color.red() * 299 + color.green() * 587 + color.blue() * 114) // 1000
+    return QColor(BLACK) if yiq >= 128 else QColor(WHITE)
 
 
 _CLOSE_SVG = (
@@ -981,6 +1334,36 @@ QToolBar#activity-bar QToolButton:checked {{
 }}
 QToolBar#header-bar {{
     padding: 3px 8px;
+}}
+/* two or more buttons that are one switch (Real time | Virtual time) */
+QWidget#segmented QToolButton {{
+    background-color: {PANEL_LIGHT};
+    border: 1px solid {BORDER};
+    border-radius: 0;
+    padding: 3px 10px;
+    margin: 0;
+    color: {TEXT_MUTED};
+}}
+QWidget#segmented QToolButton[segment="first"] {{
+    border-top-left-radius: 4px;
+    border-bottom-left-radius: 4px;
+}}
+QWidget#segmented QToolButton[segment="last"] {{
+    border-left: none;
+    border-top-right-radius: 4px;
+    border-bottom-right-radius: 4px;
+}}
+QWidget#segmented QToolButton:hover:!disabled {{
+    color: {TEXT};
+    background-color: {COLORS['BUTTON_HOVER']};
+}}
+QWidget#segmented QToolButton:checked {{
+    background-color: {COLORS['CHECKED']};
+    border-color: {COLORS['CHECKED_BORDER']};
+    color: {TEXT};
+}}
+QWidget#segmented QToolButton:disabled {{
+    color: {TEXT_DISABLED};
 }}
 QWidget#part-header {{
     background-color: transparent;
@@ -1039,5 +1422,3 @@ QFrame#command-palette {{
 }}
 """, size)
 
-
-SHELL_STYLESHEET = shell_stylesheet()

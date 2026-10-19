@@ -134,12 +134,12 @@ class DecoderBrowserDialog(QDialog):
             )
             return
 
-        channels = ", ".join(channel.name for channel in info.channels) or "none"
+        channels = ", ".join(channel.name for channel in info.channels) or "–"
         self.details.setText(
             f"<b>{info.longname}</b><br>{info.desc}<br>"
             f"<span style='color:{TEXT_MUTED}'>Channels:</span> {channels}<br>"
-            f"<span style='color:{TEXT_MUTED}'>Inputs:</span> {', '.join(info.inputs) or '-'} &nbsp; "
-            f"<span style='color:{TEXT_MUTED}'>Outputs:</span> {', '.join(info.outputs) or '-'}"
+            f"<span style='color:{TEXT_MUTED}'>Inputs:</span> {', '.join(info.inputs) or '–'} &nbsp; "
+            f"<span style='color:{TEXT_MUTED}'>Outputs:</span> {', '.join(info.outputs) or '–'}"
         )
 
     def _accept_if_valid(self) -> None:

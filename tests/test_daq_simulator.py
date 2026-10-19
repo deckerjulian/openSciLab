@@ -21,7 +21,7 @@ def test_the_daq_simulator_is_a_usb_daq():
     assert "daq" in available_profiles()
     daq = open_simulated("daq")
     driver = daq.simulated_driver
-    assert daq.name == "Simulation: USB DAQ" and driver.analog_channel_names() == [f"AI{n}" for n in range(8)]
+    assert daq.name == "Simulated USB DAQ" and driver.analog_channel_names() == [f"AI{n}" for n in range(8)]
     assert {"GPIO", "DAC", "ANALOG=8", "CONTINUOUS_STREAM"} <= driver.capabilities()
     assert not driver.knows_time and driver.drift == pytest.approx(30e-6)  # USB, a drifting clock
     # the loopbacks of the profile
@@ -129,7 +129,7 @@ def test_a_flow_streams_analog_inputs(channels):
     flow = yaml_io.loads(f"""
 flow: Stream
 nodes:
-  daq: {{type: device.instrument, address: "sim:daq"}}
+  daq: {{type: device.device, address: "sim:daq"}}
   stream: {{type: device.stream, channels: [{', '.join(channels)}], rate: 1 kHz, duration: 0.3 s}}
 edges:
   - daq.device -> stream.device

@@ -1,9 +1,9 @@
 flow: Low pass filter
-description: dsp.filter on the analog signal; both versions are measured.
+description: signal.filter on the analog signal; both versions are measured.
 nodes:
-  scope: {type: device.instrument, at: [0, 168]}
+  scope: {type: device.device, at: [0, 168]}
   capture: {type: device.capture, channels: [CH1], rate: 500 kHz, samples: 20000, at: [272, 168]}
-  filter: {type: dsp.filter, kind: lowpass, cutoff: 3 kHz, method: fir, taps: 201, at: [544, 56]}
+  filter: {type: signal.filter, kind: lowpass, cutoff: 3 kHz, method: fir, taps: 201, at: [544, 56]}
   raw_view: {type: view.scope, title: CH1 as captured, at: [544, 368]}
   filtered_view: {type: view.scope, title: CH1 filtered, at: [808, 112]}
   rms_raw: {type: measure.rms, at: [544, 256]}

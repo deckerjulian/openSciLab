@@ -211,11 +211,11 @@ def test_the_simulated_device_is_corrected_behind_the_emulated_network():
 FLOW = """
 flow: Remote
 nodes:
-  station: {type: device.instrument, address: "remote-sim:climate"}
-  temp: {type: remote.receive, channel: temperature, duration: 1 s}
-  heat: {type: remote.set, channel: heater, value: 40}
-  calibrate: {type: remote.call, command: calibrate, args: {reference: 21}}
-  fan: {type: gpio.write, pin: fan, level: 1}
+  station: {type: device.device, address: "remote-sim:climate"}
+  temp: {type: remote.input, channel: temperature, duration: 1 s}
+  heat: {type: remote.output, channel: heater, value: 40}
+  calibrate: {type: remote.command, command: calibrate, args: {reference: 21}}
+  fan: {type: gpio.output, pin: fan, level: 1}
 edges:
   - station.device -> temp.device
   - station.device -> heat.device
@@ -261,10 +261,10 @@ def test_the_sync_signal_aligns_the_device_to_a_recording(tmp_path):
     flow = yaml_io.loads("""
 flow: Sync
 nodes:
-  station: {type: device.instrument, address: "remote-sim:climate"}
-  la: {type: device.instrument, address: "sim:free"}
+  station: {type: device.device, address: "remote-sim:climate"}
+  la: {type: device.device, address: "sim:free"}
   stream: {type: device.stream, channels: [D5], rate: 100 kHz, duration: 2 s}
-  sync: {type: remote.sync, sync: SYNC}
+  sync: {type: remote.align, sync: SYNC}
 edges:
   - station.device -> sync.device
   - la.device -> stream.device
@@ -277,7 +277,7 @@ edges:
     result = engine.run(timeout=30)
     assert result.ok, result.error
     scatter = [value for port, value in values if port == "uncertainty"]
-    edges = [value for port, value in values if port == "edges"]
+    edges = [value for port, value in values if port == "matched"]
     # the precision of the recording (10 µs); how many edges are matched depends on when stream and
     # sync output start in real time
     assert scatter and scatter[-1] < 50e-6 and edges[-1] >= 10
@@ -290,9 +290,9 @@ def test_the_inspector_offers_what_the_remote_device_describes():
     from openscilab.lab.nodes.registry import default_registry
 
     flow = Flow("t")
-    flow.add_node("device.instrument", "station", address="remote-sim:climate")
-    for node_id, type_name in (("temp", "remote.receive"), ("heat", "remote.set"), ("cal", "remote.call"),
-                               ("sync", "remote.sync")):
+    flow.add_node("device.device", "station", address="remote-sim:climate")
+    for node_id, type_name in (("temp", "remote.input"), ("heat", "remote.output"), ("cal", "remote.command"),
+                               ("sync", "remote.align")):
         flow.add_node(type_name, node_id)
         flow.connect("station.device", f"{node_id}.device")
     devices = hints.flow_devices(flow)

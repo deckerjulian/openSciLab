@@ -28,13 +28,13 @@ from PySide6.QtWidgets import (
 
 from .. import colors
 from ...core.formatting import to_small_time, to_thousands
-from ..theme import BORDER, TEXT_MUTED, set_role
+from ..theme import BORDER, TEXT_MUTED, qcolor, set_role
 from ..view_model import CaptureViewModel
 from .common import button_box, dialog_layout
 
-PLOT_BACKGROUND = QColor(28, 28, 31)
+PLOT_BACKGROUND = qcolor("display.background")
 AXIS_COLOR = QColor(TEXT_MUTED)
-GRID_COLOR = QColor(52, 52, 58)
+GRID_COLOR = qcolor("display.grid.plot")
 MARGIN_LEFT, MARGIN_RIGHT, MARGIN_TOP, MARGIN_BOTTOM = 70, 16, 12, 34
 
 RANGE_ALL = "all"

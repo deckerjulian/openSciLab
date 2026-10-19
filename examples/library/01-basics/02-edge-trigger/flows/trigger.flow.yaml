@@ -1,7 +1,7 @@
 flow: Edge trigger
 description: 'A capture that starts on a rising edge of D15, with 2500 samples before the trigger.'
 nodes:
-  la: {type: device.instrument, at: [0, 0]}
+  la: {type: device.device, at: [0, 0]}
   capture:
     type: device.capture
     channels: [D15, D8, D9]

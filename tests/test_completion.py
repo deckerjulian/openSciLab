@@ -14,7 +14,7 @@ from openscilab.lab import completion, hints, yaml_io
 
 FLOW = """flow: Pwm
 nodes:
-  uno: {type: device.instrument, address: sim:uno}
+  uno: {type: device.device, address: sim:uno}
   pwm: {type: gpio.pwm, pin: D9}
   mean: {type: measure.mean}
   capture: {type: device.capture, channels: [A0]}
@@ -41,18 +41,18 @@ def test_sections_and_node_types():
 
 def test_parameters_of_the_node_type_that_are_not_there_yet():
     keys = offered("nodes:\n  pwm: {type: gpio.pwm, pin: D9, ")
-    assert "freq: " in keys and "duty: " in keys and "pin: " not in keys
-    assert offered("nodes:\n  check:\n    type: report.check\n    name: x\n    exp") == ["expected: "]
+    assert "frequency: " in keys and "duty: " in keys and "pin: " not in keys
+    assert offered("nodes:\n  check:\n    type: report.check\n    title: x\n    exp") == ["expected: "]
 
 
 def test_values_from_the_device_and_the_choices():
     assert offered("nodes:\n  pwm: {type: gpio.pwm, pin: D") == ["D3", "D5", "D6", "D9", "D10", "D11"]
     # a node typed just now (not read yet, not wired): the only device of the flow
-    assert offered("nodes:\n  led: {type: gpio.write, pin: D1")[:3] == ["D10", "D11", "D12"]
+    assert offered("nodes:\n  led: {type: gpio.output, pin: D1")[:3] == ["D10", "D11", "D12"]
     assert "A1" in offered("nodes:\n  capture: {type: device.capture, channels: [A0, ")
     assert offered("nodes:\n  m: {type: measure.pulse_width, level: ") == ["high", "low"]
     assert offered("nodes:\n  c: {type: device.stream, until_stopped: ") == ["true", "false"]
-    assert offered("nodes:\n  d: {type: device.instrument, address: sim:u",
+    assert offered("nodes:\n  d: {type: device.device, address: sim:u",
                    addresses=[("Uno", "sim:uno"), ("Free", "sim:free")]) == ["sim:uno"]
 
 

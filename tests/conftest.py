@@ -96,7 +96,10 @@ def shell():
 
     from openscilab.ui.shell.main_window import ShellWindow
 
-    QApplication.instance() or QApplication([])
+    application = QApplication.instance() or QApplication([])
+    from openscilab.ui.theme import apply_font
+
+    apply_font(application)  # (as the application does)
     window = ShellWindow()
     window.resize(1600, 1000)
     window.show()

@@ -16,7 +16,7 @@ import numpy as np
 
 from ...core import signals, units
 from ..engine.runtime import NodeError, NodeRuntime
-from .registry import In, Out, Param, collect, node
+from .registry import UNITS, In, Out, Param, collect, node
 
 
 def event(ctx, data: Any = None) -> signals.Event:
@@ -25,9 +25,12 @@ def event(ctx, data: Any = None) -> signals.Event:
 
 @node("control.timer", title="Timer",
       description="Ticks every 'interval' (after 'delay'); 'count' ticks, or endless with 0.",
-      outputs=[Out("tick", signals.EVENT), Out("index", signals.SCALAR)],
-      params=[Param("interval", "quantity", "1 s", "s"), Param("count", "int", 1), Param("delay", "quantity", 0, "s")],
-      icon="clock")
+      outputs=[Out("tick", signals.EVENT, "Every tick"), Out("index", signals.SCALAR, "The number of the tick (from 0)")],
+      params=[Param("interval", "quantity", "1 s", "s", label="interval", description="The time between two ticks"),
+              Param("count", "int", 1, label="count", description="How many ticks (0: for ever)", minimum=0),
+              Param("delay", "quantity", 0, "s", label="delay", description="The time before the first tick",
+                    advanced=True)],
+      icon="clock", summary=("interval", "count"), keywords=("clock", "periodic", "every", "repeat", "tick"))
 class TimerNode(NodeRuntime):
     async def run(self) -> None:
         interval = self.q("interval")
@@ -56,14 +59,22 @@ class TimerNode(NodeRuntime):
       description="Steps a value from 'start' to 'stop' (or through 'values'): sends 'value', waits "
                   "'dwell', then sends 'step'. With a wire at 'next' it waits for it before the next value; "
                   "with one at 'trigger' it sweeps for every value there (a start button).",
-      inputs=[In("next", signals.ANY, "continue with the next value"), In("trigger", signals.ANY, "start a sweep")],
-      outputs=[Out("value", signals.SCALAR), Out("step", signals.EVENT), Out("index", signals.SCALAR),
-               Out("done", signals.EVENT)],
-      params=[Param("start", "any", 0.0, description="a number or a quantity (0 V)"), Param("stop", "any", 1.0),
-              Param("step", "any", 0.1), Param("values", "list", description="explicit values instead of start/stop/step"),
-              Param("dwell", "quantity", 0, "s"),
-              Param("unit", "str", "", description="of the values (without: the unit of the quantities)")],
-      icon="sliders")
+      inputs=[In("next", signals.EVENT, "Go on with the next value"),
+              In("trigger", signals.EVENT, "Sweep again for every value (a start button)")],
+      outputs=[Out("value", signals.SCALAR, "The value of the step"),
+               Out("step", signals.EVENT, "The step is over (after its dwell)"),
+               Out("index", signals.SCALAR, "The number of the step (from 0)"),
+               Out("done", signals.EVENT, "The sweep is over")],
+      params=[Param("start", "any", 0.0, description="The first value: a number or a quantity (0 V)",
+                    only_if={"values": None}, label="from"),
+              Param("stop", "any", 1.0, only_if={"values": None}, label="to", description="The last value"),
+              Param("step", "any", 0.1, only_if={"values": None}, label="step", description="From value to value"),
+              Param("values", "list", description="Values of your own instead of from/to/step", label="values",
+                    advanced=True),
+              Param("dwell", "quantity", 0, "s", label="dwell", description="How long each value stays"),
+              Param("unit", "str", "", description="The unit of the values (without: the unit of the quantities)",
+                    choices=UNITS, label="unit", advanced=True)],
+      icon="sliders", summary=("start", "stop", "step"), keywords=("ramp", "steps", "characteristic curve", "scan"))
 class SweepNode(NodeRuntime):
     pulled = ("next", "trigger")
 
@@ -192,10 +203,14 @@ def _sequence_ports(params: dict):
       description="Steps without code, one after the other: {set: out, value: 1} sends a value, "
                   "{emit: out} an event, {wait: 100 ms} waits, {wait_for: in, timeout: 1 s} waits for a "
                   "value on an input. 'repeat' runs it several times (0: for ever).",
-      inputs=[In("start", signals.ANY, "start, for every value again (without a wire: at once)")],
-      outputs=[Out("step", signals.SCALAR), Out("done", signals.EVENT), Out("timeout", signals.EVENT)],
-      params=[Param("steps", "table", [], required=True), Param("repeat", "int", 1)],
-      ports=_sequence_ports, icon="sequence")
+      inputs=[In("start", signals.EVENT, "Start, for every value again (without a wire: at once)")],
+      outputs=[Out("step", signals.SCALAR, "The number of the step it is at"),
+               Out("done", signals.EVENT, "The steps are through"),
+               Out("timeout", signals.EVENT, "A 'wait_for' ran out of time")],
+      params=[Param("steps", "table", [], required=True, editor="steps", label="steps",
+                    description="Set a value, send an event, wait, wait for an input – one after the other"),
+              Param("repeat", "int", 1, label="repeat", description="Runs (0: for ever)", minimum=0)],
+      ports=_sequence_ports, icon="sequence", summary=("steps", "repeat"), keywords=("steps", "script", "wait", "order"))
 class SequenceNode(NodeRuntime):
     async def setup(self) -> None:
         inputs, _outputs = _sequence_ports(self.params)
@@ -275,9 +290,13 @@ def _machine_ports(params: dict):
                   "{after: 1 s, to: green} after a time, {input: button, when: 1, to: green} when a value "
                   "arrives at an input of that name; the first that happens wins. A state without 'on' ends "
                   "the machine ('done').",
-      outputs=[Out("state", signals.ANY), Out("done", signals.EVENT)],
-      params=[Param("states", "dict", {}, required=True), Param("initial", "str", required=True)],
-      ports=_machine_ports, icon="sequence")
+      outputs=[Out("state", signals.ANY, "The name of the state it is in"),
+               Out("done", signals.EVENT, "It reached a state without a way out")],
+      params=[Param("states", "dict", {}, required=True, editor="states", label="states",
+                    description="Each state: the values it sets ('enter') and its ways out ('on')"),
+              Param("initial", "str", required=True, suggest="own_keys:states", label="first state",
+                    description="The state it starts in")],
+      ports=_machine_ports, icon="sequence", summary=("initial", "states"), keywords=("fsm", "states", "traffic light"))
 class StateMachineNode(NodeRuntime):
     async def setup(self) -> None:
         inputs, _outputs = _machine_ports(self.params)
@@ -355,10 +374,15 @@ def _python_ports(params: dict):
       description="Your own code: 'async def run(ctx)' runs with the flow (ctx.emit, await ctx.sleep, "
                   "await ctx.receive(port), ctx.device(name), ctx.log); 'def on_input(ctx, port, value)' "
                   "is called for values on the inputs. 'inputs' and 'outputs' name the ports.",
-      params=[Param("code", "code", "async def run(ctx):\n    ctx.log('hello')\n", required=True),
-              Param("inputs", "list", []), Param("outputs", "list", ["out"]),
-              Param("pulled", "list", [], description="inputs read with await ctx.receive() in run()")],
-      ports=_python_ports, icon="terminal")
+      params=[Param("code", "code", "async def run(ctx):\n    ctx.log('hello')\n", required=True, label="code",
+                    description="async def run(ctx) and/or def on_input(ctx, port, value)"),
+              Param("inputs", "list", [], description="Its inputs: names, or outputs of the flow to wire (▾)",
+                    suggest="flow_outputs", editor="inputs", label="inputs"),
+              Param("outputs", "list", ["out"], description="Its outputs: names (ctx.emit('name', value))",
+                    label="outputs"),
+              Param("pulled", "list", [], description="Inputs read with await ctx.receive() in run()",
+                    suggest="own_list:inputs", label="read in run()", advanced=True)],
+      ports=_python_ports, icon="terminal", summary=("inputs", "outputs"), keywords=("code", "script", "own"))
 class PythonNode(NodeRuntime):
     async def setup(self) -> None:
         namespace = {"np": np, "signals": signals, "units": units, "__name__": f"flow_node_{self.node.id}"}
@@ -396,11 +420,17 @@ OPERATORS = {
       description="Compares 'a' with 'b' (or with 'value' when 'b' has no wire): ==, !=, <, <=, >, >=, "
                   "within (|a - b| <= tolerance), contains, startswith. Sends the result and 'passed' or "
                   "'failed'.",
-      inputs=[In("a", signals.ANY, optional=False), In("b", signals.ANY)],
-      outputs=[Out("result", signals.BOOL), Out("passed", signals.EVENT), Out("failed", signals.EVENT)],
-      params=[Param("op", "choice", "==", choices=tuple(OPERATORS) + ("within",)),
-              Param("value", "any", description="a number in the unit of 'a', or a quantity (20 mA)"),
-              Param("tolerance", "any", 0.0, description="for 'within', like 'value'")], icon="compare")
+      inputs=[In("a", signals.ANY, "The value to compare", optional=False),
+              In("b", signals.ANY, "What to compare it with (instead of 'value')")],
+      outputs=[Out("result", signals.BOOL, "Whether the comparison holds"),
+               Out("passed", signals.EVENT, "It holds"), Out("failed", signals.EVENT, "It does not hold")],
+      params=[Param("operator", "choice", "==", choices=tuple(OPERATORS) + ("within",), label="operator",
+                    description="==, !=, <, <=, >, >=, within (± tolerance), contains, startswith"),
+              Param("value", "any", description="A number in the unit of 'a', or a quantity (20 mA)", unless_wired="b",
+                    label="value"),
+              Param("tolerance", "any", 0.0, description="For 'within': like 'value'",
+                    only_if={"operator": ("within",)}, label="± tolerance")],
+      icon="compare", summary=("operator", "value"), keywords=("equal", "greater", "less", "if", "check", "test"))
 class CompareNode(NodeRuntime):
     async def on_input(self, port: str, value: Any) -> None:
         a_value = self.ctx.latest("a")
@@ -417,7 +447,7 @@ class CompareNode(NodeRuntime):
         if isinstance(a_value, (signals.Analog, signals.Digital, signals.Capture, signals.Table)):
             raise NodeError(f"compares values, not a whole {a_value.type_name} signal: measure it first "
                             "(measure.mean, measure.max, ...)")
-        a, unit, op = plain(a_value), unit_of(a_value), self.p("op", "==")
+        a, unit, op = plain(a_value), unit_of(a_value), self.p("operator", "==")
         b = b_value
         try:
             if op in ("contains", "startswith"):
@@ -438,12 +468,19 @@ class CompareNode(NodeRuntime):
         self.ctx.emit("passed" if result else "failed", event(self.ctx, a))
 
 
-@node("control.limit", title="Limit",
-      description="Checks a value against 'low' and 'high': 'ok' and the value clipped to the limits. The "
-                  "limits are numbers in the unit of the value, or quantities (3.3 V, 20 mA).",
-      inputs=[In("in", signals.SCALAR, optional=False)],
-      outputs=[Out("ok", signals.BOOL), Out("out", signals.SCALAR), Out("violation", signals.EVENT)],
-      params=[Param("low", "any"), Param("high", "any")], icon="compare")
+@node("control.range", title="Range",
+      description="Checks a value against 'low' and 'high': 'result' tells whether it is inside, 'out' is the "
+                  "value clipped to the range, 'failed' comes for a value outside. The limits are numbers in the "
+                  "unit of the value, or quantities (3.3 V, 20 mA).",
+      inputs=[In("in", signals.SCALAR, "The value to check", optional=False)],
+      outputs=[Out("result", signals.BOOL, "Whether the value is inside the range"),
+               Out("out", signals.SCALAR, "The value, clipped to the range"),
+               Out("passed", signals.EVENT, "A value inside"), Out("failed", signals.EVENT, "A value outside")],
+      params=[Param("low", "any", label="minimum (≥)",
+                    description="A number in the unit of the value, or a quantity (3 V)"),
+              Param("high", "any", label="maximum (≤)",
+                    description="A number in the unit of the value, or a quantity (3.6 V)")],
+      icon="compare", summary=("low", "high"), keywords=("limit", "window", "between", "clip", "check"))
 class LimitNode(NodeRuntime):
     async def on_input(self, port: str, value: Any) -> None:
         number, unit = float(plain(value)), unit_of(value)
@@ -456,26 +493,9 @@ class LimitNode(NodeRuntime):
         if high is not None:
             clipped = min(clipped, high)
         at = value.at if isinstance(value, signals.Scalar) and value.at else self.ctx.now()
-        self.ctx.emit("ok", signals.Bool(name=self.node.id, value=ok, at=at))
+        self.ctx.emit("result", signals.Bool(name=self.node.id, value=ok, at=at))
         self.ctx.emit("out", signals.Scalar(name=self.node.id, unit=unit, value=clipped, at=at))
-        if not ok:
-            self.ctx.emit("violation", event(self.ctx, number))
-
-
-@node("control.counter", title="Counter",
-      description="Counts the values arriving at 'in' (events count each event); 'reset' starts again.",
-      inputs=[In("in", signals.ANY, optional=False, multiple=True), In("reset", signals.ANY)],
-      outputs=[Out("count", signals.SCALAR)], params=[Param("start", "int", 0)], icon="sliders")
-class CounterNode(NodeRuntime):
-    async def setup(self) -> None:
-        self.count = int(self.p("start", 0))
-
-    async def on_input(self, port: str, value: Any) -> None:
-        if port == "reset":
-            self.count = int(self.p("start", 0))
-        else:
-            self.count += len(value) if isinstance(value, signals.Event) else 1
-        self.ctx.emit("count", float(self.count))
+        self.ctx.emit("passed" if ok else "failed", event(self.ctx, number))
 
 
 NODES = collect(globals())

@@ -63,6 +63,19 @@ def test_spi_reads_miso_from_the_circuit(pico):
     assert generator.transmit("spi", b"\x12\x34", {"sck": "GP2", "mosi": "GP3", "miso": "GP4"}) == b"\xff\xff"
 
 
+def test_spi_reads_back_its_own_mosi_over_a_wire(pico):
+    # MOSI wired to MISO (the loopback of examples/library/02-digital/07-pico-loopback): what is
+    # sent comes back, as on the board - MISO is read while MOSI drives it, not before
+    instrument, _clock = pico
+    from openscilab.driver.simulated import scenarios
+
+    scenarios.apply(instrument.simulated_driver, {"scenario": "idle"})
+    instrument.simulation.set_wiring([{"from": "GP3", "to": "GP7"}])
+    generator = instrument.facet(GeneratorFacet)
+    pins = {"cs": "GP5", "sck": "GP4", "mosi": "GP3", "miso": "GP7"}
+    assert generator.transmit("spi", b"openSciLab", pins, frequency=1e6) == b"openSciLab"
+
+
 def test_reserved_pins_and_devices_without_it():
     instrument = open_simulated("pico", fast=True)
     generator = instrument.facet(GeneratorFacet)
@@ -76,8 +89,8 @@ def test_reserved_pins_and_devices_without_it():
 
 def test_the_node_uses_the_device_and_reports_the_answer():
     flow = Flow("x")
-    flow.add_node("device.instrument", "pico", address="sim:pico")
-    flow.add_node("gen.tx_i2c", "read", pins=["GP3", "GP2"], address=0x48, data=[0], read=2)
+    flow.add_node("device.device", "pico", address="sim:pico")
+    flow.add_node("generator.i2c", "read", pins=["GP3", "GP2"], address=0x48, data=[0], read=2)
     flow.connect("pico.device", "read.device")
     engine = Engine(flow, mode="virtual")
     result = engine.run(timeout=20)
@@ -87,8 +100,8 @@ def test_the_node_uses_the_device_and_reports_the_answer():
 
 def test_without_tx_the_node_sends_a_pattern():
     flow = Flow("x")
-    flow.add_node("device.instrument", "afg", address="sim:dho924s")
-    flow.add_node("gen.tx_uart", "uart", pin="D0", baud="9600 Hz", data="Hi", output="")
+    flow.add_node("device.device", "afg", address="sim:dho924s")
+    flow.add_node("generator.uart", "uart", pin="D0", baud="9600 Hz", data="Hi", output="")
     flow.connect("afg.device", "uart.device")
     result = Engine(flow, mode="virtual").run(timeout=20)
     assert ("uart", "received") not in result.values  # (played as a pattern: nothing comes back)
@@ -129,10 +142,10 @@ def test_a_flow_keeps_an_output_beyond_the_watchdog():
     flow = yaml_io.loads("""\
 flow: Hold an output
 nodes:
-  uno: {type: device.instrument, address: "sim:uno"}
-  high: {type: gpio.write, pin: D7, level: 1}
+  uno: {type: device.device, address: "sim:uno"}
+  high: {type: gpio.output, pin: D7, level: 1}
   wait: {type: control.timer, interval: 3 s, count: 2}
-  read: {type: gpio.read, pin: D7}
+  read: {type: gpio.input, pin: D7}
 edges:
   - uno.device -> high.device
   - uno.device -> read.device

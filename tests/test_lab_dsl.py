@@ -8,7 +8,7 @@ import pytest
 
 from openscilab.lab import FlowError, flow, from_python, to_python, yaml_io
 from openscilab.lab import nodes as n
-from openscilab.lab.project import Project
+from openscilab.lab.project import Project, folders
 
 ROOT = os.path.join(os.path.dirname(__file__), "..")
 COUNTER = os.path.join(ROOT, "examples", "flows", "counter.flow.yaml")
@@ -20,7 +20,7 @@ def build_counter():
         cap = n.device.capture(sim, id="cap", channels=["D0", "D1", "D2", "D3", "D8"], rate="4 MHz",
                                samples=20000, trigger=n.edge("D8"))
         cap.capture >> n.view.scope(id="scope", title="Counter")
-        cap.capture >> n.data.file(id="file", path="counter.lac")
+        cap.capture >> n.data.write(id="file", path="counter.lac")
     return f
 
 
@@ -63,8 +63,8 @@ def test_node_to_node_wiring_and_keywords():
         timer = n.control.timer(interval="1 ms", count=2)
         table = n.data.table()
         timer >> table
-        n.data.file(in_=table.table, path="t.csv")
-    assert [str(edge) for edge in f.flow.edges] == ["timer.tick -> table.in", "table.table -> file.in"]
+        n.data.write(in_=table.table, path="t.csv")
+    assert [str(edge) for edge in f.flow.edges] == ["timer.tick -> table.in", "table.table -> write.in"]
 
 
 def test_errors_of_the_dsl():
@@ -103,7 +103,9 @@ def test_the_dsl_runs_a_flow(tmp_path):
 # --------------------------------------------------------------------- projects
 def test_a_project_with_own_nodes_and_devices(tmp_path):
     project = Project.create(str(tmp_path / "lab"), "Lab", devices={"sim": "sim:free"})
-    assert sorted(os.listdir(project.root)) == ["data", "flows", "nodes", "panels", "project.yaml", "tests", "waveforms"]
+    # (the folders of openSciLab and those plugins add: circuits/ once the Circuits plugin is loaded)
+    assert sorted(os.listdir(project.root)) == sorted([*folders(), "project.yaml"])
+    assert {"data", "flows", "nodes", "panels", "tests", "waveforms"} <= set(folders())
     (tmp_path / "lab" / "nodes" / "scale.py").write_text(
         "from openscilab.lab import node, In, Out\n"
         "@node('my.scale', inputs=[In('x', 'Scalar', optional=False)], outputs=[Out('y', 'Scalar')])\n"
@@ -113,12 +115,12 @@ def test_a_project_with_own_nodes_and_devices(tmp_path):
         timer = n.control.timer(interval="1 ms", count=3)
         timer.index >> n.data.table(id="raw")
     f.flow.add_node("my.scale", "scale")
-    f.flow.add_node("data.file", "file", path="scaled.csv")
+    f.flow.add_node("data.write", "file", path="scaled.csv")
     f.flow.add_node("data.table", "table")
     f.flow.connect("timer.index", "scale.x")
     f.flow.connect("scale.y", "table.in")
     f.flow.connect("table.table", "file.in")
-    f.flow.add_node("device.instrument", "sim")  # the project's device
+    f.flow.add_node("device.device", "sim")  # the project's device
     f.flow.add_node("device.capture", "cap", channels=["D15"], samples=100)
     f.flow.connect("sim.device", "cap.device")
     f.save(os.path.join(project.flows_dir, "scaled.flow.yaml"))

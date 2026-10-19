@@ -1,10 +1,10 @@
 flow: Report with a diagram
 description: 'A sweep of the duty cycle; every step''s reading goes into the table, the table into the report.'
 nodes:
-  uno: {type: device.instrument, at: [0, 184]}
+  uno: {type: device.device, at: [0, 184]}
   sweep: {type: control.sweep, start: 0.1, stop: 0.9, step: 0.2, dwell: 600 ms, at: [0, 272]}
-  pwm: {type: gpio.pwm, pin: D9, freq: 1 kHz, at: [272, 152]}
-  a0: {type: gpio.read, pin: A0, analog: true, at: [272, 304]}
+  pwm: {type: gpio.pwm, pin: D9, frequency: 1 kHz, at: [272, 152]}
+  a0: {type: gpio.input, pin: A0, analog: true, at: [272, 304]}
   table: {type: data.table, columns: [duty, volts], at: [544, 248]}
   intro:
     type: report.section
@@ -13,7 +13,7 @@ nodes:
     at: [808, 608]
   values: {type: report.table, title: Readings, at: [808, 320]}
   diagram:
-    type: report.image
+    type: report.chart
     title: A0 over the duty cycle
     x: duty
     y: volts

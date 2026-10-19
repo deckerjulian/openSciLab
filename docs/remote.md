@@ -40,7 +40,7 @@ emulated network (4 ms ± 2 ms) in between. `remote-sim:daq` is a measuring box 
 `latency` and `jitter` of the network (ms, one way) and `drift` of its clock (ppm), e.g.
 `remote-sim:daq?latency=20&drift=200`. The device list has the DAQ three times - with its own
 drifting clock, with a clock that follows UTC (PTP) and with a shared sample clock - and the
-*Simulation: timing* box on the *Remote* tab of a simulated device changes network and drift while
+*Simulated timing* box on the *Remote* tab of a simulated device changes network and drift while
 it runs and starts it again with another clock. The example library has the categories *Remote
 devices* and *Time*.
 
@@ -73,11 +73,11 @@ while True:
 | Inputs (`dev.input`) | arrive in openSciLab as |
 | --- | --- |
 | `scalar` (with `unit`) | numbers with their time (`Scalar`) |
-| `bool` | truth values (`Bool`), also a pin for `gpio.read` |
+| `bool` | truth values (`Bool`), also a pin for `gpio.input` |
 | `analog`, `digital` (with `rate`) | blocks of samples (`Analog`, `Digital`) with their time base |
 | `event`, `text` | events with data |
 
-Outputs (`dev.output`): `scalar`, `bool` (also a pin for `gpio.write`), `text`. Values sent while
+Outputs (`dev.output`): `scalar`, `bool` (also a pin for `gpio.output`), `text`. Values sent while
 the connection is down are kept (up to `buffer` messages) and follow with their original times.
 Blocks of `analog`/`digital` inputs are only sent while a flow listens to them.
 
@@ -106,19 +106,19 @@ All of it: [docs/timing.md](timing.md).
 
 | Node | does |
 | --- | --- |
-| `remote.receive` | every value of an input, with the time it was measured on the device |
-| `remote.set` | sets an output at a time a little ahead (`lead`), so the device applies it on time |
-| `remote.call` | calls a command, `result` is the answer |
-| `remote.sync` | aligns the device's clock with a sync signal recorded by another instrument (or the edges of `timing.sync`) |
+| `remote.input` | every value of an input, with the time it was measured on the device |
+| `remote.output` | sets an output at a time a little ahead (`lead`), so the device applies it on time |
+| `remote.command` | calls a command, `result` is the answer |
+| `remote.align` | aligns the device's clock with a sync signal recorded by another instrument (or the edges of `time.sync`) |
 
-`gpio.write`, `gpio.read` and `device.monitor` work with the `bool` and `scalar` channels too
-(`device.monitor` reads the latest values; the device card has no *Monitor* box, as the device sends
+`gpio.output`, `gpio.input` and `device.monitor` work with the `bool` and `scalar` channels too
+(`device.monitor` reads the latest values; the device's document has no *Monitor* box, as the device sends
 its values by itself). `gpio.pulse` sends both edges at once with their times, so the device times
 the width, not the round trip. The inspector offers the inputs, outputs, commands and sync signals
-the device describes. Remote devices run in real time (not with *Fast (virtual time)*).
+the device describes. Remote devices run in real time (not in *Virtual time*).
 
-A device that connects again after a network drop is the same instrument: `remote.receive` and
-`remote.sync` go on with the values and edges of the new connection, which subscribes again to the
+A device that connects again after a network drop is the same instrument: `remote.input` and
+`remote.align` go on with the values and edges of the new connection, which subscribes again to the
 blocks and sync signals they listen to.
 
 ## Synchronisation
@@ -138,10 +138,10 @@ millisecond; over WiFi a few milliseconds.
 **With a sync signal (microseconds).** The device drives a sync output that toggles at irregular
 intervals (20–60 ms) while openSciLab asks for it, and reports the time of every edge in its clock.
 Wire it to a channel of a logic analyzer as well; stream (or capture) that channel and give it to
-`remote.sync`. The node matches the edges and fits offset and drift with the precision of the
+`remote.align`. The node matches the edges and fits offset and drift with the precision of the
 recording; the device's values are then converted on the time axis of that recording. The other way
 round works too: a sync *input* of the device (`dev.sync_input("PPS")`, `sync.edge()` for every
-edge it sees) for a pulse openSciLab (`timing.sync`) or a GPS receiver makes, or an input of blocks
+edge it sees) for a pulse openSciLab (`time.sync`) or a GPS receiver makes, or an input of blocks
 that records it (`dev.input("sync", kind="digital", rate=..., sync=True)`): openSciLab finds the
 edges in the blocks and aligns the device to the precision of its sample rate.
 
@@ -149,11 +149,11 @@ edges in the blocks and aligns the device to the precision of its sample rate.
 this computer's clock follows it too (*Settings → Time*), its times are converted without measuring;
 the pings go on as a check.
 
-**Outputs.** `remote.set` sends a value with the time it should happen (converted into the device's
+**Outputs.** `remote.output` sends a value with the time it should happen (converted into the device's
 clock) and a lead time (by default what the network needs); the device applies it at that time and
 reports when it did.
 
-**Several devices.** Values arrive late by different amounts. `remote.receive` waits a moment
+**Several devices.** Values arrive late by different amounts. `remote.input` waits a moment
 (`playout`, by default about twice the typical delay) and hands values on in the order of their
 time, so values of two devices meet in the right order.
 

@@ -1,6 +1,6 @@
 flow: Main
 nodes:
-  sim: {type: device.instrument, at: [0, 0]}
+  sim: {type: device.device, at: [0, 0]}
   note:
     type: structure.comment
     text: |

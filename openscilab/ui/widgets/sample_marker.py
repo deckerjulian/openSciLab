@@ -22,22 +22,23 @@ from dataclasses import dataclass
 from typing import Optional
 
 from PySide6.QtCore import QPointF, QRectF, Qt, Signal
-from PySide6.QtGui import QColor, QFontMetricsF, QKeySequence, QPainter, QPainterPath, QPen
+from PySide6.QtGui import QFontMetricsF, QKeySequence, QPainter, QPainterPath, QPen
 from PySide6.QtWidgets import QMenu, QSizePolicy, QToolTip, QWidget
 
 from .. import colors
+from ..theme import qcolor
 from ...core.formatting import to_small_time
 from ..view_model import CaptureViewModel
 from . import overlays, time_axis
 
-BURST_PEN_COLOR = QColor(224, 175, 29)
-BURST_FILL_COLOR = QColor(224, 175, 29, 128)
+BURST_PEN_COLOR = qcolor("display.burst")
+BURST_FILL_COLOR = qcolor("display.burst.fill")
 MARKER_HEIGHT = 32
-RULER_BACKGROUND = QColor(36, 36, 40)
-RULER_BORDER = QColor(58, 58, 64)
-RULER_MAJOR = QColor(140, 140, 150)
-RULER_MINOR = QColor(82, 82, 90)
-RULER_TEXT = QColor(200, 200, 208)
+RULER_BACKGROUND = qcolor("display.ruler.background")
+RULER_BORDER = qcolor("display.ruler.border")
+RULER_MAJOR = qcolor("display.ruler.major")
+RULER_MINOR = qcolor("display.ruler.minor")
+RULER_TEXT = qcolor("display.ruler.text")
 
 
 @dataclass
@@ -128,7 +129,7 @@ class SampleMarker(QWidget):
             width = max(region.sample_count * sample_width, 1.0)
             painter.fillRect(QRectF(start, 0, width, bounds.height()), colors.region_color(region))
             if region.region_name:
-                painter.setPen(QPen(QColor(255, 255, 255)))
+                painter.setPen(QPen(colors.TEXT_COLOR))
                 metrics = QFontMetricsF(painter.font())
                 text_width = metrics.horizontalAdvance(region.region_name)
                 painter.drawText(

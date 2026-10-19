@@ -102,22 +102,22 @@ def test_dragging_a_wire_between_ports(shell):
 def test_incompatible_wires_are_refused_with_a_conversion(shell, typed_registry, monkeypatch):
     document = FlowDocument(registry=typed_registry, hub=shell.hub)
     shell.add_document(document)
-    document.add_node("device.instrument", (-300, 0), "sim", address="sim:free")
+    document.add_node("device.device", (-300, 0), "sim", address="sim:free")
     document.add_node("device.capture", (0, 0), channels=["D0"], samples=100)
     document.add_node("test.meter", (400, 0))
     assert not document.scene.finish_wire("capture.D0", "meter.volts")
     assert edges(document) == ["sim.device -> capture.device"]  # wired to the only device at once
     # said above the graph, with the conversion one click away (no dialog)
     assert "Digital does not fit Analog" in document.run_banner.label.text()
-    assert document.run_banner.button.text() == "Insert convert.to_analog"
+    assert document.run_banner.button.text() == "Insert Analog"
     assert not document.scene.finish_wire("sim.device", "meter.volts")  # a device is no value
     assert "the ports do not fit" in document.run_banner.label.text()
 
     assert not document.scene.finish_wire("capture.D0", "meter.volts")
     document.run_banner.button.click()
-    assert edges(document) == ["sim.device -> capture.device", "capture.D0 -> to_analog.in",
-                               "to_analog.out -> meter.volts"]
-    assert document.flow.nodes["to_analog"].type == "convert.to_analog"
+    assert edges(document) == ["sim.device -> capture.device", "capture.D0 -> analog.in",
+                               "analog.out -> meter.volts"]
+    assert document.flow.nodes["analog"].type == "convert.analog"
     assert document.flow.validate(typed_registry) == []
 
 
@@ -255,14 +255,14 @@ def test_rebuild_the_counter_flow_and_run_it(shell, tmp_path):
     document._edit("setup", lambda flow: setattr(flow, "name", "Counter"))
     # the simulator from the palette's devices, then a capture: wired to it at once
     presets = {preset.title: preset for preset in shell.nodes_section.presets}
-    preset = presets["Simulation: free"]
-    shell._add_node_to_active_flow(encode_node("device.instrument", preset.node_id, {"address": preset.address}))
+    preset = presets["Simulated 16 channel device"]
+    shell._add_node_to_active_flow(encode_node("device.device", preset.node_id, {"address": preset.address}))
     assert document.flow.devices == {"free": "sim:free"}
     document.add_node("device.capture", (0, 0), "cap", channels=["D0", "D1", "D2", "D3", "D8"],
                       rate="4 MHz", samples=20000, trigger={"edge": "rising", "source": "D8"})
     assert edges(document) == ["free.device -> cap.device"]
     document.add_node("view.scope", (300, 0), "scope", title="Counter")
-    document.add_node("data.file", (300, 150), "file", path=str(tmp_path / "counter.lac"))
+    document.add_node("data.write", (300, 150), "file", path=str(tmp_path / "counter.lac"))
     document.scene.finish_wire("cap.capture", "scope.in")
     document.scene.finish_wire("cap.capture", "file.in")
     assert document.flow.validate() == []
@@ -292,7 +292,9 @@ def test_breakpoints_pause_and_step_in_the_graph(shell):
     document.fast_box.setChecked(True)
     assert document.start_run()
     assert wait_for(lambda: document.runner.state == "paused")
-    assert document.action_step.isEnabled() and document.action_run.text() == "Continue"
+    # the header and the Run menu of the shell: Step works, Run resumes
+    QApplication.processEvents()
+    assert document.can_step and shell.action_step.isEnabled() and shell.run_button.text() == "Resume"
     document.step_run()
     assert wait_for(lambda: document.runner.state == "paused" and len(document.runner.engine.values) > 0)
     document.set_breakpoint("table", False)
@@ -304,7 +306,7 @@ def test_breakpoints_pause_and_step_in_the_graph(shell):
 
 def test_errors_show_at_the_node(shell, typed_registry):
     document = shell.new_flow()
-    document.add_node("data.file", (0, 0), path="")
+    document.add_node("data.write", (0, 0), path="")
     problems = []
     document.problems_changed.connect(problems.append)
     document.report_problems()
@@ -362,7 +364,7 @@ def test_an_open_device_becomes_a_node_and_is_used_as_it_is(shell):
     assert any(preset.address == "sim:uno" and preset.kind == "open" for preset in shell.nodes_section.presets)
     node_id = shell.add_instrument_to_flow(instrument)
     assert node_id == "uno" and document.flow.devices == {"uno": "sim:uno"}
-    document.add_node("gpio.write", (300, 0), "led", pin="D7", level=1)
+    document.add_node("gpio.output", (300, 0), "led", pin="D7", level=1)
     assert edges(document) == ["uno.device -> led.device"]
     engine = Engine(document.flow, hub=shell.hub)  # real time: the open instrument itself
     assert engine.run(timeout=10).ok

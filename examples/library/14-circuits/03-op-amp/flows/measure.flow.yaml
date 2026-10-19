@@ -1,0 +1,15 @@
+flow: Measure the amplifier
+description: The output swings ±5 V; its logic channel OUT_L (above 2.5 V) is high a third of each period.
+nodes:
+  amplifier: {type: device.device, address: "circuit:circuits/amplifier.circuit.yaml", at: [0, 0]}
+  capture: {type: device.capture, channels: [OUT_L], rate: 200 kHz, duration: 20 ms, at: [288, 0]}
+  frequency: {type: measure.frequency, at: [576, 0]}
+  duty: {type: measure.duty, at: [576, 224]}
+  frequency_check: {type: report.check, expected: 1000, tolerance: 20, unit: Hz, title: Frequency of OUT, at: [864, 0]}
+  duty_check: {type: report.check, low: 0.25, high: 0.42, title: Share above 2.5 V, at: [864, 224]}
+edges:
+  - amplifier.device -> capture.device
+  - capture.OUT_L -> frequency.in
+  - capture.OUT_L -> duty.in
+  - frequency.out -> frequency_check.in
+  - duty.out -> duty_check.in

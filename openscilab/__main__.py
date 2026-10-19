@@ -8,10 +8,12 @@
 
 """Allows ``python -m openscilab``."""
 
-from .app import main
-
 if __name__ == "__main__":
     import multiprocessing
 
     multiprocessing.freeze_support()  # (the decoder process of a packaged application starts here)
+    # (imported here, not above: the engine and index processes import this module as __mp_main__
+    # when they start - the application and Qt must not come with it)
+    from .app import main
+
     raise SystemExit(main())

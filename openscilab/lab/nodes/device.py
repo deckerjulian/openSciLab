@@ -6,18 +6,19 @@
 
 """Device nodes: the instruments of a flow, their captures and streams.
 
-A ``device.instrument`` node stands for an instrument; its ``device`` output is wired to the
+A ``device.device`` node stands for an instrument; its ``device`` output is wired to the
 ``device`` input of the nodes that use it (capture, stream, monitor, GPIO, generator).
 
 The samples of a capture or stream are placed on the flow's time by the instrument's
 :class:`~openscilab.core.timing.Acquisition`: a simulator knows its time; a real device is placed
 between the command that started it and the arrival of its data (less a latency measured with
-``timing.calibrate``), by a time scale it stamps in, or by a sync signal (``timing.align``).
+``time.latency``), by a time scale it stamps in, or by a sync signal (``time.align``).
 """
 
 from __future__ import annotations
 
 import logging
+import re
 import time
 from typing import Any, Optional
 
@@ -34,21 +35,48 @@ from .registry import In, Out, Param, collect, node
 log = logging.getLogger(__name__)
 
 
-def split_channels(instrument: Instrument, names) -> tuple[list, list[tuple[str, int]]]:
-    """``names`` as digital names and ``(name, analog channel number)`` of the analog inputs."""
+def _warn(warn, message: str) -> None:
+    """Report a channel substitution - through the flow's log when a node gives one, else to the log."""
+    (warn or log.warning)(message)
+
+
+def split_channels(instrument: Instrument, names, warn=None) -> tuple[list, list[tuple[str, int]]]:
+    """``names`` as digital names and ``(name, analog channel number)`` of the analog inputs.
+
+    An analog-looking name the device does not have (``A0`` on a device whose inputs are ``AI0``...)
+    is matched to the next free analog input of the device, so a flow written for one device runs on
+    another; the label stays the name that was asked for.
+    """
     driver = instrument.require(CaptureFacet).driver
     analog_names = list(driver.analog_channel_names()) if driver.analog_channel_count else []
-    digital, analog = [], []
+    digital, analog, used = [], [], set()
     for name in names or []:
         if isinstance(name, str) and name in analog_names:
-            analog.append((name, analog_names.index(name)))
+            index = analog_names.index(name)
+            analog.append((name, index))
+            used.add(index)
+        elif analog_names and isinstance(name, str) and _port_type(name) == signals.ANALOG:
+            index = next((i for i in range(len(analog_names)) if i not in used), None)
+            if index is None:
+                digital.append(name)  # no analog input free - let the digital side decide
+            else:
+                used.add(index)
+                analog.append((name, index))
+                _warn(warn, f"{instrument.name} has no analog input {name!r}; reads "
+                            f"{analog_names[index]!r} instead")
         else:
             digital.append(name)
     return digital, analog
 
 
-def channel_numbers(instrument: Instrument, names) -> list[tuple[str, int]]:
-    """``(name, channel number)`` of the capture channels ``names`` (pin names, ``CH3``, numbers)."""
+def channel_numbers(instrument: Instrument, names, warn=None) -> list[tuple[str, int]]:
+    """``(name, channel number)`` of the capture channels ``names`` (pin names, ``CH3``, numbers).
+
+    A name the device does not have is matched to the next of its channels that no other name in the
+    list already took, in order, so a flow written for one device runs on another (``D9`` on a Pico
+    becomes its first free channel). The label stays the name that was asked for, so decoders, views
+    and panels that read the capture by that name still find it; the substitution is warned about.
+    """
     capture = instrument.require(CaptureFacet)
     pins = {pin.name: pin.channel for pin in instrument.pins() if pin.channel is not None}
     simulation = instrument.simulation
@@ -57,38 +85,59 @@ def channel_numbers(instrument: Instrument, names) -> list[tuple[str, int]]:
     count = capture.channel_count
     if not names:
         names = list(pins) if pins else [f"CH{index + 1}" for index in range(count)]
-    result = []
+    name_of = {number: name for name, number in pins.items()}
+    # First the names the device knows, remembering which channels they take; then the foreign names.
+    resolved: list[tuple[str, Optional[int]]] = []
+    used: set[int] = set()
     for name in names:
         if isinstance(name, int) or (isinstance(name, str) and name.isdigit()):
-            number = int(name)
-            label = f"CH{number + 1}"
+            number, label = int(name), f"CH{int(name) + 1}"
         elif name in pins:
             number, label = pins[name], name
         elif isinstance(name, str) and name.upper().startswith("CH") and name[2:].isdigit():
             number, label = int(name[2:]) - 1, name
         else:
-            raise NodeError(f"{instrument.name} has no channel {name!r} (channels: {', '.join(pins) or count})")
+            resolved.append((str(name), None))
+            continue
         if not 0 <= number < count:
             raise NodeError(f"{instrument.name} has no channel {name!r}")
-        result.append((str(label), number))
+        used.add(number)
+        resolved.append((str(label), number))
+    result, nxt = [], 0
+    for label, number in resolved:
+        if number is None:
+            while nxt in used:
+                nxt += 1
+            if nxt >= count:
+                raise NodeError(f"{instrument.name} has no channel {label!r} "
+                                f"(channels: {', '.join(pins) or count})")
+            number = nxt
+            used.add(number)
+            _warn(warn, f"{instrument.name} has no channel {label!r}; captures "
+                        f"{name_of.get(number, f'channel {number}')!r} instead")
+        result.append((label, number))
     return result
 
 
 def _channel_ports(params: dict):
     channels = params.get("channels") or []
     # The port type follows the device at run time; here only the name is known: A0, AI0 and AIN0 are
-    # analog inputs, CH1 is one of a scope (analog) or of a logic analyzer (digital), the rest digital.
+    # analog inputs; D0, GP2, DIO3 ... digital ones; CH1 (a scope's or a logic analyzer's) and other
+    # names (a circuit's probe OUT, its logic channel OUT_L, a terminal AC_L) may be either.
     return [], [Out(str(name), _port_type(str(name)), f"channel {name}") for name in channels]
+
+
+_ANALOG_NAME = re.compile(r"^(A|AI|AIN)\d+$")
+_DIGITAL_NAME = re.compile(r"^(D|DIO|GP|GPIO|P|PIN)\d+$")
 
 
 def _port_type(name: str) -> str:
     upper = name.upper()
-    if upper.startswith("CH") and upper[2:].isdigit():
-        return signals.ANY
-    if any(upper.startswith(prefix) and len(upper) > len(prefix) and upper[len(prefix):].isdigit()
-           for prefix in ("A", "AI", "AIN")):
+    if _ANALOG_NAME.match(upper):
         return signals.ANALOG
-    return signals.DIGITAL
+    if _DIGITAL_NAME.match(upper):
+        return signals.DIGITAL
+    return signals.ANY
 
 
 def block_count(args) -> int:
@@ -167,23 +216,26 @@ def _trigger(session: CaptureSession, trigger: Any, channels: dict[str, int]) ->
     session.trigger_inverted = edge == "falling"
 
 
-@node("device.instrument", title="Device",
-      description="An instrument of the flow: its address (sim:uno, pico:/dev/cu.usbmodem1, or the address "
-                  "of an instrument open in the device list, which is then used as it is). Without an "
+@node("device.device", title="Device",
+      description="A device of the flow: its address (sim:uno, pico:/dev/cu.usbmodem1, or the address "
+                  "of a device open in the device list, which is then used as it is). Without an "
                   "address it is the project's device of the same name. Wire 'device' to the nodes that use it. "
                   "A simulator (sim:uno, sim:pico*2 for a multi device of two boards, sim:uno#2 for a second "
                   "one) simulates what 'signals' says: {scenario: uart, text: Hello, baud: 9600}, "
                   "{scenario: c64}, {scenario: file, path: capture.lac}, or single channels: "
                   "{channels: {D5: {type: square, frequency: 1 kHz}}}.",
-      outputs=[Out("device", signals.DEVICE, "the instrument")],
-      params=[Param("address", "address", "sim:free"),
-              Param("signals", "dict", description="What a simulator simulates (scenario and its settings, "
-                                                   "channels: sources of single channels)")], icon="chip")
+      outputs=[Out("device", signals.DEVICE, "The device: wire it to the nodes that use it")],
+      params=[Param("address", "address", "sim:free", label="address",
+                    description="Where the device is: sim:uno, pico:/dev/cu.usbmodem1, a device of the device list"),
+              Param("signals", "dict", label="simulated signals",
+                    description="What a simulator simulates (scenario and its settings, channels: sources of "
+                                "single channels)", advanced=True)],
+      icon="devices", summary=("address",), keywords=("instrument", "board", "simulator", "address"))
 class InstrumentNode(NodeRuntime):
     """The engine opens the instrument before the flow starts; the node itself does nothing."""
 
 
-DEVICE_INPUT = In("device", signals.DEVICE, "the instrument (from a device node)", optional=False)
+DEVICE_INPUT = In("device", signals.DEVICE, "The device (from a Device node)", optional=False)
 
 
 class _DeviceNode(NodeRuntime):
@@ -191,8 +243,8 @@ class _DeviceNode(NodeRuntime):
         return self.ctx.instrument()
 
     def session(self, instrument: Instrument, stream: bool) -> tuple[CaptureSession, dict[int, str]]:
-        digital_names, analog = split_channels(instrument, self.p("channels"))
-        channels = channel_numbers(instrument, digital_names) if digital_names or not analog else []
+        digital_names, analog = split_channels(instrument, self.p("channels"), self.ctx.log)
+        channels = channel_numbers(instrument, digital_names, self.ctx.log) if digital_names or not analog else []
         rate = self.q("rate")
         if not rate or rate <= 0:
             raise NodeError(f"{self.node.id}: rate must be positive")
@@ -232,7 +284,7 @@ class _DeviceNode(NodeRuntime):
         driver = instrument.require(CaptureFacet).driver
         if not driver.supports_state_mode():
             raise NodeError(f"{instrument.name} has no state mode (samples on the edges of a clock)")
-        (_name, number), = channel_numbers(instrument, [clock])
+        (_name, number), = channel_numbers(instrument, [clock], self.ctx.log)
         if number not in driver.state_clock_channels():
             names = [name for name, channel in channel_numbers(instrument, None)
                      if channel in driver.state_clock_channels()]
@@ -327,22 +379,33 @@ class _DeviceNode(NodeRuntime):
 
 
 @node("device.capture", title="Capture",
-      description="Captures with an instrument: channels, rate, length and trigger. Without a wire at "
+      description="Captures with a device: channels, rate, length and trigger. Without a wire at "
                   "'arm' it captures once when the flow starts, otherwise on every value at 'arm'. With a "
                   "'clock' channel it takes one sample on each edge of the clock instead (state mode, "
                   "'samples' states; 'rate' stamps their times) and sends them at 'states'.",
-      inputs=[DEVICE_INPUT, In("arm", signals.ANY, "start a capture")],
-      outputs=[Out("capture", signals.CAPTURE), Out("states", signals.STATES, "state mode: the values on the "
-                                                                                 "clock's edges"),
-               Out("done", signals.EVENT),
-               Out("armed", signals.EVENT, "the capture waits for its trigger (start a stimulus)")],
-      params=[Param("channels", "list", description="names, e.g. [D0, D1]", suggest="channels"),
-              Param("rate", "quantity", "1 MHz", "Hz"), Param("samples", "int"), Param("duration", "quantity", unit="s"),
-              Param("pre", "int", 0), Param("trigger", "dict", description="{edge: rising, source: D0}"),
-              Param("clock", "str", description="state mode: the channel whose edges take the samples",
-                    suggest="channels"),
-              Param("clock_edge", "choice", "rising", choices=("rising", "falling", "both"))],
-      ports=_channel_ports, icon="record")
+      inputs=[DEVICE_INPUT, In("arm", signals.EVENT, "Start a capture for every value")],
+      outputs=[Out("capture", signals.CAPTURE, "The capture: every channel"),
+               Out("states", signals.STATES, "State mode: the values on the clock's edges"),
+               Out("done", signals.EVENT, "The capture arrived (its number of samples)"),
+               Out("armed", signals.EVENT, "The capture waits for its trigger (start a stimulus)")],
+      params=[Param("channels", "list", description="The channels to capture, by name: [D0, D1]", suggest="channels",
+                    label="channels"),
+              Param("rate", "quantity", "1 MHz", "Hz", label="rate",
+                    description="Samples per second (state mode: how finely the times of the states are stamped)"),
+              Param("samples", "int", label="samples", description="How many samples", minimum=1),
+              Param("duration", "quantity", unit="s", only_if={"samples": None}, label="duration",
+                    description="How long (instead of a number of samples)"),
+              Param("pre", "int", 0, description="Samples kept from before the trigger", only_if={"clock": None},
+                    label="before trigger", minimum=0),
+              Param("trigger", "dict", description="None, an edge of a channel ({edge: rising, source: D0}) or a "
+                                                   "pattern from a channel on ({pattern: '10x1', source: D0})",
+                    editor="trigger", label="trigger"),
+              Param("clock", "str", description="State mode: the channel whose edges take the samples",
+                    suggest="clock_channels", label="clock", advanced=True),
+              Param("clock_edge", "choice", "rising", choices=("rising", "falling", "both"), only_if={"clock": True},
+                    label="clock edge", description="The edges of the clock that take a sample", advanced=True)],
+      ports=_channel_ports, icon="record", summary=("channels", "rate", "trigger"),
+      keywords=("logic analyzer", "acquire", "record", "sample", "trigger", "scope"))
 class CaptureNode(_DeviceNode):
     async def run(self) -> None:
         if not self.ctx.wired("arm"):
@@ -472,15 +535,22 @@ class CaptureNode(_DeviceNode):
 
 
 @node("device.stream", title="Stream",
-      description="Streams the channels of an instrument; blocks of samples flow while it runs. "
+      description="Streams the channels of a device; blocks of samples flow while it runs. "
                   "Starts with the flow (or on 'start'), ends after its duration or on 'stop'.",
-      inputs=[DEVICE_INPUT, In("start", signals.ANY), In("stop", signals.ANY)],
-      outputs=[Out("capture", signals.CAPTURE, "the blocks"), Out("done", signals.EVENT)],
-      params=[Param("channels", "list", suggest="channels"),
-              Param("rate", "quantity", "100 kHz", "Hz"), Param("samples", "int"), Param("duration", "quantity", unit="s"),
-              Param("until_stopped", "bool", False,
-                    description="stream until 'stop' (or the flow's end); 'samples'/'duration' is then what is kept")],
-      ports=_channel_ports, icon="wave")
+      inputs=[DEVICE_INPUT, In("start", signals.EVENT, "Start the stream (without a wire: with the flow)"),
+              In("stop", signals.EVENT, "Stop the stream")],
+      outputs=[Out("capture", signals.CAPTURE, "The blocks of samples, as they arrive"),
+               Out("done", signals.EVENT, "The stream ended")],
+      params=[Param("channels", "list", suggest="channels", label="channels",
+                    description="The channels to stream, by name: [D0, D1]"),
+              Param("rate", "quantity", "100 kHz", "Hz", label="rate", description="Samples per second"),
+              Param("samples", "int", label="samples", description="How many samples", minimum=1),
+              Param("duration", "quantity", unit="s", only_if={"samples": None}, label="duration",
+                    description="How long (instead of a number of samples)"),
+              Param("until_stopped", "bool", False, label="until stopped",
+                    description="Stream until 'stop' (or the flow's end); 'samples'/'duration' is then what is kept")],
+      ports=_channel_ports, icon="wave", summary=("channels", "rate", "duration"),
+      keywords=("continuous", "record", "blocks"))
 class StreamNode(_DeviceNode):
     pulled = ("start",)
 

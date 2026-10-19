@@ -341,6 +341,23 @@ def test_a_capture_whose_abort_was_not_answered_is_aborted_again(uno, monkeypatc
     assert result.success and len(result.session.capture_channels[0].samples) == 400
 
 
+def test_the_monitor_of_a_flow_samples_pins_and_analog_inputs():
+    # device.monitor asks the facet at its rate (READ and ADC_READ), the Mega's loopbacks answer
+    driver = open_shell("mega")
+    instrument = Instrument.from_driver(driver, uri=driver.address)
+    try:
+        monitor = next(facet for facet in instrument.facets() if type(facet).__name__ == "ArduinoMonitor")
+        for level in (1, 0):
+            instrument.gpio.write_many({"D34": level, "A0": level})
+            time.sleep(0.02)
+            state = monitor.sample(["D35"], ("A1",))
+            assert state.digital == {"D35": level} and abs(state.analog["A1"] - 5.0 * level) < 0.1
+        with pytest.raises(InstrumentError, match="no analog input"):
+            monitor.sample([], ("D7",))
+    finally:
+        instrument.close()
+
+
 # ------------------------------------------------------------------ generator
 def test_pattern_square_and_transmit(uno):
     generator = uno.generator

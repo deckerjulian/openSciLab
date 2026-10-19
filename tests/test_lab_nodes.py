@@ -84,6 +84,10 @@ def test_digital_measurements(registry):
     assert run_node(registry, "measure.duty", {"in": [signal]})["out"][0].value == pytest.approx(0.25)
     counts = run_node(registry, "measure.count", {"in": [signal, signal]})["out"]
     assert [count.value for count in counts] == [99, 198]  # rising edges (100 periods, it starts high), totalled
+    # states without time stamps (a state capture of a Pico): their edges count all the same
+    states = signals.Digital(name="GP7", values=np.array([1, 1, 0, 0] * 16, dtype=np.uint8), time=signals.TimeBase())
+    assert run_node(registry, "measure.count", {"in": [states]})["out"][0].value == 15
+    assert run_node(registry, "measure.count", {"in": [states]}, edge="falling")["out"][0].value == 16
 
 
 def test_analog_measurements(registry):
@@ -107,14 +111,14 @@ def test_setup_and_hold(registry):
 # --------------------------------------------------------- signal processing
 def test_threshold_debounce_and_resample(registry):
     analog = Analog(values=[0, 2, 3.3, 1.7, 1.0, 0], time=TimeBase.uniform(10))
-    digital = run_node(registry, "dsp.threshold", {"in": [analog]}, threshold="1.65 V", hysteresis="0.4 V")["out"][0]
+    digital = run_node(registry, "signal.threshold", {"in": [analog]}, threshold="1.65 V", hysteresis="0.4 V")["out"][0]
     assert list(digital.values) == [0, 1, 1, 1, 0, 0]
 
     bouncy = Digital(values=[0] * 20 + [1, 0, 1, 0, 1] + [1] * 30 + [0, 1] + [1] * 20, time=TimeBase.uniform(1000))
-    clean = run_node(registry, "dsp.debounce", {"in": [bouncy]}, time="5 ms")["out"][0]
+    clean = run_node(registry, "signal.debounce", {"in": [bouncy]}, time="5 ms")["out"][0]
     assert np.count_nonzero(np.diff(clean.values.astype(int))) == 1
 
-    resampled = run_node(registry, "dsp.resample", {"in": [Analog(values=[0.0, 1.0, 2.0, 3.0], time=TimeBase.uniform(1))]},
+    resampled = run_node(registry, "signal.resample", {"in": [Analog(values=[0.0, 1.0, 2.0, 3.0], time=TimeBase.uniform(1))]},
                          rate="2 Hz")["out"][0]
     assert resampled.rate == 2 and list(resampled.values) == pytest.approx([0, 0.5, 1, 1.5, 2, 2.5, 3, 3])
 
@@ -124,8 +128,8 @@ def test_fir_filter_continues_across_blocks(registry):
     noisy = sine(50, rate, 4000).values + 0.5 * np.sin(2 * np.pi * 3000 * np.arange(4000) / rate)
     whole = Analog(values=noisy, time=TimeBase.uniform(rate))
     blocks = [Analog(values=noisy[i:i + 1000], time=TimeBase.uniform(rate, i / rate)) for i in range(0, 4000, 1000)]
-    once = run_node(registry, "dsp.filter", {"in": [whole]}, kind="lowpass", cutoff="500 Hz")["out"][0]
-    parts = run_node(registry, "dsp.filter", {"in": blocks}, kind="lowpass", cutoff="500 Hz")["out"]
+    once = run_node(registry, "signal.filter", {"in": [whole]}, kind="lowpass", cutoff="500 Hz")["out"][0]
+    parts = run_node(registry, "signal.filter", {"in": blocks}, kind="lowpass", cutoff="500 Hz")["out"]
     joined = np.concatenate([part.values for part in parts])
     assert np.allclose(joined, once.values)
     # the 3 kHz part is gone, the 50 Hz part stays (delayed by the filter)
@@ -137,7 +141,7 @@ def test_fir_filter_continues_across_blocks(registry):
 @pytest.mark.skipif(not dsp.HAS_SCIPY, reason="scipy is not installed")
 def test_iir_filter_with_scipy(registry):  # pragma: no cover - depends on scipy
     wave = sine(50, 10_000, 4000)
-    result = run_node(registry, "dsp.filter", {"in": [wave]}, method="iir", cutoff="200 Hz")["out"][0]
+    result = run_node(registry, "signal.filter", {"in": [wave]}, method="iir", cutoff="200 Hz")["out"][0]
     assert len(result) == 4000
 
 
@@ -145,7 +149,7 @@ def test_iir_filter_without_scipy_is_explained(registry, monkeypatch):
     monkeypatch.setattr(dsp, "HAS_SCIPY", False)
     flow = Flow("x")
     flow.add_node("test.source", "source", values=[sine(50, 1000, 100)])
-    flow.add_node("dsp.filter", "filter", method="iir")
+    flow.add_node("signal.filter", "filter", method="iir")
     flow.connect("source.out", "filter.in")
     result = Engine(flow, registry=registry, mode="virtual").run(timeout=20)
     assert result.state == "error" and "need scipy" in result.error
@@ -153,32 +157,32 @@ def test_iir_filter_without_scipy_is_explained(registry, monkeypatch):
 
 def test_fft_derivative_integral_average_and_math(registry):
     rate = 8000
-    spectrum = run_node(registry, "dsp.fft", {"in": [sine(1000, rate, 800)]})["out"][0]
+    spectrum = run_node(registry, "signal.fft", {"in": [sine(1000, rate, 800)]})["out"][0]
     peak = spectrum.columns["frequency"][int(np.argmax(spectrum.columns["magnitude"]))]
     assert peak == pytest.approx(1000, abs=rate / 800)
 
     ramp = Analog(values=np.arange(10, dtype=float) * 2, time=TimeBase.uniform(10))
-    assert run_node(registry, "dsp.derivative", {"in": [ramp]})["out"][0].values == pytest.approx([20.0] * 10)
+    assert run_node(registry, "signal.derivative", {"in": [ramp]})["out"][0].values == pytest.approx([20.0] * 10)
     ones = Analog(values=np.ones(10), time=TimeBase.uniform(10))
     following = Analog(values=np.ones(10), time=TimeBase.uniform(10, 1.0))  # the next block of a stream
-    integral = run_node(registry, "dsp.integral", {"in": [ones, following]})["out"]
+    integral = run_node(registry, "signal.integral", {"in": [ones, following]})["out"]
     # 0 at the first sample, up to the last one at 0.9 s; on across the blocks without a gap
     assert integral[0].values[0] == 0.0 and integral[0].values[-1] == pytest.approx(0.9)
     assert integral[1].values[0] == pytest.approx(1.0) and integral[1].values[-1] == pytest.approx(1.9)
 
     noisy = [Analog(values=np.full(4, value), time=TimeBase.uniform(10)) for value in (1.0, 3.0, 5.0)]
-    averaged = run_node(registry, "dsp.average", {"in": noisy}, count=2)["out"]
+    averaged = run_node(registry, "signal.average", {"in": noisy}, count=2)["out"]
     assert list(averaged[-1].values) == [4.0] * 4
-    moving = run_node(registry, "dsp.average", {"in": [Analog(values=[0, 0, 3, 3], time=TimeBase.uniform(1))]},
+    moving = run_node(registry, "signal.average", {"in": [Analog(values=[0, 0, 3, 3], time=TimeBase.uniform(1))]},
                       mode="moving", count=3)["out"][0]
     assert list(moving.values) == pytest.approx([0, 0, 1, 2])
     assert moving.time.start == pytest.approx(-1.0)  # without delay: the mean of 3 samples belongs to the middle one
 
-    result = run_node(registry, "dsp.math", {"a": [ramp], "b": [Scalar(value=1.0)]}, expression="a / 2 + b")["out"]
+    result = run_node(registry, "signal.math", {"a": [ramp], "b": [Scalar(value=1.0)]}, expression="a / 2 + b")["out"]
     assert list(result[-1].values) == pytest.approx(np.arange(10) + 1)
     flow_error = Flow("x")
     flow_error.add_node("test.source", "s", values=[1.0])
-    flow_error.add_node("dsp.math", "m", expression="a +")
+    flow_error.add_node("signal.math", "m", expression="a +")
     flow_error.connect("s.out", "m.a")
     assert "not valid" in Engine(flow_error, registry=registry, mode="virtual").run(timeout=20).error
 
@@ -186,9 +190,9 @@ def test_fft_derivative_integral_average_and_math(registry):
 # -------------------------------------------------------------------- decoders
 def test_every_sigrok_decoder_is_a_node(registry):
     types = registry.types()
-    for decoder in ("decode.uart", "decode.i2c", "decode.spi", "decode.c64bus"):
+    for decoder in ("decoder.uart", "decoder.i2c", "decoder.spi", "decoder.c64bus"):
         assert decoder in types
-    uart = registry.get("decode.uart")
+    uart = registry.get("decoder.uart")
     assert uart.param("baudrate").default == 115200
     assert uart.param("parity").choices[0] == "none"
     assert [port.name for port in uart.outputs] == ["events", "table", "text"]
@@ -196,9 +200,9 @@ def test_every_sigrok_decoder_is_a_node(registry):
 
 def test_decoders_against_the_demo_capture(registry):
     flow = Flow("x")
-    flow.add_node("data.file_read", "file", path=DEMO)
-    flow.add_node("decode.uart", "uart", channels={"rx": "RX"}, baudrate=115200, format="ascii")
-    flow.add_node("decode.i2c", "i2c")  # channels found by name (SCL, SDA)
+    flow.add_node("data.read", "file", path=DEMO)
+    flow.add_node("decoder.uart", "uart", channels={"rx": "RX"}, baudrate=115200, format="ascii")
+    flow.add_node("decoder.i2c", "i2c")  # channels found by name (SCL, SDA)
     flow.connect("file.capture", "uart.in")
     flow.connect("file.capture", "i2c.in")
     result = Engine(flow, registry=registry, mode="virtual").run(timeout=30)
@@ -222,20 +226,20 @@ def test_the_uart_check_passes():
 
 # --------------------------------------------------------------------- control
 def test_compare_limit_and_counter(registry):
-    results = run_node(registry, "control.compare", {"a": [1.0, 2.0, 3.0]}, outputs=("result",), op=">=", value=2)
+    results = run_node(registry, "control.compare", {"a": [1.0, 2.0, 3.0]}, outputs=("result",), operator=">=", value=2)
     assert [item.value for item in results["result"]] == [False, True, True]
     within = run_node(registry, "control.compare", {"a": [Scalar(value=3.31, unit="V")]}, outputs=("result",),
-                      op="within", value="3.3 V", tolerance=0.02)
+                      operator="within", value="3.3 V", tolerance=0.02)
     assert within["result"][0].value is True
-    text = run_node(registry, "control.compare", {"a": ["hello world"]}, outputs=("result",), op="contains", value="world")
+    text = run_node(registry, "control.compare", {"a": ["hello world"]}, outputs=("result",), operator="contains", value="world")
     assert text["result"][0].value is True
 
-    limits = run_node(registry, "control.limit", {"in": [0.5, 5.0]}, outputs=("ok", "out"), low=0, high=3)
-    assert [item.value for item in limits["ok"]] == [True, False] and limits["out"][1].value == 3
+    limits = run_node(registry, "control.range", {"in": [0.5, 5.0]}, outputs=("result", "out"), low=0, high=3)
+    assert [item.value for item in limits["result"]] == [True, False] and limits["out"][1].value == 3
 
-    counts = run_node(registry, "control.counter", {"in": [1, 2, signals.Event(times=[0, 1], data=[1, 2])]},
-                      outputs=("count",))
-    assert counts["count"] == [1.0, 2.0, 4.0]
+    counts = run_node(registry, "measure.count", {"in": [1, 2, signals.Event(times=[0, 1], data=[1, 2])]},
+                      outputs=("out",))
+    assert [item.value for item in counts["out"]] == [1.0, 2.0, 4.0]
 
 
 def test_a_sequence_with_steps_and_a_timeout(registry):
@@ -311,8 +315,8 @@ def test_python_nodes(registry):
 # ------------------------------------------------------------------------ data
 def test_files_are_read_written_and_logged(registry, tmp_path):
     flow = Flow("x")
-    flow.add_node("data.file_read", "read", path=DEMO)
-    flow.add_node("data.file", "write", path=str(tmp_path / "copy.sr"))
+    flow.add_node("data.read", "read", path=DEMO)
+    flow.add_node("data.write", "write", path=str(tmp_path / "copy.sr"))
     flow.add_node("test.source", "values", values=[1.0, 2.0, Scalar(value=3.0, unit="V")])
     flow.add_node("data.logger", "logger", path=str(tmp_path / "log.csv"))
     flow.add_node("data.buffer", "buffer", count=2)
@@ -329,14 +333,14 @@ def test_files_are_read_written_and_logged(registry, tmp_path):
     assert [row["value"] for row in result.value("buffer", "out").rows()] == [2.0, 3.0]
 
     csv_flow = Flow("x")
-    csv_flow.add_node("data.file_read", "read", path=str(tmp_path / "log.csv"))
+    csv_flow.add_node("data.read", "read", path=str(tmp_path / "log.csv"))
     result = Engine(csv_flow, registry=registry, mode="virtual").run(timeout=20)
     assert result.value("read", "table").columns["value"] == [1.0, 2.0, 3.0]
 
 
 def test_the_logger_keeps_streams_on_disk(registry, tmp_path):
     flow = Flow("x")
-    flow.add_node("device.instrument", "sim", address="sim:free")
+    flow.add_node("device.device", "sim", address="sim:free")
     flow.add_node("device.stream", "stream", channels=["D15"], rate="100 kHz", duration="30 ms")
     flow.connect("sim.device", "stream.device")
     flow.add_node("data.logger", "logger", path=str(tmp_path / "long.lac"))
@@ -358,10 +362,10 @@ def test_a_signal_buffer_keeps_the_latest_seconds(registry):
 def test_views_reach_the_view_sink(registry):
     flow = Flow("x")
     flow.add_node("control.sweep", "sweep", start=0, stop=2, step=1)
-    flow.add_node("dsp.math", "square", expression="a * a")
+    flow.add_node("signal.math", "square", expression="a * a")
     flow.connect("sweep.value", "square.a")
     for kind in ("number", "led", "log", "table", "strip_chart"):
-        flow.add_node(f"view.{kind}", kind)
+        flow.add_node(f"view.{'chart' if kind == 'strip_chart' else kind}", kind)  # (the chart node shows a strip chart)
         flow.connect("square.out", f"{kind}.in")
     flow.add_node("view.xy", "xy")
     flow.connect("sweep.value", "xy.x")
@@ -385,8 +389,8 @@ def test_bundles(registry):
     flow = Flow("x")
     flow.add_node("test.source", "a", values=[1])
     flow.add_node("test.source", "b", values=["two"])
-    flow.add_node("structure.bundle", "bundle", fields=["a", "b"])
-    flow.add_node("structure.unbundle", "unbundle", fields=["a", "b"])
+    flow.add_node("data.bundle", "bundle", fields=["a", "b"])
+    flow.add_node("data.unbundle", "unbundle", fields=["a", "b"])
     flow.connect("a.out", "bundle.a")
     flow.connect("b.out", "bundle.b")
     flow.connect("bundle.out", "unbundle.in")

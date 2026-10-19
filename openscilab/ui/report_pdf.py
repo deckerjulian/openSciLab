@@ -24,6 +24,9 @@ def write_pdf(text: str, path: str) -> None:
 
         qt_plugins.ensure_loadable_plugins()  # (as the application does: plugins hidden by iCloud)
         write_pdf.application = QApplication([])  # kept alive with the function
+    from .theme import load_fonts
+
+    load_fonts()  # (the report asks for the application's typeface)
     os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
     writer = QPdfWriter(path)
     writer.setPageLayout(QPageLayout(QPageSize(QPageSize.A4), QPageLayout.Portrait, QMarginsF(15, 15, 15, 15),

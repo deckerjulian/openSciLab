@@ -11,14 +11,14 @@ A :class:`Flow` is the canonical form of a measurement program; the YAML file
 
     flow: Counter
     nodes:
-      sim:   {type: device.instrument, address: "sim:free"}
+      sim:   {type: device.device, address: "sim:free"}
       timer: {type: control.timer, interval: 10 ms, count: 3}
       cap:   {type: device.capture, channels: [D0, D1], rate: 1 MHz, samples: 1000}
     edges:
       - sim.device -> cap.device
       - timer.tick -> cap.arm
 
-Devices are nodes (``device.instrument``) too: their ``device`` output is wired to the ``device``
+Devices are nodes (``device.device``) too: their ``device`` output is wired to the ``device``
 input of every node that uses the instrument.
 
 Node parameters stay as written (``"10 ms"``); the node types (:mod:`.nodes.registry`) say what
@@ -42,7 +42,7 @@ from .nodes.registry import NodeSpec, PortSpec, Registry, RegistryError, default
 _ID_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 SUBFLOW_PREFIX = "subflow."
 #: the node type of an instrument in a flow
-DEVICE_NODE = "device.instrument"
+DEVICE_NODE = "device.device"
 
 
 class FlowError(ValueError):

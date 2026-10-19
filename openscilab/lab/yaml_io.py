@@ -80,7 +80,7 @@ def load(path: str) -> Flow:
 
 def from_data(data: dict) -> Flow:
     if "devices" in data:
-        raise FlowError("devices are nodes: write them as nodes of type device.instrument (address: sim:uno) "
+        raise FlowError("devices are nodes: write them as nodes of type device.device (address: sim:uno) "
                         "and wire their 'device' output to the nodes that use them")
     unknown = set(data) - set(SECTION_ORDER)
     if unknown:
@@ -153,6 +153,9 @@ def _inline(value: Any) -> str:
 
 
 def _is_multiline(value: Any) -> bool:
+    """Text of several lines, or a mapping with such text (the SDL per pin of a pattern)."""
+    if isinstance(value, dict):
+        return any(_is_multiline(item) for item in value.values())
     return isinstance(value, str) and "\n" in value
 
 
@@ -165,6 +168,11 @@ def _block_text(value: str) -> bool:
 
 
 def _scalar_lines(key: str, value: Any, indent: str) -> list[str]:
+    if isinstance(value, dict) and value and _is_multiline(value):
+        lines = [f"{indent}{key}:"]
+        for name, item in value.items():
+            lines += _scalar_lines(_key(str(name)), item, indent + INDENT)
+        return lines
     if _is_multiline(value) and _block_text(value):
         text = value.rstrip("\n")
         trailing = len(value) - len(text)

@@ -17,9 +17,9 @@ from openscilab.lab.panel_model import Panel, PanelError, PanelWidget
 FLOW = """
 flow: Gain
 nodes:
-  gain: {type: dsp.math, expression: "a * b"}
+  gain: {type: signal.math, expression: "a * b"}
   sweep: {type: control.sweep, start: 1, stop: 3, step: 1}
-  over: {type: control.compare, op: ">", value: 5}
+  over: {type: control.compare, operator: ">", value: 5}
 edges:
   - gain.out -> over.a
 """

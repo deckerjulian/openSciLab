@@ -17,7 +17,6 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 from PySide6.QtCore import QObject, Qt, Signal
-from PySide6.QtGui import QFont, QFontDatabase
 from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
@@ -32,7 +31,7 @@ from PySide6.QtWidgets import (
 )
 
 from ..icons import icon
-from ..theme import ERROR, TEXT_MUTED, WARNING
+from ..theme import ERROR, TEXT_MUTED, WARNING, tabular_font
 
 
 @dataclass(frozen=True)
@@ -131,9 +130,7 @@ class LogView(QPlainTextEdit):
         self.setReadOnly(True)
         self.setFrameShape(QFrame.NoFrame)
         self.setMaximumBlockCount(self.MAX_BLOCKS)
-        font = QFontDatabase.systemFont(QFontDatabase.FixedFont)
-        font.setStyleHint(QFont.Monospace)
-        self.setFont(font)
+        self.setFont(tabular_font(self.font()))
 
     def add(self, text: str) -> None:
         self.appendPlainText(text)

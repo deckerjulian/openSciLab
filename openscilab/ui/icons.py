@@ -11,7 +11,28 @@
 The icons are small inline SVG drawings on a 24 x 24 grid, rendered in the text
 colour of the theme (white on ``primary``/``danger`` buttons) with a separate
 pixmap for the disabled state, so they follow the style of the application
-without any image files.
+without any image files. Each is drawn once per colour (:func:`icon` keeps them).
+
+One icon for one meaning (docs/design.md); the meanings of the shapes:
+
+========== ==========================================================
+nodes      a flow (documents, *New → Flow*, the node palette)
+panel      a panel
+channels   a data view, captures, traces
+wave       a waveform, a generator
+devices    devices (the device list, a device's document)
+chip       boards and their firmware
+layers     a project
+book       examples and the documentation
+bookmark   templates of the user, capture profiles
+play       run (pause, stop beside it)
+record     capture, stream to disk
+search     search, the command palette
+warning    a warning; ``error`` an error, ``success`` a check that passed
+circuit    a circuit (*Circuits*; with ``wire`` and ``pointer`` registered by its plugin)
+========== ==========================================================
+
+Plugins add icons of their own with :func:`register_icon` (``ui/sections.py``).
 """
 
 from __future__ import annotations
@@ -23,7 +44,7 @@ from PySide6.QtCore import QByteArray, QRectF, QSize, Qt
 from PySide6.QtGui import QIcon, QPainter, QPixmap
 from PySide6.QtSvg import QSvgRenderer
 
-from .theme import ACCENT_HOVER, TEXT, TEXT_DISABLED
+from .theme import ACCENT_HOVER, TEXT, TEXT_DISABLED, token
 
 ICON_SIZE = QSize(14, 14)
 
@@ -82,6 +103,9 @@ _SHAPES = {
         "<path d='M9 16a5 5 0 0 1 6 0'/><circle cx='12' cy='19.5' r='1' fill='{color}'/>"
     ),
     "info": "<circle cx='12' cy='12' r='9'/><path d='M12 11v6'/><circle cx='12' cy='7.5' r='1' fill='{color}'/>",
+    "warning": "<path d='M12 3.5L21.5 20h-19z'/><path d='M12 10v4.5'/><circle cx='12' cy='17.3' r='0.9' fill='{color}'/>",
+    "error": "<circle cx='12' cy='12' r='9'/><path d='M9 9l6 6M15 9l-6 6'/>",
+    "success": "<circle cx='12' cy='12' r='9'/><path d='M8 12.5l2.8 2.8L16.5 9.5'/>",
     "checklist": "<path d='M3 6l2 2 3-3M3 13l2 2 3-3M3 20l2 2 3-3'/><path d='M12 7h9M12 14h9M12 21h9'/>",
     "cut": "<circle cx='6' cy='18' r='3'/><circle cx='18' cy='18' r='3'/><path d='M8 16L19 4M16 16L5 4'/>",
     "paste": "<path d='M9 4h6v3H9z'/><path d='M8 5H5v16h14V5h-3'/>",
@@ -153,8 +177,8 @@ _SHAPES = {
 #: Icon colours (normal, disabled) per button variant of the style sheet.
 VARIANT_COLORS = {
     None: (TEXT, TEXT_DISABLED),
-    "primary": ("#ffffff", "#7d8796"),
-    "danger": ("#ffffff", TEXT_DISABLED),
+    "primary": (token("ON_ACCENT"), token("PRIMARY_DISABLED_TEXT")),
+    "danger": (token("ON_ACCENT"), TEXT_DISABLED),
     "link": (ACCENT_HOVER, TEXT_DISABLED),
     "tool": (TEXT, TEXT_DISABLED),
 }
@@ -179,29 +203,25 @@ TEXT_GAP = 5
 PADDED_ICON_SIZE = QSize(ICON_SIZE.width() + TEXT_GAP, ICON_SIZE.height())
 
 
-#: Application icon and logo: a lab flask with a digital signal in it and rising bubbles, on a dark
-#: rounded square - measuring (the signal) and experimenting (the flask).
+#: Application icon and logo: three channels of a logic analyser in white, teal and blue on a graphite
+#: squircle (a superellipse on the 824 px body of the macOS grid), with a faint rim so that it stands
+#: out on a dark background.
 APP_ICON_SVG = b"""<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1024 1024'>
   <defs>
     <linearGradient id='background' x1='0' y1='0' x2='0' y2='1'>
-      <stop offset='0' stop-color='#3a3a41'/>
-      <stop offset='1' stop-color='#1b1b1f'/>
+      <stop offset='0' stop-color='#30343d'/>
+      <stop offset='1' stop-color='#121419'/>
     </linearGradient>
-    <linearGradient id='liquid' x1='0' y1='0' x2='0' y2='1'>
-      <stop offset='0' stop-color='#4b8ae6' stop-opacity='0.35'/>
-      <stop offset='1' stop-color='#4b8ae6' stop-opacity='0.12'/>
+    <linearGradient id='sheen' x1='0' y1='0' x2='0' y2='1'>
+      <stop offset='0' stop-color='#ffffff' stop-opacity='0.14'/>
+      <stop offset='0.5' stop-color='#ffffff' stop-opacity='0'/>
     </linearGradient>
   </defs>
-  <rect x='64' y='64' width='896' height='896' rx='200' fill='url(#background)'/>
-  <rect x='64' y='64' width='896' height='896' rx='200' fill='none' stroke='#55555e' stroke-width='8'/>
-  <path d='M326 640 L262 778 Q246 846 318 846 H706 Q778 846 762 778 L698 640 Z' fill='url(#liquid)'/>
-  <path d='M300 660 H372 V572 H456 V660 H540 V572 H624 V660 H724' fill='none' stroke='#7fd18b'
-        stroke-width='40' stroke-linecap='round' stroke-linejoin='round'/>
-  <path d='M392 196 H632 M432 196 V408 L246 790 Q226 854 300 854 H724 Q798 854 778 790 L592 408 V196'
-        fill='none' stroke='#e8ecf2' stroke-width='44' stroke-linecap='round' stroke-linejoin='round'/>
-  <circle cx='520' cy='480' r='26' fill='#e8b04b'/>
-  <circle cx='568' cy='392' r='17' fill='#e8b04b'/>
-  <circle cx='498' cy='318' r='12' fill='#e8b04b'/>
+  <path d='M924 512 L924 650 L923 694 L921 726 L918 752 L915 774 L911 793 L906 809 L901 824 L895 838 L888 850 L880 861 L871 871 L861 880 L850 888 L838 895 L824 901 L809 906 L793 911 L774 915 L752 918 L726 921 L694 923 L650 924 L512 924 L374 924 L330 923 L298 921 L272 918 L250 915 L231 911 L215 906 L200 901 L186 895 L174 888 L163 880 L153 871 L144 861 L136 850 L129 838 L123 824 L118 809 L113 793 L109 774 L106 752 L103 726 L101 694 L100 650 L100 512 L100 374 L101 330 L103 298 L106 272 L109 250 L113 231 L118 215 L123 200 L129 186 L136 174 L144 163 L153 153 L163 144 L174 136 L186 129 L200 123 L215 118 L231 113 L250 109 L272 106 L298 103 L330 101 L374 100 L512 100 L650 100 L694 101 L726 103 L752 106 L774 109 L793 113 L809 118 L824 123 L838 129 L850 136 L861 144 L871 153 L880 163 L888 174 L895 186 L901 200 L906 215 L911 231 L915 250 L918 272 L921 298 L923 330 L924 374 Z' fill='url(#background)'/>
+  <path d='M924 512 L924 650 L923 694 L921 726 L918 752 L915 774 L911 793 L906 809 L901 824 L895 838 L888 850 L880 861 L871 871 L861 880 L850 888 L838 895 L824 901 L809 906 L793 911 L774 915 L752 918 L726 921 L694 923 L650 924 L512 924 L374 924 L330 923 L298 921 L272 918 L250 915 L231 911 L215 906 L200 901 L186 895 L174 888 L163 880 L153 871 L144 861 L136 850 L129 838 L123 824 L118 809 L113 793 L109 774 L106 752 L103 726 L101 694 L100 650 L100 512 L100 374 L101 330 L103 298 L106 272 L109 250 L113 231 L118 215 L123 200 L129 186 L136 174 L144 163 L153 153 L163 144 L174 136 L186 129 L200 123 L215 118 L231 113 L250 109 L272 106 L298 103 L330 101 L374 100 L512 100 L650 100 L694 101 L726 103 L752 106 L774 109 L793 113 L809 118 L824 123 L838 129 L850 136 L861 144 L871 153 L880 163 L888 174 L895 186 L901 200 L906 215 L911 231 L915 250 L918 272 L921 298 L923 330 L924 374 Z' fill='url(#sheen)' stroke='#ffffff' stroke-opacity='0.12' stroke-width='4'/>
+  <path d='M240 356 H352 V284 H520 V356 H784' fill='none' stroke='#ffffff' stroke-width='48' stroke-linecap='round' stroke-linejoin='round'/>
+  <path d='M240 548 H440 V476 H608 V548 H784' fill='none' stroke='#5ff0d6' stroke-width='48' stroke-linecap='round' stroke-linejoin='round'/>
+  <path d='M240 740 H304 V668 H392 V740 H640 V668 H784' fill='none' stroke='#4f95ff' stroke-width='48' stroke-linecap='round' stroke-linejoin='round'/>
 </svg>"""
 
 
@@ -251,8 +271,26 @@ def known(name: str, fallback: str = "nodes") -> str:
     return name if name in _SHAPES else fallback
 
 
+def register_icon(name: str, svg: str) -> None:
+    """An icon of a plugin (``setup_ui()``): an SVG body on the 24 x 24 grid of the others, drawn with
+    strokes in the text colour (``{color}`` for filled shapes). An icon of openSciLab is not replaced."""
+    if not name or not isinstance(svg, str) or not svg.strip():
+        raise ValueError("an icon needs a name and an SVG body")
+    if name in _SHAPES and _SHAPES[name] != svg and name not in _ADDED:
+        raise ValueError(f"the icon {name!r} is one of openSciLab's own")
+    _SHAPES[name] = svg
+    _ADDED.add(name)
+    known.cache_clear()
+    icon.cache_clear()
+
+
+#: the icons plugins registered
+_ADDED: set[str] = set()
+
+
+@lru_cache(maxsize=1024)
 def icon(name: str, color: str = TEXT, disabled_color: str = TEXT_DISABLED, padded: bool = False) -> QIcon:
-    """The icon ``name`` in ``color`` (a QApplication must exist)."""
+    """The icon ``name`` in ``color`` (a QApplication must exist); drawn once, then kept."""
     result = QIcon()
     for mode, fill in ((QIcon.Normal, color), (QIcon.Disabled, disabled_color)):
         for size in (16, 32, 48):

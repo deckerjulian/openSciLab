@@ -1,0 +1,11 @@
+flow: The transistor is on
+description: "With the knob at 80 % the collector (probe C) sits near 0.1 V: the transistor conducts and the LED lights."
+nodes:
+  circuit: {type: device.device, address: "circuit:circuits/switch.circuit.yaml", at: [0, 0]}
+  capture: {type: device.capture, channels: [C], rate: 100 kHz, duration: 10 ms, at: [288, 0]}
+  collector: {type: measure.mean, at: [576, 0]}
+  check: {type: report.check, low: 0, high: 0.5, unit: V, title: Collector while on, at: [864, 0]}
+edges:
+  - circuit.device -> capture.device
+  - capture.C -> collector.in
+  - collector.out -> check.in

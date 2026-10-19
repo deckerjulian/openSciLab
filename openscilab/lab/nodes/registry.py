@@ -39,23 +39,31 @@ from ...core import signals
 
 log = logging.getLogger(__name__)
 
-#: Groups of the palette, in their order.
+#: Groups of the palette, in their order (where values come from, what works on them, where they
+#: go): the group of a node type is the part of its type before the dot. One English word each, the
+#: title a plural where the group holds kinds of things (docs/design.md); the colour of a group is
+#: the theme's ``group.<key>``.
 GROUPS = {
     "device": "Devices",
-    "remote": "Remote devices",
-    "timing": "Time",
     "gpio": "GPIO",
-    "gen": "Generator",
-    "decode": "Decoders",
-    "measure": "Measurement",
-    "dsp": "Signal processing",
+    "generator": "Generators",
+    "decoder": "Decoders",
+    "measure": "Measurements",
+    "signal": "Signal processing",
+    "convert": "Conversions",
     "control": "Control",
+    "time": "Time",
+    "remote": "Remote devices",
     "data": "Data",
     "view": "Views",
-    "panel": "Panel",
     "report": "Report",
-    "convert": "Conversions",
     "structure": "Structure",
+}
+#: the icon of a group (palette, search); a node type has an icon of its own too
+GROUP_ICONS = {
+    "device": "devices", "gpio": "chip", "generator": "wave", "decoder": "list", "measure": "ruler",
+    "signal": "sliders", "convert": "arrow-right", "control": "sequence", "time": "clock", "remote": "wifi",
+    "data": "save", "view": "chart", "report": "book", "structure": "layers",
 }
 
 #: the groups of openSciLab's own nodes (plugins add theirs with :func:`node_group`)
@@ -63,7 +71,7 @@ OWN_GROUPS = frozenset(GROUPS)
 
 #: Modules whose nodes are made on demand by a function ``nodes()``, by group (the decoders: loading
 #: the sigrok decoders takes a moment, so flows without decoders do not wait for it).
-LAZY_MODULES = {"decode": "openscilab.lab.nodes.decode"}
+LAZY_MODULES = {"decoder": "openscilab.lab.nodes.decode"}
 
 #: Modules with the built-in nodes (loaded on first use of the registry).
 BUILTIN_MODULES = [
@@ -127,6 +135,26 @@ class ParamSpec:
     suggest: str = ""
     #: the keys of a ``dict`` parameter that maps fixed names to values (a decoder's channels)
     keys: tuple = ()
+    #: what the inspector shows instead of the name ("minimum (≥)" for ``low``)
+    label: str = ""
+    #: the input port whose wire sets what the parameter would: then it is locked
+    unless_wired: str = ""
+    #: the parameter counts only while other parameters have these values: ``{name: condition}``
+    #: with a condition of a tuple of values, ``True`` (set), ``None`` (not set), ``"*.csv"`` (a
+    #: text ending so) or ``">1"`` (a number above); otherwise it is locked (see :func:`locked_reason`)
+    only_if: tuple = ()
+    #: an editor of its own in the inspector: ``pattern`` (the blocks of a digital pattern), ``inputs``
+    #: (names of inputs, chosen from the outputs of the flow and wired), ``trigger`` (a capture's),
+    #: ``mapping`` (keys from ``suggest``, values from ``values``), ``color``, ``hidden``, ``steps``
+    #: (the steps of a sequence), ``states`` (the states of a state machine)
+    editor: str = ""
+    #: a ``mapping`` editor: where the values come from (as ``suggest``)
+    values: str = ""
+    #: shown in the inspector's *Advanced* part (settings most nodes leave as they are)
+    advanced: bool = False
+    #: the smallest and largest value of a number (``None``: no limit)
+    minimum: Optional[float] = None
+    maximum: Optional[float] = None
 
     def __post_init__(self) -> None:
         if self.kind not in PARAM_KINDS:
@@ -134,6 +162,13 @@ class ParamSpec:
         if self.suggest and self.suggest.split(":", 1)[0] not in SUGGESTIONS:
             raise RegistryError(f"unknown suggestion {self.suggest!r}")
 
+    @property
+    def display_name(self) -> str:
+        return self.label or self.name.replace("_", " ")
+
+
+#: units offered where a parameter names one (any other may be typed)
+UNITS = ("V", "mV", "A", "mA", "Hz", "kHz", "s", "ms", "µs", "Ω", "°C", "%", "W")
 
 #: Sources of suggested values (``ParamSpec.suggest``), answered by :mod:`openscilab.lab.hints`:
 #: ``channels``: capture channels of the device the node is wired to; ``analog``: its analog inputs;
@@ -142,12 +177,61 @@ class ParamSpec:
 #: wired to the node; ``upstream_columns``: the columns of the table wired to it; ``remote_inputs``,
 #: ``remote_outputs``, ``remote_commands``, ``remote_syncs``: what a remote device describes.
 SUGGESTIONS = ("channels", "analog", "pins", "outputs", "upstream_channels", "upstream_columns", "remote_inputs",
-               "remote_outputs", "remote_commands", "remote_syncs")
+               "remote_outputs", "remote_commands", "remote_syncs", "clock_channels", "own_keys", "own_list",
+               "flow_outputs", "upstream_fields")
+#: sources whose values are all there are (when they are known): the inspector offers a choice
+#: instead of free text. ``clock_channels``: the channels that can clock the state mode;
+#: ``own_keys:states``/``own_list:inputs``: the keys/items of another parameter of the node.
+CLOSED_SUGGESTIONS = ("channels", "analog", "pins", "outputs", "upstream_channels", "upstream_columns",
+                      "remote_inputs", "remote_outputs", "remote_commands", "remote_syncs", "clock_channels",
+                      "own_keys", "own_list", "upstream_fields")
 
 
 def Param(name: str, kind: str = "any", default: Any = None, unit: str = "", choices: Sequence = (),  # noqa: N802
-          description: str = "", required: bool = False, suggest: str = "", keys: Sequence = ()) -> ParamSpec:
-    return ParamSpec(name, kind, default, unit, tuple(choices), description, required, suggest, tuple(keys))
+          description: str = "", required: bool = False, suggest: str = "", keys: Sequence = (), label: str = "",
+          unless_wired: str = "", only_if: Optional[dict] = None, editor: str = "", values: str = "",
+          advanced: bool = False, minimum: Optional[float] = None, maximum: Optional[float] = None) -> ParamSpec:
+    return ParamSpec(name, kind, default, unit, tuple(choices), description, required, suggest, tuple(keys), label,
+                     unless_wired, tuple((only_if or {}).items()), editor, values, advanced, minimum, maximum)
+
+
+def _met(condition: Any, value: Any) -> bool:
+    if condition is True:
+        return value not in (None, "", [], {})
+    if condition is None:
+        return value in (None, "", [], {})
+    if isinstance(condition, str) and condition.startswith("*"):
+        return isinstance(value, str) and value.lower().endswith(condition[1:].lower())
+    if isinstance(condition, str) and condition[:1] in "<>":
+        try:
+            limit, number = float(condition[1:]), float(value)
+        except (TypeError, ValueError):
+            return False
+        return number > limit if condition[0] == ">" else number < limit
+    if isinstance(condition, tuple):
+        return value in condition
+    return value == condition
+
+
+def locked_reason(param: ParamSpec, params: dict, defaults: dict, wired: Sequence[str]) -> str:
+    """Why ``param`` does not count now ("" when it does): an input sets it, or it belongs to a
+    value of another parameter that is not chosen (``defaults``: the values of unset parameters)."""
+    if param.unless_wired and param.unless_wired in wired:
+        return f"set by the wire at '{param.unless_wired}'"
+    for name, condition in param.only_if:
+        value = params.get(name, defaults.get(name))
+        if not _met(condition, value):
+            if condition is True:
+                return f"only with '{name}' set"
+            if condition is None:
+                return f"not with '{name}' set"
+            if isinstance(condition, str) and condition.startswith("*"):
+                return f"only when '{name}' ends with {condition[1:]}"
+            if isinstance(condition, str) and condition[:1] in "<>":
+                return f"only with {name} {condition[0]} {condition[1:]}"
+            options = condition if isinstance(condition, tuple) else (condition,)
+            return f"only with {name} = {' or '.join(str(option) for option in options)}"
+    return ""
 
 
 PortsFunction = Callable[[dict], tuple[list[PortSpec], list[PortSpec]]]
@@ -170,10 +254,32 @@ class NodeSpec:
     icon: str = "nodes"
     #: where the node was defined (module or file), for errors and the palette
     source: str = ""
+    #: the parameters the node shows on the canvas (their effective values, defaults too); empty:
+    #: the first parameters
+    summary: tuple = ()
+    #: words the search finds the node by besides its title and type ("send", "serial" for UART)
+    keywords: tuple = ()
 
     @property
     def group(self) -> str:
         return self.type.split(".", 1)[0] if "." in self.type else "structure"
+
+    @property
+    def group_title(self) -> str:
+        return GROUPS.get(self.group, self.group.capitalize())
+
+    @property
+    def full_title(self) -> str:
+        """The title with its group where nothing else shows the group (search, undo, problems):
+        *Output (GPIO)*."""
+        return f"{self.title} ({self.group_title})"
+
+    def summary_params(self) -> list["ParamSpec"]:
+        """The parameters the canvas shows (:attr:`summary`, else the first three that are not
+        advanced or hidden)."""
+        if self.summary:
+            return [param for param in (self.param(name) for name in self.summary) if param is not None]
+        return [param for param in self.params if not param.advanced and param.editor != "hidden"][:3]
 
     @property
     def name(self) -> str:
@@ -353,7 +459,7 @@ _COLLECTING: list[Registry] = []
 
 def node(type_name: str, *, title: str = "", description: str = "", inputs: Sequence[PortSpec] = (),
          outputs: Sequence[PortSpec] = (), params: Sequence[ParamSpec] = (), ports: Optional[PortsFunction] = None,
-         icon: str = "nodes", register: bool = True):
+         icon: str = "nodes", register: bool = True, summary: Sequence[str] = (), keywords: Sequence[str] = ()):
     """Decorator registering a node type (see the module documentation)."""
 
     def decorate(target):
@@ -368,6 +474,8 @@ def node(type_name: str, *, title: str = "", description: str = "", inputs: Sequ
             ports=ports,
             icon=icon,
             source=getattr(target, "__module__", ""),
+            summary=tuple(summary),
+            keywords=tuple(keywords),
         )
         if inspect.isfunction(target) and not inputs and not outputs:
             _infer_function_ports(spec, target)
@@ -386,11 +494,13 @@ def node(type_name: str, *, title: str = "", description: str = "", inputs: Sequ
     return decorate
 
 
-def node_group(key: str, title: str) -> None:
+def node_group(key: str, title: str, icon: str = "nodes") -> None:
     """The title of the group ``key`` of node types (the part of their type before the dot) in the
-    palette - for the nodes of a plugin: ``node_group("calib", "Calibration")``. The groups of
-    openSciLab keep theirs."""
-    GROUPS.setdefault(key.strip(), title.strip() or key)
+    palette - for the nodes of a plugin: ``node_group("calib", "Calibration", "ruler")``. The groups
+    of openSciLab keep theirs."""
+    key = key.strip()
+    GROUPS.setdefault(key, title.strip() or key)
+    GROUP_ICONS.setdefault(key, icon or "nodes")
 
 
 def _builtin(spec: NodeSpec) -> bool:

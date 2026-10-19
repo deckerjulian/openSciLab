@@ -41,7 +41,7 @@ from ..devices import hardware
 from ..devices.hardware import HardwareEntry
 from ..devices.hub_bridge import HubBridge
 from ..icons import set_icon
-from ..theme import TEXT_MUTED, set_role, set_variant, token
+from ..theme import TEXT_MUTED, set_role, set_tone, set_variant, token
 from .base import DocumentWidget
 
 log = logging.getLogger(__name__)
@@ -56,8 +56,8 @@ GUIDE = (
     "<tr><td><b>3.</b>&nbsp;</td><td><b>Click <i>Install firmware</i> or <i>Update firmware</i> in its row.</b> "
     "openSciLab picks the image that fits the board, restarts it into its bootloader, writes the image and "
     "connects the board again. Nothing else is needed.</td></tr></table>"
-    f"<span style='color:{TEXT_MUTED}'>Arduino boards are flashed with PlatformIO or avrdude, the bridge app of an "
-    "oscilloscope from its device card (<i>Install bridge app</i>, adb over the network). "
+    f"<span style='color:{TEXT_MUTED}'>The firmware of an Arduino is installed with PlatformIO or avrdude, the bridge "
+    "app of an oscilloscope with <i>Install bridge app</i> when the device is open (adb over the network). "
     "<i>Choose an image...</i> writes any .uf2 file to any board by hand.</span>"
 )
 
@@ -105,7 +105,7 @@ class HardwareDocument(DocumentWidget):
     document_kind = "hardware"
     #: open a device of the list (a device list entry)
     open_requested = Signal(object)
-    #: the device card of an open instrument
+    #: the document of an open device
     card_requested = Signal(object)
     #: *Update firmware* of an open instrument that is no UF2 board (its update tool)
     firmware_requested = Signal(object)
@@ -288,7 +288,7 @@ class HardwareDocument(DocumentWidget):
                 if column == 3 and color:
                     item.setForeground(_color(color))
                 if column == 0 and (entry.instrument is not None or entry.entry is not None):
-                    item.setToolTip("Double-click to open the device card" if entry.instrument is not None
+                    item.setToolTip("Click Open to show the device" if entry.instrument is not None
                                     else "Double-click to connect")
                 self.table.setItem(row, column, item)
             self.table.setCellWidget(row, 4, self._actions(entry))
@@ -322,7 +322,7 @@ class HardwareDocument(DocumentWidget):
         layout.setSpacing(4)
         busy = self.installer.busy
         if entry.instrument is not None:
-            button = QPushButton("Device card", widget)
+            button = QPushButton("Open", widget)
             set_icon(button, "devices")
             button.clicked.connect(lambda _checked=False, e=entry: self.card_requested.emit(e.instrument))
             layout.addWidget(button)
@@ -448,7 +448,7 @@ class HardwareDocument(DocumentWidget):
         return restart
 
     def install_for(self, instrument) -> bool:
-        """*Update firmware* of an open instrument (from its device card)."""
+        """*Update firmware* of an open instrument (from its document)."""
         self.refresh()
         entry = next((entry for entry in self.entries if entry.instrument is instrument), None)
         if entry is None or not entry.can_install:
@@ -457,11 +457,11 @@ class HardwareDocument(DocumentWidget):
         return self.install(entry)
 
     def _progress(self, text: str) -> None:
-        self.status_label.setStyleSheet("")
+        set_tone(self.status_label, None)
         self.status_label.setText(text)
 
     def _installed(self, success: bool, message: str) -> None:
-        self.status_label.setStyleSheet(f"color: {token('device.connected' if success else 'device.error')}")
+        set_tone(self.status_label, "device.connected" if success else "device.error")
         self.status_label.setText(message)
         self.versions.clear()  # read the firmware again
         self._filled = False  # the buttons were disabled while installing

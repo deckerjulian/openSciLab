@@ -38,7 +38,6 @@ from PySide6.QtGui import (
 )
 from PySide6.QtWidgets import (
     QApplication,
-    QCheckBox,
     QComboBox,
     QFileDialog,
     QFormLayout,
@@ -63,6 +62,7 @@ from ...core.hub import Hub
 from ...lab import panel_model
 from ...lab.flow_files import load_flow
 from ...lab.model import Flow, FlowError
+from ...lab.nodes.registry import UNITS
 from ...lab.panel_model import (
     CONTROL_KINDS,
     GRID,
@@ -79,7 +79,7 @@ from ..flow.runner import FlowRunner
 from ..icons import icon, set_icon
 from ..panel.widgets import PanelItem, make_item
 from ..theme import ACCENT, BORDER, BORDER_STRONG, ERROR, PANEL, PANEL_LIGHT, TEXT_MUTED, set_role
-from .base import DocumentWidget
+from .base import DocumentWidget, Switch
 
 log = logging.getLogger(__name__)
 
@@ -655,12 +655,34 @@ class _Kiosk(QWidget):
         super().closeEvent(event)
 
 
+#: the icon of a kind of widget in the palette of the panel
+WIDGET_ICONS = {"switch": "power", "button": "play", "slider": "sliders", "input": "pencil", "choice": "list",
+                "number": "info", "led": "record", "chart": "chart", "scope": "channels", "label": "file-plus"}
+
+#: the options of a widget as the inspector names them: (label, what it does)
+OPTION_TITLES = {
+    "min": ("Minimum", "The lowest value of the slider"),
+    "max": ("Maximum", "The highest value of the slider"),
+    "step": ("Step", "How far one step of the slider goes"),
+    "unit": ("Unit", "The unit shown beside the value"),
+    "value": ("Start value", "What the control sends when the flow starts"),
+    "options": ("Choices", "The choices, separated by commas"),
+    "digits": ("Digits", "Significant digits of the number"),
+    "color": ("Colour", "The colour of the LED when it is on"),
+    "threshold": ("Threshold", "On at or above this value"),
+    "points": ("Points", "How many points the chart keeps"),
+    "text": ("Text", "What the label says"),
+}
+
+
 class PanelDocument(DocumentWidget):
     """A panel (see the module documentation)."""
 
     document_kind = "panel"
     runnable = True
-    run_state_changed = Signal(str)
+    run_tooltip = "Run the flow of the panel and operate it"
+    can_pause = True
+    time_modes = True
     execution_line = Signal(str)
     selection_changed = Signal()
     #: show the flow of the panel: its open document, or its file
@@ -717,24 +739,16 @@ class PanelDocument(DocumentWidget):
             bar.add_action(f"view-{view.lower()}", action, "view", HIGH)
             self.view_actions.append(action)
         self.view_actions[0].setChecked(True)
-        self.action_run = QAction(icon("play"), "Run", self)
-        self.action_run.triggered.connect(self.start_run)
-        self.action_stop = QAction(icon("stop"), "Stop", self)
-        self.action_stop.triggered.connect(self.stop_run)
-        self.action_kiosk = QAction(icon("detach"), "Full screen (F11)", self)
-        self.action_kiosk.setIconText("Full screen")
+        self.action_kiosk = QAction(icon("detach"), "Full screen", self)
+        self.action_kiosk.setToolTip("Show the operating panel on the whole screen (F11; Esc goes back)")
         self.action_kiosk.triggered.connect(self.toggle_kiosk)
         self.action_delete = QAction(icon("trash"), "Remove widget", self)
         self.action_delete.setShortcut(QKeySequence.Delete)
         self.action_delete.setShortcutContext(Qt.WidgetWithChildrenShortcut)
         self.action_delete.triggered.connect(self.remove_selected)
-        bar.add_action("run", self.action_run, "run", HIGH, pinned=True)
-        bar.add_action("stop", self.action_stop, "run", HIGH, text=False)
-        self.fast_box = QCheckBox("Virtual time", self)
-        self.fast_box.setToolTip("Simulated instruments in the flow's own time: as fast as possible, the same "
-                                 "result every run")
-        bar.add_widget("virtual-time", self.fast_box, "Virtual time", "run", LOW)
-        bar.add_action("full-screen", self.action_kiosk, "show", NORMAL, text=False)
+        # Run and Stop are the shell's (header, Run menu), and so is the time of a run (this switch)
+        self.fast_box = Switch(False, self)
+        bar.add_action("full-screen", self.action_kiosk, "show", NORMAL)
         bar.add_action("remove", self.action_delete, "edit", LOW, text=False)
         self.addAction(self.action_delete)
         self.arrange_menu = QMenu(self)
@@ -751,10 +765,21 @@ class PanelDocument(DocumentWidget):
         self.flow_label = QLabel(self)
         set_role(self.flow_label, "hint")
         bar.add_widget("flow", self.flow_label, "The flow", "flow", LOW)
-        for action in (self.action_stop, self.action_kiosk, self.action_delete):
+        for action in (self.action_kiosk, self.action_delete):
             action.setToolTip(action.toolTip() or action.text())
         bar.finish()
         layout.addWidget(self._toolbar)
+        # operating while the flow does not run: the controls would send into nothing – say so
+        from ..dialogs.common import Banner
+
+        self.run_banner = Banner("info", self)
+        self.run_banner.set_message("The flow of the panel is not running: its controls send nothing yet.", "Run")
+        self.run_banner.button.clicked.connect(self.start_run)
+        self.run_banner.setVisible(False)
+        banner_row = QVBoxLayout()
+        banner_row.setContentsMargins(8, 8, 8, 0)
+        banner_row.addWidget(self.run_banner)
+        layout.addLayout(banner_row)
 
         self.stack = QStackedWidget(self)
         layout.addWidget(self.stack, 1)
@@ -762,8 +787,11 @@ class PanelDocument(DocumentWidget):
         editor = QSplitter(Qt.Horizontal, self.stack)
         self.palette = _Palette(editor)
         for kind, (role, title) in WIDGET_KINDS.items():
-            item = QListWidgetItem(f"{title}  ·  {role}", self.palette)
+            item = QListWidgetItem(icon(WIDGET_ICONS.get(kind, "panel")), title, self.palette)
             item.setData(Qt.UserRole, kind)
+            item.setToolTip({"control": f"{title}: a control – it sends into the flow",
+                             "display": f"{title}: a display – it shows what the flow sends",
+                             "static": f"{title}: text on the panel"}.get(role, title))
         self.palette.setToolTip("Drag a widget onto the panel, or double-click to add it on a free place")
         self.palette.itemActivated.connect(lambda item: self.add_widget(item.data(Qt.UserRole)))
         self.palette.setMaximumWidth(220)
@@ -781,12 +809,11 @@ class PanelDocument(DocumentWidget):
         QShortcut(QKeySequence(Qt.Key_F11), self, activated=self.toggle_kiosk, context=Qt.WidgetWithChildrenShortcut)
         self._inspector: Optional[QWidget] = None
         self.rebuild()
-        self._update_run_actions()
 
     # ------------------------------------------------------------ identity
     def document_actions(self) -> list:
-        """Run, stop, full screen, edit and operate, for the command palette."""
-        return [self.action_run, self.action_stop, self.action_kiosk, self.action_delete, self.action_arrange,
+        """Full screen, edit and operate, for the command palette (running is the shell's)."""
+        return [self.action_kiosk, self.action_delete, self.action_arrange,
                 *self.view_actions]
 
     def _undo_state_changed(self, *_args) -> None:
@@ -830,8 +857,13 @@ class PanelDocument(DocumentWidget):
         self.stack.setCurrentIndex(VIEWS.index(name))
         for view, action in zip(VIEWS, self.view_actions):
             action.setChecked(view == name)
+        self._update_run_banner()
         self.rebuild()
         self.document_changed.emit()
+
+    def _update_run_banner(self) -> None:
+        running = self.runner.running and self.runner.state not in ("finished", "stopped", "error")
+        self.run_banner.setVisible(self.operating and not running)
 
     @property
     def operating(self) -> bool:
@@ -1254,9 +1286,19 @@ class PanelDocument(DocumentWidget):
                     and item.current() is not None and widget.bind:
                 self.send(widget, item.current())
         self.execution_line.emit(f"▶ {self.panel.name}: {flow.name}")
-        self._update_run_actions()
+        self._update_run_banner()
         self.run_state_changed.emit("running")
         return True
+
+    @property
+    def can_step(self) -> bool:
+        return self.runner.running and self.runner.state == "paused"
+
+    def virtual_time(self) -> bool:
+        return self.fast_box.isChecked()
+
+    def set_virtual_time(self, virtual: bool) -> None:
+        self.fast_box.setChecked(virtual)
 
     def stop_run(self) -> None:
         self.runner.stop()
@@ -1268,13 +1310,8 @@ class PanelDocument(DocumentWidget):
         self.runner.step()
 
     def _run_state(self, state: str, message: str) -> None:
-        self._update_run_actions()
+        self._update_run_banner()
         self.run_state_changed.emit(state)
-
-    def _update_run_actions(self) -> None:
-        running = self.runner.running and self.runner.state not in ("finished", "stopped", "error")
-        self.action_run.setEnabled(not running)
-        self.action_stop.setEnabled(running)
 
     def toggle_kiosk(self) -> None:
         """The operating panel full screen, as an application of its own (F11 or Esc back)."""
@@ -1386,12 +1423,32 @@ class PanelDocument(DocumentWidget):
                 box.lineEdit().editingFinished.connect(lambda key=name, box=box: self._inspector_update(
                     widget.id, **{key: box.currentText().strip()}))
                 form.addRow(name.capitalize(), box)
-            options = panel_model.OPTIONS.get(widget.kind, ())
-            if options:
-                text = QLineEdit(", ".join(f"{key}: {value}" for key, value in widget.options.items()), holder)
-                text.setPlaceholderText(", ".join(f"{key}: …" for key in options))
-                text.editingFinished.connect(lambda box=text: self._set_options(widget.id, box.text()))
-                form.addRow("Options", text)
+            # the options of its kind: a field each (what the widget starts with, its range, its unit)
+            self.option_message = QLabel(holder)
+            set_role(self.option_message, "error")
+            self.option_message.setWordWrap(True)
+            self.option_message.setVisible(False)
+            for key in panel_model.OPTIONS.get(widget.kind, ()):
+                title, tip = OPTION_TITLES.get(key, (key.capitalize(), ""))
+                value = widget.options.get(key)
+                if key == "unit":
+                    field = QComboBox(holder)
+                    field.setEditable(True)
+                    field.addItem("")
+                    field.addItems(list(UNITS))
+                    field.setCurrentText("" if value is None else str(value))
+                    field.activated.connect(lambda _index, key=key, box=field: self._set_option(
+                        widget.id, key, box.currentText()))
+                    field.lineEdit().editingFinished.connect(lambda key=key, box=field: self._set_option(
+                        widget.id, key, box.currentText()))
+                else:
+                    shown = ", ".join(map(str, value)) if isinstance(value, list) else ("" if value is None else str(value))
+                    field = QLineEdit(shown, holder)
+                    field.editingFinished.connect(lambda key=key, box=field: self._set_option(widget.id, key, box.text()))
+                field.setObjectName(f"option-{key}")
+                field.setToolTip(tip)
+                form.addRow(title, field)
+            form.addRow("", self.option_message)
         self._inspector = holder
         return holder
 
@@ -1408,6 +1465,34 @@ class PanelDocument(DocumentWidget):
             self.set_panel_size(width, height, merge=True)
         finally:
             self._keep_inspector = False
+
+    def _set_option(self, widget_id: str, key: str, text: str) -> None:
+        """One option typed into its field: checked, then set (what is wrong shows under the fields)."""
+        import yaml
+
+        text = text.strip()
+        widget = self.panel.widget(widget_id)
+        options = dict(widget.options)
+        try:
+            if not text:
+                options.pop(key, None)
+            elif key == "options":
+                options[key] = [item.strip() for item in text.split(",") if item.strip()]
+            elif key in ("unit", "text", "color"):
+                options[key] = text
+            else:
+                value = yaml.safe_load(text)
+                if not isinstance(value, (int, float)) or isinstance(value, bool):
+                    raise PanelError(f"{key}: a number, not {text!r}")
+                options[key] = value
+            PanelWidget.from_data(widget_id, {"kind": widget.kind, **options})
+        except (yaml.YAMLError, PanelError) as error:
+            self.option_message.setText(str(error))
+            self.option_message.setVisible(True)
+            return
+        self.option_message.setVisible(False)
+        if options != widget.options:
+            self._inspector_update(widget_id, options=options)
 
     def _set_options(self, widget_id: str, text: str) -> None:
         import yaml

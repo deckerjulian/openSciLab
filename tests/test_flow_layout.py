@@ -10,6 +10,7 @@ import pytest
 
 from openscilab.lab import layout, yaml_io
 from openscilab.lab.model import Flow
+from openscilab.ui.flow.node_item import NODE_WIDTH
 
 LIBRARY = os.path.join(os.path.dirname(__file__), "..", "examples", "library")
 FLOW_FILES = sorted(glob.glob(os.path.join(LIBRARY, "*", "*", "flows", "*.flow.yaml")))
@@ -22,7 +23,7 @@ def _flow(*edges: str) -> Flow:
         for ref in (source, target):
             node = ref.split(".")[0]
             if node not in flow.nodes:
-                flow.add_node("control.counter", node)
+                flow.add_node("measure.count", node)
         flow.connect(source, target)
     return flow
 
@@ -77,7 +78,7 @@ def test_every_node_of_an_example_is_placed_and_none_overlap(path, shell):
     try:
         # (a group is a frame around nodes: it overlaps them on purpose)
         positions = {node_id: node.position for node_id, node in flow.nodes.items() if node.type != "structure.group"}
-        assert _overlaps(positions, document.scene.node_height, 190.0) == []
+        assert _overlaps(positions, document.scene.node_height, NODE_WIDTH) == []
     finally:
         document.deleteLater()
 
@@ -135,7 +136,7 @@ def test_auto_arrange_places_new_nodes_and_wires(shell):
     document.set_auto_arrange(True)
     assert preferences.get("flow.auto_arrange") is True
     document.add_node("control.timer", (900, 900), "timer")
-    document.add_node("control.counter", (0, 0), "counter")
+    document.add_node("measure.count", (0, 0), "counter")
     document.connect_ports("timer.tick", "counter.in")
     from PySide6.QtWidgets import QApplication
 

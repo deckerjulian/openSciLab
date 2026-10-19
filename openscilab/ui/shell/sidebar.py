@@ -4,30 +4,33 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""Sidebar: the section chosen in the activity bar (project, devices, nodes, search)."""
+"""Sidebar: the section chosen in the activity bar (the project, the devices).
+
+A click on an entry opens it, in every list (with Ctrl or Shift held, the data list selects instead,
+to compare two captures).
+"""
 
 from __future__ import annotations
 
 import os
 from typing import Callable, Optional
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import QEvent, QObject, Qt, Signal
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QFrame,
     QLabel,
-    QLineEdit,
     QListWidget,
     QListWidgetItem,
     QMenu,
-    QPushButton,
     QStackedWidget,
     QVBoxLayout,
     QWidget,
 )
 
 from ...core import recent
-from ..icons import icon
+from .. import sections
+from ..icons import icon, known
 from ..theme import set_role
 
 
@@ -76,6 +79,37 @@ def _list(parent: QWidget) -> QListWidget:
     return widget
 
 
+class _ClickOpener(QObject):
+    """Opens the entry of a list that was clicked, unless Ctrl or Shift was held at the press (the
+    keys of the click itself: :func:`open_on_click`)."""
+
+    SELECTING = Qt.ControlModifier | Qt.ShiftModifier | Qt.MetaModifier
+
+    def __init__(self, widget: QListWidget, opened: Callable[[QListWidgetItem], None]) -> None:
+        super().__init__(widget)
+        self.opened = opened
+        self.selecting = False
+        widget.viewport().installEventFilter(self)
+        widget.itemActivated.connect(opened)
+        widget.itemClicked.connect(self._clicked)
+
+    def eventFilter(self, watched, event) -> bool:  # noqa: N802 - Qt naming
+        if event.type() == QEvent.MouseButtonPress:
+            self.selecting = bool(event.modifiers() & self.SELECTING)
+        return False
+
+    def _clicked(self, item: QListWidgetItem) -> None:
+        selecting, self.selecting = self.selecting, False
+        if not selecting:
+            self.opened(item)
+
+
+def open_on_click(widget: QListWidget, opened: Callable[[QListWidgetItem], None]) -> None:
+    """One click opens an entry (as Enter and a double click do); with Ctrl or Shift held a click
+    selects (several entries for the commands of the list's menu)."""
+    _ClickOpener(widget, opened)
+
+
 #: kinds of files in the data folder of a project: (suffixes, kind, icon)
 DATA_KINDS = (
     ((".lac", ".lac.gz", ".sr"), "capture", "channels"),
@@ -113,7 +147,10 @@ def data_files(folder: str) -> list[tuple[str, str]]:
 
 
 def file_icon(path: str) -> str:
-    """The icon of a file by what it holds (flow, panel, capture, waveform, other)."""
+    """The icon of a file by what it holds (flow, panel, capture, waveform, a document of a plugin, other)."""
+    added = sections.icon_for(path)
+    if added is not None:
+        return known(added, "file-plus")
     lowered = path.lower()
     for endings, name in (((".flow.yaml", ".py"), "nodes"), ((".panel.yaml",), "panel"),
                           ((".lac", ".lac.gz", ".sr", ".csv", ".vcd"), "channels"), ((".wave.yaml", ".sdl"), "wave")):
@@ -143,19 +180,18 @@ class ProjectSection(QWidget):
         layout.addWidget(self.parts, 1)
 
         self.documents = _list(self)
-        self.documents.itemActivated.connect(lambda item: self.document_activated.emit(item.data(Qt.UserRole)))
-        self.documents.itemClicked.connect(lambda item: self.document_activated.emit(item.data(Qt.UserRole)))
+        open_on_click(self.documents, lambda item: self.document_activated.emit(item.data(Qt.UserRole)))
         self.documents_part = self.parts.add(Part("documents", "Open documents", self.documents), 2)
 
         # the flows, panels and waveforms of the project of the active document (also closed ones)
         self.files = _list(self)
-        self.files.itemActivated.connect(lambda item: self.file_requested.emit(item.data(Qt.UserRole)))
+        open_on_click(self.files, self._open_item)
         self.files_part = self.parts.add(Part("files", "Project", self.files), 2)
         self.project = None
 
         self.data = _list(self)
         self.data.setSelectionMode(QAbstractItemView.ExtendedSelection)
-        self.data.itemActivated.connect(lambda item: self.file_requested.emit(item.data(Qt.UserRole)))
+        open_on_click(self.data, self._open_item)
         self.data.setContextMenuPolicy(Qt.CustomContextMenu)
         self.data.customContextMenuRequested.connect(self._data_menu)
         self.data_part = self.parts.add(Part("data", "Data", self.data), 2)
@@ -163,10 +199,15 @@ class ProjectSection(QWidget):
         self.data_folder: Optional[str] = None
 
         self.recent = _list(self)
-        self.recent.itemActivated.connect(lambda item: self.file_requested.emit(item.data(Qt.UserRole)))
-        self.recent_part = self.parts.add(Part("recent", "Recent files", self.recent), 1)
+        open_on_click(self.recent, self._open_item)
+        self.recent_part = self.parts.add(Part("recent", "Recent", self.recent), 1)
         self.set_project(None)
         self.set_data_folder(None)
+
+    def _open_item(self, item: QListWidgetItem) -> None:
+        path = item.data(Qt.UserRole)
+        if path:  # (not a note like "No flows or panels yet")
+            self.file_requested.emit(path)
 
     def set_project(self, project) -> None:
         """The files of ``project`` (``None``: no project, the list is hidden)."""
@@ -179,7 +220,7 @@ class ProjectSection(QWidget):
             return
         self.files_part.set_title(f"Project · {project.name or os.path.basename(project.root.rstrip(os.sep))}")
         try:
-            paths = project.flows() + project.panels() + project.waveforms()
+            paths = project.flows() + project.panels() + project.waveforms() + sections.project_files(project)
         except OSError:
             paths = []
         for path in paths:
@@ -198,7 +239,8 @@ class ProjectSection(QWidget):
             text = document.title + (" ●" if document.dirty else "")
             kind = getattr(document, "document_kind", "")
             icon_name = {"flow": "nodes", "panel": "panel", "data": "channels", "device": "devices",
-                         "waveform": "wave", "start": "home", "hardware": "chip"}.get(kind, "file-plus")
+                         "waveform": "wave", "start": "home", "hardware": "chip"}.get(kind) \
+                or known(sections.icon_for(kind) or "file-plus", "file-plus")
             item = QListWidgetItem(icon(icon_name), text, self.documents)
             item.setData(Qt.UserRole, document)
             if document.path:
@@ -260,55 +302,3 @@ class ProjectSection(QWidget):
         if not self.recent.count():
             item = QListWidgetItem("Files you open appear here", self.recent)
             item.setFlags(Qt.NoItemFlags)
-
-
-class SearchSection(QWidget):
-    """Searches commands, open documents and recent files (the command palette in the sidebar)."""
-
-    def __init__(self, provider: Callable[[str], list], parent: Optional[QWidget] = None) -> None:
-        """``provider(query)`` returns ``(text, detail, callback)`` tuples."""
-        super().__init__(parent)
-        self._provider = provider
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(8, 4, 8, 8)
-        self.input = QLineEdit(self)
-        self.input.setPlaceholderText("Search commands, documents, files")
-        self.input.setClearButtonEnabled(True)
-        self.input.textChanged.connect(self.refresh)
-        layout.addWidget(self.input)
-        self.results = _list(self)
-        self.results.itemActivated.connect(self._run)
-        layout.addWidget(self.results, 1)
-
-    def refresh(self) -> None:
-        self.results.clear()
-        query = self.input.text()
-        if not query.strip():
-            return
-        for text, detail, callback in self._provider(query)[:100]:
-            item = QListWidgetItem(text if not detail else f"{text}    {detail}", self.results)
-            item.setData(Qt.UserRole, callback)
-
-    def _run(self, item: QListWidgetItem) -> None:
-        callback = item.data(Qt.UserRole)
-        if callable(callback):
-            callback()
-
-
-class PlaceholderSection(QWidget):
-    """A section whose content comes with a later step, with a short explanation."""
-
-    def __init__(self, text: str, button: Optional[tuple[str, Callable]] = None,
-                 parent: Optional[QWidget] = None) -> None:
-        super().__init__(parent)
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(10, 8, 10, 8)
-        label = QLabel(text, self)
-        label.setWordWrap(True)
-        set_role(label, "hint")
-        layout.addWidget(label)
-        if button is not None:
-            push = QPushButton(button[0], self)
-            push.clicked.connect(button[1])
-            layout.addWidget(push)
-        layout.addStretch(1)

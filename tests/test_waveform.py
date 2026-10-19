@@ -178,7 +178,7 @@ def test_the_document_explains_limits_and_saves(shell, tmp_path, monkeypatch):
     document = shell.new_waveform()
     document.frequency.setValue(30e6)
     document.rebuild()
-    assert "above" in document.problems_label.text() and not document.start_button.isEnabled()
+    assert "above" in document.problems_label.text() and not document.can_start_run
     document.frequency.setValue(1000)
     document.modulation.setCurrentIndex(document.modulation.findData(waves.SWEEP))
     document.rebuild()

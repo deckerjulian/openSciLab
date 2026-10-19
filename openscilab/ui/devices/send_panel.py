@@ -84,7 +84,7 @@ class SendPanel(QWidget):
             if self.generator.transmits(key):
                 self.protocol_box.addItem(title, key)
         self.protocol_box.currentIndexChanged.connect(self._protocol_changed)
-        form.addRow("Protocol:", self.protocol_box)
+        form.addRow("Protocol", self.protocol_box)
         self.pin_edits: dict[str, QLineEdit] = {}
         self.pin_labels: dict[str, QLabel] = {}
         defaults = self._default_pins()
@@ -92,7 +92,7 @@ class SendPanel(QWidget):
             edit = QLineEdit(defaults.get(role, ""), self)
             edit.setObjectName(f"send-pin-{role}")
             self.pin_edits[role] = edit
-            self.pin_labels[role] = QLabel(f"{label}:", self)
+            self.pin_labels[role] = QLabel(label, self)
             form.addRow(self.pin_labels[role], edit)
         self.rate_edit = QLineEdit(self)
         self.rate_edit.setObjectName("send-rate")
@@ -103,16 +103,16 @@ class SendPanel(QWidget):
         self.address_box.setDisplayIntegerBase(16)
         self.address_box.setPrefix("0x")
         self.address_box.setValue(0x48)
-        self.address_label = QLabel("Address:", self)
+        self.address_label = QLabel("Address", self)
         form.addRow(self.address_label, self.address_box)
         self.read_box = QSpinBox(self)
         self.read_box.setRange(0, 4096)
-        self.read_label = QLabel("Read bytes:", self)
+        self.read_label = QLabel("Read bytes", self)
         form.addRow(self.read_label, self.read_box)
         self.data_edit = QLineEdit("Hello\\n", self)
         self.data_edit.setObjectName("send-data")
         self.data_edit.setToolTip("Text (\\n, \\r and \\x41 as escapes) or bytes in hexadecimal: 19 00 or 0x19 0x00")
-        form.addRow("Data:", self.data_edit)
+        form.addRow("Data", self.data_edit)
         layout.addLayout(form)
         row = QHBoxLayout()
         self.send_button = QPushButton("Send", self)
@@ -147,7 +147,7 @@ class SendPanel(QWidget):
         i2c = protocol == "i2c"
         for widget in (self.address_box, self.address_label, self.read_box, self.read_label):
             widget.setVisible(i2c)
-        self.rate_label.setText("Baud rate:" if protocol == "uart" else "Clock:")
+        self.rate_label.setText("Baud rate" if protocol == "uart" else "Clock")
         self.rate_edit.setText({"uart": "115200 Hz", "spi": "1 MHz", "i2c": "100 kHz"}.get(protocol, ""))
 
     def settings(self) -> dict:

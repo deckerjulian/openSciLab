@@ -1,0 +1,284 @@
+* openSciLab's standard models (circuits/models/standard.lib).
+* Written for openSciLab from published data sheet values (GPL-3.0-or-later, like openSciLab):
+* typical behaviour of the parts, not the models of their makers. A model of a maker added as a
+* library of the circuit (or of the settings) is used instead of one of the same name here.
+
+* ---------------------------------------------------------------- diodes
+.model 1N4148 D(Is=2.52n Rs=0.568 N=1.752 Cjo=4p M=0.4 Tt=20n Bv=100 Ibv=100u)
+.model 1N914 D(Is=2.52n Rs=0.568 N=1.752 Cjo=4p M=0.4 Tt=20n Bv=100 Ibv=100u)
+.model 1N4001 D(Is=14.11n Rs=33.89m N=1.984 Cjo=25.89p M=0.44 Vj=0.325 Tt=5.7u Bv=75 Ibv=10u)
+.model 1N4007 D(Is=7.03n Rs=34.2m N=1.81 Eg=1.06 Xti=5 Bv=1000 Ibv=50n Cjo=10p Vj=0.7 M=0.5 Tt=100n)
+* fast recovery (switching regulators): UF4007 1000 V / 1 A, 75 ns
+.model UF4007 D(Is=1n Rs=0.05 N=1.7 Cjo=10p M=0.33 Bv=1000 Ibv=10u Tt=50n)
+.model 1N5817 D(Is=31.7u Rs=51m N=1.373 Cjo=190p M=0.35 Eg=0.69 Xti=2 Bv=20 Ibv=1m)
+.model 1N5819 D(Is=31.7u Rs=51m N=1.373 Cjo=110p M=0.35 Eg=0.69 Xti=2 Bv=40 Ibv=1m)
+.model BAT54 D(Is=0.1u Rs=1.8 N=1 Cjo=10p M=0.33 Eg=0.69 Xti=2 Bv=30 Ibv=2u)
+.model DIODE D(Is=1e-14 Rs=0.1 N=1 Cjo=2p Tt=10n)
+* Zener diodes: DZ<voltage> and the 1N47xx (1 W)
+.model DZ2V7 D(Is=1n Rs=1 N=1.2 Cjo=100p Bv=2.7 Ibv=5m Nbv=1.2)
+.model DZ3V3 D(Is=1n Rs=1 N=1.2 Cjo=100p Bv=3.3 Ibv=5m Nbv=1.2)
+.model DZ3V6 D(Is=1n Rs=1 N=1.2 Cjo=100p Bv=3.6 Ibv=5m Nbv=1.2)
+.model DZ4V7 D(Is=1n Rs=1 N=1.2 Cjo=100p Bv=4.7 Ibv=5m Nbv=1.2)
+.model DZ5V1 D(Is=1n Rs=1 N=1.2 Cjo=100p Bv=5.1 Ibv=5m Nbv=1.2)
+.model DZ5V6 D(Is=1n Rs=1 N=1.2 Cjo=100p Bv=5.6 Ibv=5m Nbv=1.2)
+.model DZ6V2 D(Is=1n Rs=1 N=1.2 Cjo=100p Bv=6.2 Ibv=5m Nbv=1.2)
+.model DZ6V8 D(Is=1n Rs=1 N=1.2 Cjo=100p Bv=6.8 Ibv=5m Nbv=1.2)
+.model DZ8V2 D(Is=1n Rs=1 N=1.2 Cjo=100p Bv=8.2 Ibv=5m Nbv=1.2)
+.model DZ9V1 D(Is=1n Rs=1 N=1.2 Cjo=100p Bv=9.1 Ibv=5m Nbv=1.2)
+.model DZ10 D(Is=1n Rs=1 N=1.2 Cjo=100p Bv=10 Ibv=5m Nbv=1.2)
+.model DZ12 D(Is=1n Rs=1 N=1.2 Cjo=100p Bv=12 Ibv=5m Nbv=1.2)
+.model DZ15 D(Is=1n Rs=1 N=1.2 Cjo=100p Bv=15 Ibv=5m Nbv=1.2)
+.model DZ18 D(Is=1n Rs=1 N=1.2 Cjo=100p Bv=18 Ibv=5m Nbv=1.2)
+.model DZ24 D(Is=1n Rs=1 N=1.2 Cjo=100p Bv=24 Ibv=5m Nbv=1.2)
+.model 1N4728 D(Is=1n Rs=1 N=1.2 Cjo=100p Bv=3.3 Ibv=5m Nbv=1.2)
+.model 1N4732 D(Is=1n Rs=1 N=1.2 Cjo=100p Bv=4.7 Ibv=5m Nbv=1.2)
+.model 1N4733 D(Is=1n Rs=1 N=1.2 Cjo=100p Bv=5.1 Ibv=5m Nbv=1.2)
+.model 1N4734 D(Is=1n Rs=1 N=1.2 Cjo=100p Bv=5.6 Ibv=5m Nbv=1.2)
+.model 1N4735 D(Is=1n Rs=1 N=1.2 Cjo=100p Bv=6.2 Ibv=5m Nbv=1.2)
+.model 1N4736 D(Is=1n Rs=1 N=1.2 Cjo=100p Bv=6.8 Ibv=5m Nbv=1.2)
+.model 1N4739 D(Is=1n Rs=1 N=1.2 Cjo=100p Bv=9.1 Ibv=5m Nbv=1.2)
+.model 1N4740 D(Is=1n Rs=1 N=1.2 Cjo=100p Bv=10 Ibv=5m Nbv=1.2)
+.model 1N4742 D(Is=1n Rs=1 N=1.2 Cjo=100p Bv=12 Ibv=5m Nbv=1.2)
+.model 1N4744 D(Is=1n Rs=1 N=1.2 Cjo=100p Bv=15 Ibv=5m Nbv=1.2)
+.model BZX55C5V1 D(Is=1n Rs=1 N=1.2 Cjo=100p Bv=5.1 Ibv=5m Nbv=1.2)
+.model BZX79C5V1 D(Is=1n Rs=1 N=1.2 Cjo=100p Bv=5.1 Ibv=5m Nbv=1.2)
+
+* LEDs: forward voltages at 10 mA about red 1.9 V, yellow 2.0 V, green 2.2 V, blue and white 3.0 V
+.model LED_RED D(Is=1e-20 N=1.8 Rs=2 Cjo=20p Bv=5 Ibv=10u)
+.model LED_YELLOW D(Is=3e-21 N=1.8 Rs=2 Cjo=20p Bv=5 Ibv=10u)
+.model LED_GREEN D(Is=1e-22 N=1.85 Rs=2 Cjo=20p Bv=5 Ibv=10u)
+.model LED_BLUE D(Is=1e-28 N=2 Rs=3 Cjo=20p Bv=5 Ibv=10u)
+.model LED_WHITE D(Is=1e-28 N=2 Rs=3 Cjo=20p Bv=5 Ibv=10u)
+.model LED D(Is=1e-20 N=1.8 Rs=2 Cjo=20p Bv=5 Ibv=10u)
+
+* ---------------------------------------------------------- bipolar transistors
+.model 2N3904 NPN(Is=6.734f Xti=3 Eg=1.11 Vaf=74.03 Bf=416.4 Ne=1.259 Ise=6.734f Ikf=66.78m Xtb=1.5 Br=0.7371 Nc=2 Isc=0 Ikr=0 Rc=1 Cjc=3.638p Mjc=0.3085 Vjc=0.75 Fc=0.5 Cje=4.493p Mje=0.2593 Vje=0.75 Tr=239.5n Tf=301.2p Itf=0.4 Vtf=4 Xtf=2 Rb=10)
+.model 2N3906 PNP(Is=1.41f Xti=3 Eg=1.11 Vaf=18.7 Bf=180.7 Ne=1.5 Ise=0 Ikf=80m Xtb=1.5 Br=4.977 Nc=2 Isc=0 Ikr=0 Rc=2.5 Cjc=9.728p Mjc=0.5776 Vjc=0.75 Fc=0.5 Cje=8.063p Mje=0.3677 Vje=0.75 Tr=33.42n Tf=179.3p Itf=0.4 Vtf=4 Xtf=6 Rb=10)
+.model 2N2222 NPN(Is=1e-14 Vaf=100 Bf=200 Ikf=0.3 Xtb=1.5 Br=3 Cjc=8p Cje=25p Tr=100n Tf=400p Itf=1 Vtf=2 Xtf=3 Rb=10 Rc=0.3 Re=0.2)
+.model 2N2907 PNP(Is=1e-14 Vaf=120 Bf=250 Ikf=0.3 Xtb=1.5 Br=3 Cjc=8p Cje=30p Tr=100n Tf=400p Itf=1 Vtf=2 Xtf=3 Rb=10 Rc=0.3 Re=0.2)
+.model BC547B NPN(Is=2.39e-14 Nf=1.008 Ise=3.545e-15 Ne=1.541 Bf=294.3 Ikf=0.1357 Vaf=63.2 Nr=1.004 Isc=6.272e-14 Nc=1.243 Br=7.946 Ikr=0.1144 Var=25.9 Rb=1 Re=0.4683 Rc=0.85 Eg=1.11 Xti=3 Cje=13.58p Vje=0.65 Mje=0.3279 Tf=439.1p Xtf=120 Vtf=2.643 Itf=0.7495 Cjc=3.728p Vjc=0.3997 Mjc=0.2955 Xcjc=0.6193 Fc=0.9579)
+.model BC547 NPN(Is=2.39e-14 Nf=1.008 Ise=3.545e-15 Ne=1.541 Bf=294.3 Ikf=0.1357 Vaf=63.2 Nr=1.004 Isc=6.272e-14 Nc=1.243 Br=7.946 Ikr=0.1144 Var=25.9 Rb=1 Re=0.4683 Rc=0.85 Eg=1.11 Xti=3 Cje=13.58p Vje=0.65 Mje=0.3279 Tf=439.1p Xtf=120 Vtf=2.643 Itf=0.7495 Cjc=3.728p Vjc=0.3997 Mjc=0.2955 Xcjc=0.6193 Fc=0.9579)
+.model BC548 NPN(Is=2.39e-14 Bf=294 Vaf=63.2 Ikf=0.1357 Br=7.946 Rb=1 Re=0.4683 Rc=0.85 Cje=13.58p Cjc=3.728p Tf=439.1p Tr=10n)
+.model BC549 NPN(Is=2.39e-14 Bf=400 Vaf=63.2 Ikf=0.1357 Br=7.946 Rb=1 Re=0.4683 Rc=0.85 Cje=13.58p Cjc=3.728p Tf=439.1p Tr=10n)
+.model BC557B PNP(Is=3.83e-14 Nf=1.008 Ise=1.22e-14 Ne=1.528 Bf=344.4 Ikf=0.08039 Vaf=21.11 Nr=1.005 Isc=2.85e-13 Nc=1.28 Br=14.84 Ikr=0.047 Var=32.02 Rb=1 Re=0.6202 Rc=0.5713 Cje=11.23p Vje=0.6106 Mje=0.3523 Tf=420.9p Cjc=10.38p Vjc=0.1 Mjc=0.3 Fc=0.8027)
+.model BC557 PNP(Is=3.83e-14 Nf=1.008 Ise=1.22e-14 Ne=1.528 Bf=344.4 Ikf=0.08039 Vaf=21.11 Nr=1.005 Isc=2.85e-13 Nc=1.28 Br=14.84 Ikr=0.047 Var=32.02 Rb=1 Re=0.6202 Rc=0.5713 Cje=11.23p Vje=0.6106 Mje=0.3523 Tf=420.9p Cjc=10.38p Vjc=0.1 Mjc=0.3 Fc=0.8027)
+.model BD139 NPN(Is=1e-13 Bf=150 Vaf=100 Ikf=1 Br=5 Rb=1 Re=0.05 Rc=0.1 Cje=100p Cjc=30p Tf=1n Tr=100n)
+.model BD140 PNP(Is=1e-13 Bf=150 Vaf=100 Ikf=1 Br=5 Rb=1 Re=0.05 Rc=0.1 Cje=100p Cjc=40p Tf=1n Tr=100n)
+.model TIP120 NPN(Is=5e-12 Bf=1000 Vaf=100 Ikf=5 Br=10 Rb=10 Re=0.05 Rc=0.1 Nf=2 Cje=200p Cjc=100p Tf=5n Tr=1u)
+* high voltage (power supplies from the mains): MJE340 300 V driver, MJE13007 400 V / 8 A power switch
+.model MJE340 NPN(Is=1e-13 Bf=100 Vaf=200 Ikf=0.3 Br=3 Rb=10 Rc=1 Re=0.2 Cje=50p Cjc=15p Tf=5n Tr=500n)
+.model MJE350 PNP(Is=1e-13 Bf=100 Vaf=200 Ikf=0.3 Br=3 Rb=10 Rc=1 Re=0.2 Cje=50p Cjc=20p Tf=5n Tr=500n)
+.model MJE5731 PNP(Is=1e-12 Bf=40 Vaf=300 Ikf=2 Br=2 Rb=2 Rc=0.2 Re=0.05 Cje=500p Cjc=100p Tf=50n Tr=2u)
+.model MJE13007 NPN(Is=1e-12 Bf=30 Vaf=300 Ikf=4 Br=2 Rb=2 Rc=0.2 Re=0.05 Cje=1n Cjc=100p Tf=50n Tr=2u)
+.model NPN NPN(Is=1e-14 Bf=100 Vaf=100)
+.model PNP PNP(Is=1e-14 Bf=100 Vaf=100)
+
+* -------------------------------------------------------------------- MOSFETs
+.model 2N7000 VDMOS(Rg=3 Rd=0.6 Rs=0.1 Vto=1.6 Kp=0.1 Lambda=0.01 Cgdmax=12p Cgdmin=1.5p Cgs=50p Cjo=11p Is=88f Rb=0.1)
+.model 2N7002 VDMOS(Rg=3 Rd=0.8 Rs=0.1 Vto=1.6 Kp=0.08 Lambda=0.01 Cgdmax=10p Cgdmin=1.5p Cgs=40p Cjo=10p Is=88f Rb=0.1)
+.model BS170 VDMOS(Rg=3 Rd=0.6 Rs=0.1 Vto=1.8 Kp=0.12 Lambda=0.01 Cgdmax=12p Cgdmin=1.5p Cgs=50p Cjo=11p Is=88f Rb=0.1)
+.model IRLZ44N VDMOS(Rg=3 Vto=1.5 Rd=8m Rs=6m Rb=8m Kp=50 Lambda=0.03 Cgdmax=1.5n Cgdmin=60p Cgs=1.5n Cjo=1n Is=1p)
+.model IRF540N VDMOS(Rg=3 Vto=3.5 Rd=20m Rs=10m Rb=12m Kp=20 Lambda=0.03 Cgdmax=1.2n Cgdmin=50p Cgs=1.7n Cjo=1n Is=1p)
+.model IRFZ44N VDMOS(Rg=3 Vto=3 Rd=10m Rs=6m Rb=8m Kp=30 Lambda=0.03 Cgdmax=1.4n Cgdmin=60p Cgs=1.5n Cjo=1n Is=1p)
+.model BS250 VDMOS(pchan Vto=-2.5 Kp=0.3 Rd=4 Rs=0.1 Rb=0.1 Cgs=40p Cgdmax=30p Cgdmin=5p Cjo=30p Is=1p)
+.model IRF9540 VDMOS(pchan Vto=-3.5 Kp=10 Rd=0.1 Rs=0.05 Rb=0.05 Lambda=0.03 Cgs=1.4n Cgdmax=1n Cgdmin=50p Cjo=1n Is=1p)
+.model NMOS VDMOS(Vto=2 Kp=0.5)
+.model PMOS VDMOS(pchan Vto=-2 Kp=0.5)
+
+* --------------------------------------------------- operational amplifiers
+* A macro model: input resistance, a transconductance stage (open-loop gain AOL, the gain-
+* bandwidth GBW from its dominant pole, the slew rate from its limited current), the output
+* clamped VHI below the positive and VLO above the negative supply (never past the middle of them:
+* supplies that are not up yet do not short the clamps), ROUT behind it, RQ between the supplies.
+.subckt OPAMP_MACRO inp inn vcc vee out params: gbw=1Meg aol=100k vhi=0.1 vlo=0.1 slew=1Meg rout=50 rq=20k
+Rin inp inn 10Meg
+Cinp inp 0 2p
+Cinn inn 0 2p
+Bmid mid 0 V = (V(vcc)+V(vee))/2
+Bgm mid n1 I = max(min({aol}*1u*V(inp,inn), {slew*aol/(6.2831853*gbw*1Meg)}), -{slew*aol/(6.2831853*gbw*1Meg)})
+Rn1 n1 mid 1Meg
+Cn1 n1 mid {aol/(6.2831853*gbw*1Meg)}
+Bhi hi 0 V = max(V(vcc)-{vhi}, V(mid)+1m)
+Blo lo 0 V = min(V(vee)+{vlo}, V(mid)-1m)
+Dhi n1 hi DCLAMP
+Dlo lo n1 DCLAMP
+Bout o1 0 V = V(n1)
+Rout o1 out {rout}
+Rq vcc vee {rq}
+.model DCLAMP D(Is=1e-14 N=0.1)
+.ends OPAMP_MACRO
+* PA94-like high-voltage power operational amplifier (up to 900 V between its supplies), as the
+* driver of a linear output stage
+.subckt PA94 inp inn vcc vee out
+X1 inp inn vcc vee out OPAMP_MACRO gbw=1Meg aol=200k vhi=3 vlo=3 slew=50Meg rq=680k
+.ends PA94
+* generic operational amplifier
+.subckt OPAMP inp inn vcc vee out
+X1 inp inn vcc vee out OPAMP_MACRO gbw=1Meg aol=200k vhi=0.1 vlo=0.1 slew=1Meg
+.ends OPAMP
+* LM358 dual, single supply
+.subckt LM358 inp inn vcc vee out
+X1 inp inn vcc vee out OPAMP_MACRO gbw=1Meg aol=100k vhi=1.5 vlo=0.02 slew=0.3Meg
+.ends LM358
+* LM324 quad, single supply
+.subckt LM324 inp inn vcc vee out
+X1 inp inn vcc vee out OPAMP_MACRO gbw=1Meg aol=100k vhi=1.5 vlo=0.02 slew=0.3Meg
+.ends LM324
+* LM2904 dual, single supply
+.subckt LM2904 inp inn vcc vee out
+X1 inp inn vcc vee out OPAMP_MACRO gbw=1Meg aol=100k vhi=1.5 vlo=0.02 slew=0.3Meg
+.ends LM2904
+* LM741
+.subckt LM741 inp inn vcc vee out
+X1 inp inn vcc vee out OPAMP_MACRO gbw=1Meg aol=200k vhi=1 vlo=1 slew=0.5Meg
+.ends LM741
+* uA741
+.subckt UA741 inp inn vcc vee out
+X1 inp inn vcc vee out OPAMP_MACRO gbw=1Meg aol=200k vhi=1 vlo=1 slew=0.5Meg
+.ends UA741
+* TL071 JFET input
+.subckt TL071 inp inn vcc vee out
+X1 inp inn vcc vee out OPAMP_MACRO gbw=3Meg aol=200k vhi=1.5 vlo=1.5 slew=13Meg
+.ends TL071
+* TL072 JFET input
+.subckt TL072 inp inn vcc vee out
+X1 inp inn vcc vee out OPAMP_MACRO gbw=3Meg aol=200k vhi=1.5 vlo=1.5 slew=13Meg
+.ends TL072
+* TL074 JFET input
+.subckt TL074 inp inn vcc vee out
+X1 inp inn vcc vee out OPAMP_MACRO gbw=3Meg aol=200k vhi=1.5 vlo=1.5 slew=13Meg
+.ends TL074
+* TL081 JFET input
+.subckt TL081 inp inn vcc vee out
+X1 inp inn vcc vee out OPAMP_MACRO gbw=3Meg aol=200k vhi=1.5 vlo=1.5 slew=13Meg
+.ends TL081
+* TL082 JFET input
+.subckt TL082 inp inn vcc vee out
+X1 inp inn vcc vee out OPAMP_MACRO gbw=3Meg aol=200k vhi=1.5 vlo=1.5 slew=13Meg
+.ends TL082
+* TL084 JFET input
+.subckt TL084 inp inn vcc vee out
+X1 inp inn vcc vee out OPAMP_MACRO gbw=3Meg aol=200k vhi=1.5 vlo=1.5 slew=13Meg
+.ends TL084
+* NE5532 low noise
+.subckt NE5532 inp inn vcc vee out
+X1 inp inn vcc vee out OPAMP_MACRO gbw=10Meg aol=100k vhi=1.5 vlo=1.5 slew=9Meg
+.ends NE5532
+* NE5534 low noise
+.subckt NE5534 inp inn vcc vee out
+X1 inp inn vcc vee out OPAMP_MACRO gbw=10Meg aol=100k vhi=1.5 vlo=1.5 slew=13Meg
+.ends NE5534
+* LM833 audio
+.subckt LM833 inp inn vcc vee out
+X1 inp inn vcc vee out OPAMP_MACRO gbw=15Meg aol=100k vhi=1 vlo=1 slew=7Meg
+.ends LM833
+* OPA134 audio
+.subckt OPA134 inp inn vcc vee out
+X1 inp inn vcc vee out OPAMP_MACRO gbw=8Meg aol=1Meg vhi=1 vlo=1 slew=20Meg
+.ends OPA134
+* OPA2134 audio
+.subckt OPA2134 inp inn vcc vee out
+X1 inp inn vcc vee out OPAMP_MACRO gbw=8Meg aol=1Meg vhi=1 vlo=1 slew=20Meg
+.ends OPA2134
+* OP07 precision
+.subckt OP07 inp inn vcc vee out
+X1 inp inn vcc vee out OPAMP_MACRO gbw=0.6Meg aol=400k vhi=1 vlo=1 slew=0.3Meg
+.ends OP07
+* MCP6001 rail-to-rail
+.subckt MCP6001 inp inn vcc vee out
+X1 inp inn vcc vee out OPAMP_MACRO gbw=1Meg aol=100k vhi=0.025 vlo=0.025 slew=0.6Meg
+.ends MCP6001
+* MCP6002 rail-to-rail
+.subckt MCP6002 inp inn vcc vee out
+X1 inp inn vcc vee out OPAMP_MACRO gbw=1Meg aol=100k vhi=0.025 vlo=0.025 slew=0.6Meg
+.ends MCP6002
+* MCP6004 rail-to-rail
+.subckt MCP6004 inp inn vcc vee out
+X1 inp inn vcc vee out OPAMP_MACRO gbw=1Meg aol=100k vhi=0.025 vlo=0.025 slew=0.6Meg
+.ends MCP6004
+* LMV321 rail-to-rail output
+.subckt LMV321 inp inn vcc vee out
+X1 inp inn vcc vee out OPAMP_MACRO gbw=1Meg aol=100k vhi=0.02 vlo=0.02 slew=1Meg
+.ends LMV321
+* LMV358 rail-to-rail output
+.subckt LMV358 inp inn vcc vee out
+X1 inp inn vcc vee out OPAMP_MACRO gbw=1Meg aol=100k vhi=0.02 vlo=0.02 slew=1Meg
+.ends LMV358
+* LMV324 rail-to-rail output
+.subckt LMV324 inp inn vcc vee out
+X1 inp inn vcc vee out OPAMP_MACRO gbw=1Meg aol=100k vhi=0.02 vlo=0.02 slew=1Meg
+.ends LMV324
+* OPA340 rail-to-rail
+.subckt OPA340 inp inn vcc vee out
+X1 inp inn vcc vee out OPAMP_MACRO gbw=5.5Meg aol=1Meg vhi=0.001 vlo=0.001 slew=6Meg
+.ends OPA340
+* AD8605 rail-to-rail
+.subckt AD8605 inp inn vcc vee out
+X1 inp inn vcc vee out OPAMP_MACRO gbw=10Meg aol=1Meg vhi=0.02 vlo=0.02 slew=5Meg
+.ends AD8605
+* TLV2372 rail-to-rail
+.subckt TLV2372 inp inn vcc vee out
+X1 inp inn vcc vee out OPAMP_MACRO gbw=3Meg aol=300k vhi=0.05 vlo=0.05 slew=2.4Meg
+.ends TLV2372
+* LM6132 rail-to-rail
+.subckt LM6132 inp inn vcc vee out
+X1 inp inn vcc vee out OPAMP_MACRO gbw=10Meg aol=200k vhi=0.05 vlo=0.05 slew=14Meg
+.ends LM6132
+* CA3140 MOSFET input
+.subckt CA3140 inp inn vcc vee out
+X1 inp inn vcc vee out OPAMP_MACRO gbw=4.5Meg aol=100k vhi=1.5 vlo=0.1 slew=9Meg
+.ends CA3140
+
+* ----------------------------------------------------------------- comparators
+* open collector output to the negative supply, about 300 ns
+.subckt COMPARATOR_OC inp inn vcc vee out
+Rin inp inn 10Meg
+Bc ctl 0 V = 0.5*(1-tanh(V(inp,inn)*2000))
+Rc ctl ctl2 1k
+Cc ctl2 0 300p
+Sout out vee ctl2 0 SWOC
+Rq vcc vee 10k
+.model SWOC SW(Ron=20 Roff=1G Vt=0.5 Vh=0.05)
+.ends COMPARATOR_OC
+.subckt LM393 inp inn vcc vee out
+X1 inp inn vcc vee out COMPARATOR_OC
+.ends LM393
+.subckt LM339 inp inn vcc vee out
+X1 inp inn vcc vee out COMPARATOR_OC
+.ends LM339
+.subckt LM311 inp inn vcc vee out
+X1 inp inn vcc vee out COMPARATOR_OC
+.ends LM311
+.subckt LM2903 inp inn vcc vee out
+X1 inp inn vcc vee out COMPARATOR_OC
+.ends LM2903
+
+* ------------------------------------------------------------------ regulators
+.subckt REG_LINEAR in gnd out params: vout=5 dropout=2
+Breg o1 gnd V = max(min({vout}, V(in,gnd)-{dropout}), 0)
+Rout o1 out 50m
+Rq in gnd 100k
+.ends REG_LINEAR
+
+* ------------------------------------------------------------------- 555 timer
+* pins: VCC GND TRIG THR DIS CV RESET OUT; trigger wins over threshold, reset over both
+.subckt NE555 vcc gnd trig thr dis cv rst out
+R1 vcc cv 5k
+R2 cv lo 5k
+R3 lo gnd 5k
+Bs s 0 V = 0.5*(1+tanh((V(lo)-V(trig))*400))
+Br r 0 V = 0.5*(1+tanh((V(thr)-V(cv))*400))
+Brr rr 0 V = 0.5*(1-tanh((V(rst,gnd)-0.7)*40))
+Bq qn 0 V = V(rr) > 0.5 ? 0 : (V(s) > 0.5 ? 1 : (V(r) > 0.5 ? 0 : V(q)))
+Rq qn q 1k
+Cq q 0 20p
+Bout o1 gnd V = V(q)*max(V(vcc,gnd)-1.7, 0) + (1-V(q))*0.1
+Rout o1 out 10
+Bqd qd 0 V = 1-V(q)
+Sdis dis gnd qd 0 SWDIS
+Rsup vcc gnd 1.5k
+.model SWDIS SW(Ron=10 Roff=1G Vt=0.5 Vh=0.05)
+.ends NE555
+.subckt LM555 vcc gnd trig thr dis cv rst out
+X1 vcc gnd trig thr dis cv rst out NE555
+.ends LM555

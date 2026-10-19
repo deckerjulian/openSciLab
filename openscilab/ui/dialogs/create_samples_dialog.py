@@ -22,7 +22,7 @@ from typing import Optional, Sequence
 
 import numpy as np
 from PySide6.QtCore import QRectF, Qt
-from PySide6.QtGui import QColor, QFont, QFontDatabase, QPainter, QPen
+from PySide6.QtGui import QColor, QPainter, QPen
 from PySide6.QtWidgets import (
     QDialog,
     QFormLayout,
@@ -40,7 +40,7 @@ from PySide6.QtWidgets import (
 from .. import colors
 from ...sdl import SDLError, TokenizedSDL, samples_from_source
 from .. import messages
-from ..theme import INPUT, TEXT_MUTED, set_role
+from ..theme import INPUT, TEXT_MUTED, set_role, size, tabular_font
 from ..icons import set_icon
 from .common import InlineMessage, button_box, dialog_layout, hint
 
@@ -126,8 +126,7 @@ class SignalComposerDialog(QDialog):
 
         self.editor = QPlainTextEdit(source, self)
         self.editor.setPlaceholderText(DEFAULT_SDL)
-        font = QFontDatabase.systemFont(QFontDatabase.FixedFont)
-        font.setStyleHint(QFont.Monospace)
+        font = tabular_font(self.editor.font())
         self.editor.setFont(font)
         self.editor.textChanged.connect(self._update_preview)
         layout.addWidget(self.editor, 1)
@@ -208,7 +207,7 @@ class ChannelSampleMaker(QFrame):
             + (f"<br><span style='color:{TEXT_MUTED}'>{channel_name}</span>" if channel_name else ""),
             self,
         )
-        label.setFixedWidth(110)
+        label.setFixedWidth(size("form-label"))
         layout.addWidget(label)
 
         self.preview = SignalPreview(colors.get_color(channel_number), self)
@@ -277,7 +276,7 @@ class CreateSamplesDialog(QDialog):
         self.samples_box.setGroupSeparatorShown(True)
         self.samples_box.setSuffix(" samples")
         self.samples_box.valueChanged.connect(self._on_samples_changed)
-        form.addRow("Insert:" if insert_mode else "Length:", self.samples_box)
+        form.addRow("Insert" if insert_mode else "Length", self.samples_box)
         layout.addLayout(form)
 
         scroll = QScrollArea(self)

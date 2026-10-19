@@ -1,0 +1,15 @@
+flow: 1 + 0
+description: "With A on and B off the sum is 1 and the carry 0 the whole time (their levels, not only no edges)."
+nodes:
+  adder: {type: device.device, address: "circuit:circuits/half-adder.circuit.yaml", at: [0, 0]}
+  capture: {type: device.capture, channels: [SUM, CARRY], rate: 100 kHz, duration: 5 ms, at: [288, 0]}
+  sum: {type: measure.duty, at: [576, 0]}
+  carry: {type: measure.duty, at: [576, 224]}
+  sum_check: {type: report.check, expected: 1, tolerance: 0, title: SUM is 1, at: [864, 0]}
+  carry_check: {type: report.check, expected: 0, tolerance: 0, title: CARRY is 0, at: [864, 224]}
+edges:
+  - adder.device -> capture.device
+  - capture.SUM -> sum.in
+  - capture.CARRY -> carry.in
+  - sum.out -> sum_check.in
+  - carry.out -> carry_check.in

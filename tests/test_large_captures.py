@@ -87,8 +87,9 @@ def test_hidden_statistics_wait_until_they_are_looked_at(make_dataview, monkeypa
     view = loaded(make_dataview)
     panel = view.measure_panel
     assert isinstance(panel, measure_panel.MeasurePanel)
-    view.panels_dock.setVisible(True)
+    view.show_panel(view.decoder_manager)
     tabs = view.side_tabs
+    tabs.show()  # (as the shell's inspector shows the analysis of the data view)
     measure = next(index for index in range(tabs.count()) if tabs.widget(index).isAncestorOf(panel))
     tabs.setCurrentIndex((measure + 1) % tabs.count())  # behind another tab
     QApplication.processEvents()
@@ -274,7 +275,8 @@ def test_a_search_runs_in_the_background(make_dataview, monkeypatch):
     from openscilab.ui.panels.search_panel import SearchPanel
 
     view = loaded(make_dataview)
-    panel = next(child for child in view.findChildren(SearchPanel))
+    panel = view.search_panel  # (in the inspector of the shell while the view is active)
+    assert isinstance(panel, SearchPanel)
     calls = []
     run = background.run
     monkeypatch.setattr(background, "run", lambda *args, **kwargs: (calls.append(args[1]), run(*args, **kwargs))[1])

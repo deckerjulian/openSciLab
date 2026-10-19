@@ -20,18 +20,18 @@ with a wire, a measurement or a shared time scale. The code is in `openscilab_de
 | **arrival** | only the envelope | an upper bound (late by the shortest latency) |
 | **network** (remote) | the device's clock measured with pings | ± half the shortest round trip (wired: 0.1-0.5 ms, WiFi: ms) |
 
-The **Timing** tab of the device card has all of it for openSciLab's instruments:
+The **Timing** tab of a device's document has all of it for openSciLab's instruments:
 
 * *Time of the samples*: the method and accuracy of the last capture or stream - of a flow and of
   the data view alike -, the sample clock, whether the device stamps in a time scale, whether this
   computer's clock follows NTP or PTP (*This computer's clock…* opens *Settings → Time*);
 * *Sample clock*: own (offset and drift are fitted) or shared/external (only the offset):
-  `timing.align` with `drift: auto` (the default) follows it;
+  `time.align` with `drift: auto` (the default) follows it;
 * *Latency*: the measured latencies of the device, and *Measure* - the loopback of
-  `timing.calibrate` without a flow: choose the output, the channel it is wired to, the rate and
+  `time.latency` without a flow: choose the output, the channel it is wired to, the rate and
   stream or capture; the result is kept like that of the node. A simulator is wired with *Wire
   them* (see [simulator.md](simulator.md), its USB link is set on its *Signals* tab);
-* *Sync output*: the signal of `timing.sync` on a pin until it is stopped (or the card closed),
+* *Sync output*: the signal of `time.sync` on a pin until it is stopped (or the card closed),
   e.g. for an input of a DAQ that records it with its data.
 
 Remote devices show *Clock* and *Inputs* on their *Remote* tab.
@@ -51,7 +51,7 @@ two the middle is the estimate and half the distance the uncertainty - the assum
 bound: only its arrival (less a measured latency) places it.
 
 The estimate improves while blocks arrive. A sync signal is therefore fitted with every edge placed
-again with all that is known at that moment (`timing.align` by the sample index, `remote.sync` by
+again with all that is known at that moment (`time.align` by the sample index, `remote.align` by
 the arrival data a device sends along with its blocks).
 
 ## Latency: a loopback
@@ -63,26 +63,26 @@ it. The latency is kept per instrument, mode, rate (and length of a capture) in 
 settings directory (*Settings → Time* lists them) and used by every later capture or stream with the
 same settings - without the wire.
 
-* openSciLab's instruments: node `timing.calibrate` (pin, channel, rate, stream or capture).
+* openSciLab's instruments: node `time.latency` (pin, channel, rate, stream or capture).
 * A device script: `input.calibrate(write, store="latency.json")` while its blocks keep coming;
   `dev.input(..., latency="latency.json")` uses it at the next start.
 
 ## Sync signal
 
-`timing.sync` drives a pin of an instrument with edges at irregular intervals (20-60 ms, the same
+`time.sync` drives a pin of an instrument with edges at irregular intervals (20-60 ms, the same
 for the same seed): wherever it is recorded, the edges can be matched without ambiguity - by their
 pattern, even when the clocks are seconds apart. Wire the pin to a channel of every instrument (and
 to an input of a remote device):
 
-* **Instruments of openSciLab**: `timing.align` gets the signal as the instrument to align recorded
-  it (`signal`) and as the reference did (`reference`, or the commanded `edges` of `timing.sync`).
+* **Instruments of openSciLab**: `time.align` gets the signal as the instrument to align recorded
+  it (`signal`) and as the reference did (`reference`, or the commanded `edges` of `time.sync`).
   Offset and drift are fitted (`drift: none` for a shared sample clock; `auto`, the default,
   follows the *Sample clock* of the device on its card); the instrument's later
   samples are placed with them and what arrives at `in` leaves `out` on the reference's time.
 * **Remote devices**: the device reports the edges in its clock - a sync output it drives
   (`dev.sync_output`), a sync input it sees (`dev.sync_input`) or an input of blocks that records
-  the signal (`dev.input(..., sync=True)`, e.g. a spare channel of a DAQ). `remote.sync` matches
-  them with a recording (`signal`) or with the edges of `timing.sync` (`edges`); `drift: auto` fits
+  the signal (`dev.input(..., sync=True)`, e.g. a spare channel of a DAQ). `remote.align` matches
+  them with a recording (`signal`) or with the edges of `time.sync` (`edges`); `drift: auto` fits
   the drift unless the input shares openSciLab's sample clock (`clock="shared"`).
 
 The edges of a recording are as precise as its sample period: a DAQ at 10 kS/s aligns to about
@@ -93,7 +93,7 @@ The edges of a recording are as precise as its sample period: a DAQ at 10 kS/s a
 When the sample clock of a device comes from an instrument of openSciLab (a DAQ's external sample
 clock from the Pico, a 10 MHz reference) the two never drift apart: only the offset has to be found,
 by one edge of a sync signal or a shared start trigger. Mark such an input with `clock="shared"`
-(remote) or use `drift: none` (`timing.align`). Hardware that makes the clock (a divided clock
+(remote) or use `drift: none` (`time.align`). Hardware that makes the clock (a divided clock
 output of the Pico for a DAQ) is a firmware topic and not part of openSciLab yet.
 
 ## Time scales (PTP, GPS, NTP)
@@ -119,7 +119,7 @@ clock that drifts (25 ppm), an analog input, a sync line (`SYNC_IN`, wire a simu
 a loopback DO0 -> LOOP and the command `calibrate_latency`; `?shared_clock=1` shares the sample
 clock, `?timescale=utc` makes its clock follow UTC as with PTP; `latency`, `jitter` (ms) and `drift`
 (ppm) set its network and clock. It is in the device list with each of these clocks, and its device
-card changes network and drift while it runs (*Remote → Simulation: timing*): the *Clock of the
+card changes network and drift while it runs (*Remote → Simulated timing*): the *Clock of the
 device* above it shows how the measurement follows. The examples of the category *Time* show all of
 it; `examples/remote/ni_daq.py` is a template for a real NI DAQ.
 

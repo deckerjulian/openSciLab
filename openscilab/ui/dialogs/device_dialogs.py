@@ -60,27 +60,27 @@ def _valid_ipv4(address: str) -> bool:
 
 
 class NetworkConnectDialog(QDialog):
-    """Asks for the address and port of a networked analyzer."""
+    """Asks for the address and port of a device on the network."""
 
     def __init__(self, address: str = "", port: int = 24000, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
-        self.setWindowTitle("Connect to a network analyzer")
+        self.setWindowTitle("Connect to a device on the network")
         self.setMinimumWidth(420)
 
         layout = dialog_layout(self)
         layout.addWidget(
-            hint("Enter the address and port configured in the network settings of the analyzer.", self)
+            hint("Enter the address and port configured in the network settings of the device.", self)
         )
 
         form = QFormLayout()
         self.address_edit = QLineEdit(address, self)
         self.address_edit.setPlaceholderText("192.168.1.50")
-        form.addRow("Address:", self.address_edit)
+        form.addRow("Address", self.address_edit)
 
         self.port_box = QSpinBox(self)
         self.port_box.setRange(1, 65535)
         self.port_box.setValue(port)
-        form.addRow("Port:", self.port_box)
+        form.addRow("Port", self.port_box)
         layout.addLayout(form)
 
         self.message = InlineMessage(self)
@@ -119,7 +119,7 @@ class NetworkSettingsDialog(QDialog):
         layout = dialog_layout(self)
         layout.addWidget(
             hint(
-                "The settings are stored on the analyzer. It joins the access point and listens "
+                "The settings are stored on the device. It joins the access point and listens "
                 "on this address the next time it starts.",
                 self,
             )
@@ -129,22 +129,22 @@ class NetworkSettingsDialog(QDialog):
         self.ap_edit = QLineEdit(self)
         self.ap_edit.setMaxLength(32)
         self.ap_edit.setPlaceholderText("Network name (SSID)")
-        form.addRow("Access point:", self.ap_edit)
+        form.addRow("Access point", self.ap_edit)
 
         self.password_edit = QLineEdit(self)
         self.password_edit.setMaxLength(63)
         self.password_edit.setEchoMode(QLineEdit.Password)
-        form.addRow("Password:", self.password_edit)
+        form.addRow("Password", self.password_edit)
 
         self.address_edit = QLineEdit(self)
         self.address_edit.setMaxLength(15)
         self.address_edit.setPlaceholderText("192.168.1.50")
-        form.addRow("Device address:", self.address_edit)
+        form.addRow("Device address", self.address_edit)
 
         self.port_box = QSpinBox(self)
         self.port_box.setRange(1, 65535)
         self.port_box.setValue(24000)
-        form.addRow("Port:", self.port_box)
+        form.addRow("Port", self.port_box)
         layout.addLayout(form)
 
         self.message = InlineMessage(self)
@@ -222,7 +222,7 @@ class MultiConnectDialog(QDialog):
         layout = dialog_layout(self)
         layout.addWidget(
             hint(
-                "Cascade 2 to 5 analyzers into one multi device set. The first device is the "
+                "Cascade 2 to 5 Picos into one multi device set. The first device is the "
                 "master, the boards are aligned to it. The board of the trigger channel evaluates "
                 "the trigger and starts the other devices through the trigger line.",
                 self,
@@ -234,7 +234,7 @@ class MultiConnectDialog(QDialog):
         self.port_table = _read_only_table(
             ["Port", "Device", "Serial number", "USB location"],
             [
-                (port.port_name, port.device_name or "-", port.serial_number or "-", port.location or "-")
+                (port.port_name, port.device_name or "–", port.serial_number or "–", port.location or "–")
                 for port in self.ports
             ],
             ports_group,
@@ -254,7 +254,7 @@ class MultiConnectDialog(QDialog):
                     combo.setItemData(combo.count() - 1, f"USB location {port.location}", Qt.ToolTipRole)
             combo.setSizeAdjustPolicy(QComboBox.AdjustToContents)
             combo.currentIndexChanged.connect(lambda *_: self.message.clear())
-            form.addRow(f"Device {index + 1}" + (" (master):" if index == 0 else ":"), combo)
+            form.addRow(f"Device {index + 1}" + (" (master)" if index == 0 else ""), combo)
             self.combos.append(combo)
         layout.addWidget(order_group)
 
@@ -281,7 +281,7 @@ class MultiConnectDialog(QDialog):
 
 
 class MultiComposeDialog(QDialog):
-    """Assigns an order to the detected devices of a multi device analyzer."""
+    """Assigns an order to the detected devices of a multi device set."""
 
     def __init__(self, devices: Sequence[DetectedDevice], parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -293,7 +293,7 @@ class MultiComposeDialog(QDialog):
         layout = dialog_layout(self)
         layout.addWidget(
             hint(
-                "Assign a position to every detected analyzer; device 1 is the master. The serial "
+                "Assign a position to every detected Pico; device 1 is the master. The serial "
                 "number is the unique board ID, the USB location the socket the board is plugged "
                 "into. The order is remembered for these boards.",
                 self,
@@ -303,7 +303,7 @@ class MultiComposeDialog(QDialog):
         self.table = _read_only_table(
             ["Port", "Serial number", "USB location", "Position"],
             [
-                (device.port_name, device.serial_number or "-", device.parent_id or "-", "")
+                (device.port_name, device.serial_number or "–", device.parent_id or "–", "")
                 for device in self.devices
             ],
             self,
@@ -477,7 +477,7 @@ class AboutDialog(QDialog):
         link = f"style='color: {ACCENT_HOVER};'"
         label = QLabel(
             "<p>An open measurement and control lab: devices, flows, panels and data – with the "
-            "RP2040/RP2350 logic analyzer firmware and simulators of the devices.</p>"
+            "capture firmware for RP2040/RP2350 boards and simulators of the devices.</p>"
             "<p>This project is based on and extends the "
             f"<a {link} href='https://github.com/gusmanb/logicanalyzer'>LogicAnalyzer</a> "
             "by <b>Agustín Giménez Bernad (gusmanb)</b>: his hardware design, firmware and "

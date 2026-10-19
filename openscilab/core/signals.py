@@ -572,19 +572,19 @@ class Conversion:
 
 
 CONVERSIONS: list[Conversion] = [
-    Conversion(ANALOG, DIGITAL, "dsp.threshold", lambda s, threshold=1.65, hysteresis=0.0: s.to_digital(threshold, hysteresis),
+    Conversion(ANALOG, DIGITAL, "signal.threshold", lambda s, threshold=1.65, hysteresis=0.0: s.to_digital(threshold, hysteresis),
                "1 above a threshold (with hysteresis)"),
-    Conversion(DIGITAL, ANALOG, "convert.to_analog", lambda s, low=0.0, high=3.3: s.to_analog(low, high),
+    Conversion(DIGITAL, ANALOG, "convert.analog", lambda s, low=0.0, high=3.3: s.to_analog(low, high),
                "logic levels as volts"),
-    Conversion(DIGITAL, EVENT, "convert.edges", lambda s, kind="both": s.edges(kind), "the edges as events"),
+    Conversion(DIGITAL, EVENT, "convert.events", lambda s, kind="both": s.edges(kind), "the edges as events"),
     Conversion(ANALOG, SCALAR, "measure.mean", lambda s: s.mean(), "mean value"),
     Conversion(DIGITAL, SCALAR, "measure.duty", lambda s: s.high_share(), "share of the time at 1"),
     Conversion(SCALAR, BOOL, "control.compare", lambda s, threshold=0.5: s.to_bool(threshold), "at or above a threshold",
-               {"op": ">=", "value": 0.5}),
-    Conversion(BOOL, SCALAR, "convert.to_scalar", lambda s: s.to_scalar(), "1 or 0"),
+               {"operator": ">=", "value": 0.5}),
+    Conversion(BOOL, SCALAR, "convert.number", lambda s: s.to_scalar(), "1 or 0"),
     Conversion(EVENT, TABLE, "data.table", lambda s: s.to_table(), "one row per event"),
-    Conversion(EVENT, SCALAR, "control.counter", lambda s: s.count(), "number of events"),
-    Conversion(STATES, DIGITAL, "convert.state_bit", lambda s, bit=0: s.bit(bit), "one bit of the states"),
+    Conversion(EVENT, SCALAR, "measure.count", lambda s: s.count(), "number of events"),
+    Conversion(STATES, DIGITAL, "convert.bit", lambda s, bit=0: s.bit(bit), "one bit of the states"),
     Conversion(CAPTURE, DIGITAL, "convert.channel", lambda s, channel="": s.channel(channel or next(iter(s.digital))),
                "one digital channel", {"kind": "digital"}),
     Conversion(CAPTURE, ANALOG, "convert.channel", lambda s, channel="": s.channel(channel or next(iter(s.analog))),
@@ -593,10 +593,15 @@ CONVERSIONS: list[Conversion] = [
 
 
 def compatible(source: str, target: str) -> bool:
-    """A port of type ``source`` can be wired to a port of type ``target``."""
+    """A port of type ``source`` can be wired to a port of type ``target``.
+
+    An ``Event`` input takes every value (each value is an event: *arm*, *trigger*, *start*, *reset*
+    act on whatever arrives); an ``Any`` port takes and gives every type; a device wire fits only
+    device ports.
+    """
     if DEVICE in (source, target):
         return source == target
-    return source == target or ANY in (source, target)
+    return source == target or ANY in (source, target) or target == EVENT
 
 
 def conversion(source: str, target: str) -> Optional[Conversion]:

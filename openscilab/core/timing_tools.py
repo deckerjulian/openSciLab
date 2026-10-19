@@ -8,11 +8,11 @@
 
 * :func:`begin` / :func:`arrived` / :func:`finish` - the timing of a capture or stream the data
   view starts, as the flows keep it for theirs (``lab/nodes/device.py``);
-* :func:`measure_latency` - the loopback of ``timing.calibrate`` without a flow: an output wired
+* :func:`measure_latency` - the loopback of ``time.latency`` without a flow: an output wired
   to a channel is switched while the instrument streams it; the latency is kept for the instrument;
-* :class:`SyncOutput` - the sync signal of ``timing.sync`` on a pin, until it is stopped;
+* :class:`SyncOutput` - the sync signal of ``time.sync`` on a pin, until it is stopped;
 * :func:`device_config` - per instrument: whether its sample clock is shared with others or comes
-  from outside (``timing.align`` then fits only the offset), the pin of its sync output.
+  from outside (``time.align`` then fits only the offset), the pin of its sync output.
 
 Qt free; ``docs/timing.md``.
 """
@@ -350,7 +350,7 @@ def measure_latency(instrument: Instrument, pin: str, channel: str, rate: float 
 
 # ------------------------------------------------------------ sync output
 class SyncOutput:
-    """The sync signal of ``timing.sync`` on ``pin`` of ``instrument``, in a thread of its own until
+    """The sync signal of ``time.sync`` on ``pin`` of ``instrument``, in a thread of its own until
     :meth:`stop`: edges at irregular intervals (the same for the same ``seed``). :attr:`edges` are
     the local times (``time.monotonic``, right before each command) and levels."""
 

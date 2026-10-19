@@ -1,9 +1,9 @@
 flow: Square wave
-description: gen.waveform with kind square on the output SQUARE (0 V to 5 V - amplitude 2.5 V around 2.5 V); 'sync' arms the capture of D9.
+description: generator.waveform with kind square on the output SQUARE (0 V to 5 V - amplitude 2.5 V around 2.5 V); 'sync' arms the capture of D9.
 nodes:
-  uno: {type: device.instrument, at: [0, 56]}
+  uno: {type: device.device, at: [0, 56]}
   square:
-    type: gen.waveform
+    type: generator.waveform
     output: SQUARE
     kind: square
     frequency: 10 kHz
@@ -14,10 +14,10 @@ nodes:
   frequency: {type: measure.frequency, at: [808, 152]}
   check:
     type: report.check
-    name: Frequency on D9
     expected: 10000
     tolerance: 100
     unit: Hz
+    title: Frequency on D9
     at: [1080, 152]
   view: {type: view.scope, title: D9, at: [808, 0]}
 edges:

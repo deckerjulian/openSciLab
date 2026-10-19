@@ -12,6 +12,7 @@ the shell applies it. A new theme applies after a restart, which the dialog offe
 
 from __future__ import annotations
 
+import os
 from typing import Any, Optional
 
 from PySide6.QtCore import Qt
@@ -34,11 +35,12 @@ from PySide6.QtWidgets import (
 )
 
 from ...core import preferences
-from ..icons import icon
+from ..icons import icon, known
+from ..theme import size
 from .common import button_box, dialog_layout, hint
 
 PAGES = (("Appearance", "palette"), ("Startup", "home"), ("Navigation", "zoom-in"), ("Data", "folder"),
-         ("Devices", "devices"), ("Remote devices", "wifi"), ("Time", "clock"))
+         ("Devices", "devices"), ("Remote devices", "wifi"), ("Time", "clock"), ("Circuits", "circuit"))
 HOST_CLOCK_LABELS = {"free": "Nothing (no time scale)", "ntp": "NTP (UTC, about milliseconds)",
                      "ptp": "PTP (UTC/TAI, microseconds)"}
 THEME_LABELS = {"system": "Like the system", "dark": "Dark", "light": "Light"}
@@ -57,10 +59,10 @@ class PreferencesDialog(QDialog):
         layout = dialog_layout(self)
         row = QHBoxLayout()
         self.pages = QListWidget(self)
-        self.pages.setFixedWidth(150)
+        self.pages.setFixedWidth(size("page-list"))
         for title, icon_name in PAGES:
             self.pages.addItem(title)
-            self.pages.item(self.pages.count() - 1).setIcon(icon(icon_name))
+            self.pages.item(self.pages.count() - 1).setIcon(icon(known(icon_name, "layers")))
         row.addWidget(self.pages)
         self.stack = QStackedWidget(self)
         row.addWidget(self.stack, 1)
@@ -76,14 +78,14 @@ class PreferencesDialog(QDialog):
         self.font_size.setSuffix(" px")
         self._page("Appearance", [("Theme", self.theme), ("Text size", self.font_size)],
                    "A new theme applies when openSciLab starts again. The waveform display stays dark, "
-                   "like the screen of an instrument.")
+                   "like the screen of an oscilloscope.")
 
         self.show_start = QCheckBox("Show the start page", self)
         self.restore = QCheckBox("Open the saved documents of the last session again", self)
         self.reconnect = QCheckBox("Connect the devices of the last session again", self)
         self._page("Startup", [("", self.show_start), ("", self.restore), ("", self.reconnect)],
                    "Saved files and the project come back; unsaved documents never do. When nothing was saved "
-                   "openSciLab starts empty. With the devices their cards and data views come back as well; a "
+                   "openSciLab starts empty. With the devices their documents and data views come back as well; a "
                    "device that is not there is reported in the device list.")
 
         self.wheel = QComboBox(self)
@@ -91,8 +93,8 @@ class PreferencesDialog(QDialog):
             self.wheel.addItem(label, key)
         self.invert = QCheckBox("Turn the zoom direction around", self)
         self._page("Navigation", [("Mouse wheel", self.wheel), ("", self.invert)],
-                   "For the flow graph and the waveform. A trackpad always moves with two fingers and zooms "
-                   "when you pinch.")
+                   "For the flow graph and the traces of a data view. A trackpad always moves with two "
+                   "fingers and zooms when you pinch.")
 
         folder_row = QWidget(self)
         folder_layout = QHBoxLayout(folder_row)
@@ -135,7 +137,7 @@ class PreferencesDialog(QDialog):
         self._page("Devices", [("Look for devices every", self.refresh), ("", self.simulators),
                                ("", self.device_process), ("", self.simulator_process), ("", self.high_priority)],
                    "Unplugged devices are noticed when the device list looks again. A device read in a process "
-                   "of its own shows it on its card (Details).")
+                   "of its own shows it in its document (Details).")
 
         self.remote_enabled = QCheckBox("Accept remote devices (scripts with openscilab_device)", self)
         self.remote_port = QSpinBox(self)
@@ -165,7 +167,7 @@ class PreferencesDialog(QDialog):
                                       ("", self.remote_beacon), ("Try it", self.remote_example)],
                    "A script on another computer becomes a device: it connects to this port with the token and "
                    "describes its inputs, outputs and commands. openSciLab measures the clock of the device all "
-                   "the time, so its values line up with those of the other instruments. See docs/remote.md.")
+                   "the time, so its values line up with those of the other devices. See docs/remote.md.")
 
         self.host_clock = QComboBox(self)
         for key in preferences.HOST_CLOCKS:
@@ -183,9 +185,36 @@ class PreferencesDialog(QDialog):
                             ("Measured latencies", self.latencies), ("", forget)],
                    "Devices that stamp their samples in a shared time scale (PTP, GPS) are converted without "
                    "measuring when this computer's clock follows it too (ptp4l/phc2sys, chrony, Windows time). "
-                   "Latencies measured with a loopback (node timing.calibrate) are used by the captures and "
-                   "streams of the same instrument at the same rate. See docs/timing.md.")
+                   "Latencies measured with a loopback (node time.latency) are used by the captures and "
+                   "streams of the same device at the same rate. See docs/timing.md.")
         self._show_latencies()
+
+        self.use_kicad = QCheckBox("KiCad's symbol libraries are part of the catalog", self)
+        self.kicad_folders = self._folders_row("Folders of KiCad symbol libraries")
+        self.model_folders = self._folders_row("Folders of SPICE model libraries")
+        self.install_tools = QCheckBox("Install the tools automatically when they are missing", self)
+        ngspice_row = QWidget(self)
+        ngspice_layout = QHBoxLayout(ngspice_row)
+        ngspice_layout.setContentsMargins(0, 0, 0, 0)
+        self.ngspice_path = QLineEdit(self)
+        self.ngspice_path.setPlaceholderText("found (vendor folder, KiCad, Homebrew, the system)")
+        ngspice_layout.addWidget(self.ngspice_path, 1)
+        choose_ngspice = QPushButton("Choose...", self)
+        choose_ngspice.clicked.connect(self._choose_ngspice)
+        ngspice_layout.addWidget(choose_ngspice)
+        self.tools = QLabel(self)
+        self.tools.setWordWrap(True)
+        self.tools.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        self.install_now = QPushButton("Install the missing tools now", self)
+        self.install_now.clicked.connect(self._install_tools)
+        self._page("Circuits", [("", self.use_kicad), ("KiCad symbols", self.kicad_folders[0]),
+                                ("Model libraries", self.model_folders[0]), ("", self.install_tools),
+                                ("libngspice", ngspice_row), ("Tools", self.tools), ("", self.install_now)],
+                   "ngspice simulates circuits, the AVR emulator runs the firmware of Arduinos, KiCad's libraries "
+                   "fill the catalog of components. openSciLab keeps them in its vendor folder, so it needs nothing "
+                   "installed on the computer; what is missing it installs from its release (or builds). Folders: "
+                   "several apart with the system's path separator. See docs/circuits.md.")
+        self._show_tools()
 
         buttons = button_box(self, "OK")
         self.reset_button = buttons.addButton("Defaults", buttons.ButtonRole.ResetRole)
@@ -208,6 +237,63 @@ class PreferencesDialog(QDialog):
         form.addRow(hint(text, page))
         page.setObjectName(f"page-{title.lower()}")
         self.stack.addWidget(page)
+
+    def _folders_row(self, title: str) -> tuple[QWidget, QLineEdit]:
+        row = QWidget(self)
+        layout = QHBoxLayout(row)
+        layout.setContentsMargins(0, 0, 0, 0)
+        edit = QLineEdit(self)
+        edit.setPlaceholderText("(none besides those found)")
+        layout.addWidget(edit, 1)
+        add = QPushButton("Add...", self)
+
+        def choose() -> None:
+            folder = QFileDialog.getExistingDirectory(self, title, "")
+            if folder:
+                current = [part for part in edit.text().split(os.pathsep) if part.strip()]
+                if folder not in current:
+                    current.append(folder)
+                edit.setText(os.pathsep.join(current))
+
+        add.clicked.connect(choose)
+        layout.addWidget(add)
+        return row, edit
+
+    def _choose_ngspice(self) -> None:
+        path, _ = QFileDialog.getOpenFileName(self, "libngspice", "", "Shared libraries (*.dylib *.so *.so.* *.dll);;All files (*)")
+        if path:
+            self.ngspice_path.setText(path)
+
+    def _show_tools(self) -> None:
+        from ...core import vendor
+
+        rows = []
+        for name, tool in vendor.TOOLS.items():
+            found = vendor.find(name)
+            where = "missing" if not found else ("vendor folder" if vendor.vendored(name) else found)
+            rows.append(f"{tool.title}: {where}")
+        rows.append(f"vendor folder: {vendor.package_directory()}")
+        self.tools.setText("\n".join(rows))
+
+    def _install_tools(self) -> None:
+        from ...core import vendor
+        from .. import background
+
+        missing = [name for name in vendor.TOOLS if vendor.find(name) is None]
+        if not missing:
+            self.tools.setText(self.tools.text() + "\nEverything is there.")
+            return
+        problems = []
+        for name in missing:
+            try:
+                background.run(self, f"Installing {vendor.TOOLS[name].title} ...", lambda name=name: vendor.install(name))
+            except background.Cancelled:
+                break
+            except vendor.VendorError as error:
+                problems.append(str(error))
+        self._show_tools()
+        if problems:
+            self.tools.setText(self.tools.text() + "\n" + "\n".join(problems))
 
     def _choose_folder(self) -> None:
         folder = QFileDialog.getExistingDirectory(self, "Folder for data and projects",
@@ -237,6 +323,11 @@ class PreferencesDialog(QDialog):
         self._remote_changed()
         self.host_clock.setCurrentIndex(max(self.host_clock.findData(values["timing.host_clock"]), 0))
         self.host_accuracy.setValue(float(values["timing.host_accuracy"]) * 1e3)
+        self.use_kicad.setChecked(values["circuits.use_kicad"])
+        self.kicad_folders[1].setText(values["circuits.kicad_symbols"])
+        self.model_folders[1].setText(values["circuits.model_folders"])
+        self.install_tools.setChecked(values["circuits.install_tools"])
+        self.ngspice_path.setText(values["circuits.ngspice_path"])
 
     def chosen(self) -> dict[str, Any]:
         return {
@@ -260,6 +351,11 @@ class PreferencesDialog(QDialog):
             "remote.beacon": self.remote_beacon.isChecked(),
             "timing.host_clock": self.host_clock.currentData(),
             "timing.host_accuracy": self.host_accuracy.value() / 1e3,
+            "circuits.use_kicad": self.use_kicad.isChecked(),
+            "circuits.kicad_symbols": self.kicad_folders[1].text().strip(),
+            "circuits.model_folders": self.model_folders[1].text().strip(),
+            "circuits.install_tools": self.install_tools.isChecked(),
+            "circuits.ngspice_path": self.ngspice_path.text().strip(),
         }
 
     def _show_latencies(self) -> None:
@@ -272,7 +368,7 @@ class PreferencesDialog(QDialog):
             kind, uri, mode, rate = (key.split("|") + ["", "", "", ""])[:4]
             rows.append(f"{kind or uri} ({mode}, {rate} Hz): {float(entry.get('value', 0)) * 1e3:.3f} ms "
                         f"± {float(entry.get('uncertainty', 0)) * 1e3:.3f} ms")
-        self.latencies.setText("\n".join(rows) or "none")
+        self.latencies.setText("\n".join(rows) or "–")
 
     def _forget_latencies(self) -> None:
         from ...core import settings, timing

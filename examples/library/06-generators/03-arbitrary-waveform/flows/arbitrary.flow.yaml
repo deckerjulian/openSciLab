@@ -1,9 +1,9 @@
 flow: Arbitrary waveform
-description: gen.arbitrary with a formula; the capture starts with the generator's sync.
+description: generator.arbitrary with a formula; the capture starts with the generator's sync.
 nodes:
-  scope: {type: device.instrument, at: [0, 56]}
+  scope: {type: device.device, at: [0, 56]}
   curve:
-    type: gen.arbitrary
+    type: generator.arbitrary
     formula: sin(2*pi*x) + 0.3*sin(6*pi*x)
     frequency: 1 kHz
     points: 1024

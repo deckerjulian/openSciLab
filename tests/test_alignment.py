@@ -150,7 +150,7 @@ def test_the_align_dialog_offers_the_methods_and_leaving_unchanged():
     dialog = AlignDialog(options)
 
     texts = [button.text() for button in dialog._groups[1].buttons()]
-    assert texts[0].startswith("Reference line A0 (Y) ref (exact): move by +3 samples")
+    assert texts[0].startswith("Reference channel A0 (Y) ref (exact): move by +3 samples")
     assert texts[1].startswith("Clock Φ2 (E) (estimate)")
     assert texts[2] == "Leave unchanged"
     assert dialog.choices[1] is options[1][0]
@@ -192,7 +192,7 @@ def test_the_menu_action_lets_the_user_choose_the_method(monkeypatch, make_datav
         window.load_session(session)
         Chooser.index = 0
         window.align_boards()
-        assert "board 2 moved by -2 samples (reference A0 (Y) ref)" in window.statusBar().currentMessage()
+        assert "board 2 moved by -2 samples (reference A0 (Y) ref)" in window.last_message
         assert "reference A0 (Y) ref" in infos[-1][3]
         assert "Alignment" in window.info_label.text()
         assert mismatch(window.model.session, address) == 0
@@ -200,7 +200,7 @@ def test_the_menu_action_lets_the_user_choose_the_method(monkeypatch, make_datav
         # Choosing another method starts again from the samples as captured.
         Chooser.index = 1
         window.align_boards()
-        assert "clock Φ2 (E)" in window.statusBar().currentMessage()
+        assert "clock Φ2 (E)" in window.last_message
         assert [option.method for option in Chooser.seen[-1][1]] == ["reference", "clock"]
         assert round(Chooser.seen[-1][1][0].offset) == -2
 

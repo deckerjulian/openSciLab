@@ -25,6 +25,7 @@ from PySide6.QtWidgets import QSizePolicy, QToolTip, QWidget
 from .. import colors
 from ...sigrok.composition import compose
 from ...sigrok.links import linked_segments, read_parts, segment_index
+from ..theme import qcolor
 from ..view_model import AnnotationHover, CaptureViewModel
 from .navigation import WheelNavigator
 
@@ -155,7 +156,7 @@ class AnnotationViewer(QWidget):
         self, painter: QPainter, metrics: QFontMetricsF, color: QColor, name: str, top: float
     ) -> None:
         painter.setBrush(color)
-        painter.setPen(QPen(QColor(0, 0, 0), 1))
+        painter.setPen(QPen(qcolor("display.ink"), 1))
         painter.drawEllipse(QPointF(12, top + ANNOTATION_HEIGHT / 2), 7, 7)
         painter.setBrush(Qt.NoBrush)
 
@@ -254,7 +255,7 @@ class AnnotationViewer(QWidget):
             painter.setPen(QPen(colors.TEXT_COLOR, 1.2, Qt.DashLine))
         else:
             painter.setBrush(color)
-            painter.setPen(QPen(QColor(0, 0, 0), 1))
+            painter.setPen(QPen(qcolor("display.ink"), 1))
 
         if rect.width() < 8:
             painter.drawEllipse(rect.center(), rect.width() / 2, rect.height() / 2)

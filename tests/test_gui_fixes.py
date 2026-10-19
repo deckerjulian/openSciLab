@@ -20,15 +20,16 @@ def settle() -> None:
 
 
 def test_the_header_holds_tools_instead_of_device_names(shell):
-    # every basic element has a button of its own, and they come first, right after the logo
-    assert [button.text() for button in shell.new_tools.values()] == ["Flow", "Panel", "Data view", "Waveform",
-                                                                       "Project"]
-    assert all(button.menu() is None for button in shell.new_tools.values())
+    # one New button whose menu is File → New, in the same order
+    assert shell.new_tool.menu() is shell.new_menu
+    assert [action.text().replace("&", "") for action in shell.new_menu.actions() if action.text()] == [
+        "Flow", "Panel", "Data view", "Waveform", "Circuit", "Project from an example..."]  # (Circuit: a plugin's)
     assert shell.examples_tool.menu() is shell.examples_menu
     keys = [item.key for item in shell.header.ordered()]
-    # the search right after the logo, then the new documents, open and save, the templates, the run controls
-    assert keys.index("logo") < keys.index("search") < keys.index("new-flow") < keys.index("open") < keys.index("templates") < keys.index("run")
-    shell.new_tools["flow"].click()
+    # the search right after the logo, then new, open and save, the examples, the run controls
+    assert keys.index("logo") < keys.index("search") < keys.index("new") < keys.index("open") \
+        < keys.index("examples") < keys.index("run") < keys.index("time")
+    shell.new_tool.click()  # (its button: a flow; its arrow: the menu)
     assert type(shell.active_document()).__name__ == "FlowDocument"
     assert not hasattr(shell, "device_chips")
     assert shell.save_tool.toolTip().startswith("Save")
@@ -43,9 +44,9 @@ def test_menus_in_tool_bars_and_tab_buttons_are_opaque():
 
 def test_a_data_view_keeps_the_menus_of_the_application(shell):
     view = shell.new_data_view()
-    assert view.menuBar().isNativeMenuBar() is False  # macOS: the shell's menu bar stays
+    assert not hasattr(view, "menuBar")  # (no menu bar of its own: on macOS it took the shell's place)
     titles = [action.text() for action in shell.menuBar().actions()]
-    assert "&Templates" in titles and "&Data" in titles
+    assert "E&xamples" in titles and "&Data" in titles
 
 
 def test_the_rows_above_the_tracks_line_up_with_them(shell):
@@ -111,10 +112,26 @@ def test_the_device_card_has_no_capture_tab_and_its_functions_are_in_details(she
     shell.hub.add(instrument)
     card = shell.open_device_card(instrument)
     tabs = [card.tabs.tabText(index) for index in range(card.tabs.count())]
-    assert "Capture" not in tabs and tabs[-1] == "Details"
+    assert "Capture" not in tabs and tabs[-1] == "Overview"
     assert not hasattr(card, "device_button")  # no more Device menu in the header
     buttons = card.device_box.findChildren(QToolButton)
     assert [button.defaultAction() for button in buttons] == card.device_actions
-    assert card.data_button.text() == "Capture..."
+    assert card.data_button.text() == "Data view"
     card.data_button.click()
     assert shell.active_document() is card.controller.view
+
+
+def test_one_typeface_everywhere_and_the_mark_alone(shell):
+    from PySide6.QtGui import QFontInfo
+    from PySide6.QtWidgets import QLabel
+
+    from openscilab.ui.shell.main_window import LOGO_SIZE
+    from openscilab.ui.theme import FONT_FAMILY, load_fonts, tabular_font
+
+    assert load_fonts() == FONT_FAMILY == "Inter Tight"
+    assert QFontInfo(QApplication.instance().font()).family() == FONT_FAMILY
+    assert QFontInfo(tabular_font()).family() == FONT_FAMILY  # (numbers, code and the console too)
+    assert QFontInfo(shell.console.python.output.font()).family() == FONT_FAMILY  # (the console)
+    labels = shell.logo.findChildren(QLabel)
+    assert [label.text() for label in labels] == [""]  # (the mark, without the name)
+    assert labels[0].pixmap().deviceIndependentSize().width() == LOGO_SIZE

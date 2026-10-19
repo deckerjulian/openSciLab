@@ -1,0 +1,24 @@
+circuit: Transistor switch
+description: A potentiometer drives the base of an NPN transistor that switches an LED.
+version: 1
+components:
+  PWR1: {type: power, at: [0, -120], params: {net: VCC, voltage: 5 V}}
+  RV1: {type: potentiometer, at: [0, 0], rotation: 90, params: {value: 10k, position: '0.8'}}
+  GND1: {type: ground, at: [0, 120]}
+  R1: {type: resistor, at: [90, -20], params: {value: 10k}}
+  Q1: {type: npn, at: [160, -20], params: {value: 2N3904}}
+  GND2: {type: ground, at: [180, 120]}
+  D1: {type: led, at: [180, -120], rotation: 270, params: {value: LED_RED}}
+  R2: {type: resistor, at: [180, -220], rotation: 90, params: {value: '330'}}
+  PWR2: {type: power, at: [180, -280], params: {net: VCC, voltage: 5 V}}
+  P1: {type: probe.v, at: [180, -60], params: {name: C}}
+wires:
+  - [[0, -120], [0, -30]]
+  - [[0, 30], [0, 120]]
+  - [[-20, 0], [60, 0], [60, -20]]
+  - [[120, -20], [130, -20]]
+  - [[180, 20], [180, 120]]
+  - [[180, -90], [180, -60]]
+  - [[180, -190], [180, -150]]
+  - [[180, -280], [180, -250]]
+labels: []

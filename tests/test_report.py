@@ -17,13 +17,13 @@ FLOW = """
 flow: Report
 nodes:
   sweep: {type: control.sweep, start: 1, stop: 4, step: 1}
-  square: {type: dsp.math, expression: "a * a"}
+  square: {type: signal.math, expression: "a * a"}
   points: {type: data.table, columns: [x, y]}
   intro: {type: report.section, title: Introduction, text: "Squares of 1 to 4."}
   values: {type: report.table, title: Values}
-  diagram: {type: report.image, title: Squares, x: x, y: y}
-  check: {type: report.check, name: Last square, low: 10, high: 20}
-  strict: {type: report.check, name: Exactly nine, expected: 9}
+  diagram: {type: report.chart, title: Squares, x: x, y: y}
+  check: {type: report.check, title: Last square, low: 10, high: 20}
+  strict: {type: report.check, title: Exactly nine, expected: 9}
   write: {type: report.write, path: out.html, title: Squares}
 edges:
   - sweep.value -> square.a
@@ -53,7 +53,7 @@ def test_an_html_report_with_a_table_an_image_and_checks(tmp_path):
     assert "Last square: 16 ≥ 10, ≤ 20" in text and "class='pass'>PASSED" in text
     assert "class='fail'>FAILED" in text  # the strict check fails for 1, 4 and 16
     assert "openSciLab report" in text and "<span class='fail'>FAILED</span>" in text  # the verdict
-    assert engine.values[("write", "passed")].value is False
+    assert engine.values[("write", "result")].value is False
 
 
 def test_the_same_report_headless_from_the_command_line(tmp_path):

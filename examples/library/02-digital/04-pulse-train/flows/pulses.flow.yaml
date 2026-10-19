@@ -1,7 +1,7 @@
 flow: Pulse train
 description: The capture is armed first; 1 ms after 'armed' (the samples before the trigger are recorded by then) the board starts the pulses.
 nodes:
-  uno: {type: device.instrument, at: [0, 144]}
+  uno: {type: device.device, at: [0, 144]}
   capture:
     type: device.capture
     channels: [D3]
@@ -9,23 +9,23 @@ nodes:
     samples: 448
     pre: 20
     trigger: {edge: rising, source: D3}
-    at: [272, 200]
+    at: [288, 208]
   delay:
     type: control.sequence
     steps: [{wait_for: armed}, {wait: 1 ms}, {emit: go}]
-    at: [544, 152]
-  pulse: {type: gpio.pulse, pin: D7, width: 500 us, count: 3, period: 1 ms, at: [808, 72]}
-  count: {type: measure.count, edge: rising, at: [544, 368]}
-  width: {type: measure.pulse_width, level: high, at: [544, 504]}
-  count_check: {type: report.check, name: Pulses, expected: 3, at: [808, 360]}
+    at: [576, 160]
+  pulse: {type: gpio.pulse, pin: D7, width: 500 us, count: 3, period: 1 ms, at: [864, 72]}
+  count: {type: measure.count, edge: rising, at: [576, 384]}
+  width: {type: measure.pulse_width, level: high, at: [576, 560]}
+  count_check: {type: report.check, expected: 3, title: Pulses, at: [864, 368]}
   width_check:
     type: report.check
-    name: Width
     expected: 0.0005
     tolerance: 2.0e-05
     unit: s
-    at: [808, 512]
-  scope: {type: view.scope, title: D3, at: [544, 0]}
+    title: Width
+    at: [864, 576]
+  scope: {type: view.scope, title: D3, at: [576, 0]}
 edges:
   - uno.device -> capture.device
   - uno.device -> pulse.device

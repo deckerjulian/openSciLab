@@ -4,8 +4,12 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""Documents of the view nodes: strip chart, XY chart and spectrum (drawn here, no plotting
-library), and the plain views number, LED, log and table."""
+"""The views of the view nodes: strip chart, XY chart and spectrum (drawn here, no plotting
+library), and the plain views number, LED, log and table.
+
+A running flow shows them in one document, :class:`ViewsDocument` (*Views · <flow>*): a tile per
+view node, charts, logs and tables across the page, numbers and LEDs side by side. (The scope of a
+flow is a data view of its own.)"""
 
 from __future__ import annotations
 
@@ -13,10 +17,13 @@ import math
 from typing import Any, Optional
 
 from PySide6.QtCore import QPointF, QRectF, Qt
-from PySide6.QtGui import QColor, QFont, QPainter, QPen
+from PySide6.QtGui import QColor, QPainter, QPen
 from PySide6.QtWidgets import (
     QAbstractItemView,
+    QFrame,
+    QGridLayout,
     QLabel,
+    QScrollArea,
     QPlainTextEdit,
     QTableWidget,
     QTableWidgetItem,
@@ -25,13 +32,13 @@ from PySide6.QtWidgets import (
 )
 
 from ...core import signals, units
-from ..theme import BORDER, PANEL, TEXT, TEXT_MUTED, qcolor, set_role
+from ..theme import BORDER, PANEL, TEXT, TEXT_MUTED, TRACE_COUNT, qcolor, set_role, smaller_font, token, trace_color
 from ..widgets.plot_lines import data_bounds, screen_points
 from ..widgets.plot_navigation import NavigablePlot, PlotNavigator
 from .base import DocumentWidget
 
 #: colours of the traces, in order
-TRACE_COLORS = ("#4b8ae6", "#7fd18b", "#e8b04b", "#e07fd1", "#58c4c4", "#ff9a62", "#b0a3ff", "#c9c9cf")
+TRACE_COLORS = tuple(trace_color(index) for index in range(TRACE_COUNT))
 CHART_KINDS = ("strip_chart", "xy", "spectrum")
 VALUE_KINDS = ("number", "led", "log", "table")
 
@@ -72,9 +79,20 @@ class ChartWidget(NavigablePlot, QWidget):
         self.series: dict[str, tuple[list[float], list[float]]] = {}
         self.x_label = "s" if kind == "strip_chart" else ("Hz" if kind == "spectrum" else "x")
         self.y_label = "dB" if kind == "spectrum" else ""
+        #: a logarithmic x axis (frequency sweeps): the series keep their values, the axis shows decades
+        self.log_x = False
         self.setMinimumSize(320, 220)
 
-    def set_series(self, series: dict[str, tuple[list[float], list[float]]], x_label: str = "", y_label: str = "") -> None:
+    def set_series(self, series: dict[str, tuple[list[float], list[float]]], x_label: str = "", y_label: str = "",
+                   log_x: Optional[bool] = None) -> None:
+        if log_x is not None:
+            self.log_x = log_x
+        if self.log_x:  # (points at or below 0 have no place on a logarithmic axis: left out)
+            kept = {}
+            for name, (xs, ys) in series.items():
+                pairs = [(math.log10(x), y) for x, y in zip(xs, ys) if x > 0 and x == x]
+                kept[name] = ([x for x, _y in pairs], [y for _x, y in pairs])
+            series = kept
         self.series = series
         if x_label:
             self.x_label = x_label
@@ -108,8 +126,7 @@ class ChartWidget(NavigablePlot, QWidget):
             painter.drawText(QRectF(plot.left(), 0, plot.width(), 16), Qt.AlignRight | Qt.AlignVCenter,
                              self.navigator.hint())
         bounds = self.bounds()
-        font = QFont(painter.font())
-        font.setPointSizeF(max(font.pointSizeF() - 1, 7))
+        font = smaller_font(painter.font())
         painter.setFont(font)
         if bounds is None:
             painter.setPen(QColor(TEXT_MUTED))
@@ -131,8 +148,9 @@ class ChartWidget(NavigablePlot, QWidget):
             painter.setPen(grid)
             painter.drawLine(QPointF(point.x(), plot.top()), QPointF(point.x(), plot.bottom()))
             painter.setPen(QColor(TEXT_MUTED))
+            shown = 10 ** tick if self.log_x else tick
             painter.drawText(QRectF(point.x() - 40, plot.bottom() + 4, 80, 16), Qt.AlignHCenter,
-                             units.format_quantity(tick, self.x_label if self.x_label in ("s", "Hz") else "", 3))
+                             units.format_quantity(shown, self.x_label if self.x_label in ("s", "Hz") else "", 3))
         for tick in nice_ticks(y0, y1):
             point = to_point(x0, tick)
             painter.setPen(grid)
@@ -232,10 +250,7 @@ class ValueDocument(DocumentWidget):
         if kind == "number":
             self.label = QLabel("–", self)
             self.label.setAlignment(Qt.AlignCenter)
-            font = self.label.font()
-            font.setPointSize(42)
-            font.setBold(True)
-            self.label.setFont(font)
+            set_role(self.label, "value-large")
             layout.addWidget(self.label, 1)
         elif kind == "led":
             self.led = _Led(self)
@@ -265,7 +280,7 @@ class ValueDocument(DocumentWidget):
                 text = str(value)
             self.label.setText(text)
         elif self.kind == "led":
-            self.led.set_state(bool(value), options.get("color") or "#7fd18b")
+            self.led.set_state(bool(value), options.get("color") or token("led.on"))
         elif self.kind == "log":
             self.text.setPlainText("\n".join(value if isinstance(value, list) else [str(value)]))
             self.text.verticalScrollBar().setValue(self.text.verticalScrollBar().maximum())
@@ -294,7 +309,7 @@ class _Led(QWidget):
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
         self.on = False
-        self.color = "#7fd18b"
+        self.color = token("led.on")
         self.setMinimumSize(80, 80)
 
     def set_state(self, on: bool, color: str) -> None:
@@ -311,6 +326,107 @@ class _Led(QWidget):
         painter.setPen(QPen(QColor(TEXT if self.on else BORDER), 2))
         painter.setBrush(color)
         painter.drawEllipse(rect)
+
+
+class ViewTile(QFrame):
+    """A view node in the views document: its title and its view."""
+
+    def __init__(self, node: str, view: DocumentWidget, parent: Optional[QWidget] = None) -> None:
+        super().__init__(parent)
+        set_role(self, "card")
+        self.node = node
+        self.view = view
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(10, 8, 10, 8)
+        layout.setSpacing(2)
+        self.heading = QLabel(view.title, self)
+        set_role(self.heading, "heading")
+        self.heading.setToolTip(f"The view node {node}")
+        layout.addWidget(self.heading)
+        view.setParent(self)
+        layout.addWidget(view, 1)
+        view.document_changed.connect(lambda: self.heading.setText(view.title))
+        self.setMinimumHeight(260 if view.kind in CHART_KINDS + ("log", "table") else 150)
+
+    @property
+    def title(self) -> str:
+        return self.view.title
+
+    @property
+    def wide(self) -> bool:
+        return self.view.kind in CHART_KINDS + ("log", "table")
+
+
+class ViewsDocument(DocumentWidget):
+    """What the view nodes of a running flow show, together: a tile per node (see the module)."""
+
+    document_kind = "views"
+    #: tiles of numbers and LEDs side by side
+    COLUMNS = 3
+
+    def __init__(self, flow_title: str, parent: Optional[QWidget] = None) -> None:
+        super().__init__(parent)
+        self.flow_title = flow_title
+        self.tiles: dict[str, ViewTile] = {}
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        self.scroll = QScrollArea(self)
+        self.scroll.setWidgetResizable(True)
+        self.scroll.setFrameShape(QFrame.NoFrame)
+        content = QWidget(self.scroll)
+        self.grid = QGridLayout(content)
+        self.grid.setContentsMargins(12, 12, 12, 12)
+        self.grid.setSpacing(10)
+        self.grid.setAlignment(Qt.AlignTop)
+        self.scroll.setWidget(content)
+        layout.addWidget(self.scroll)
+
+    @property
+    def title(self) -> str:
+        return f"Views · {self.flow_title}"
+
+    def set_flow_title(self, title: str) -> None:
+        if title != self.flow_title:
+            self.flow_title = title
+            self.document_changed.emit()
+
+    def views(self) -> list[DocumentWidget]:
+        return [tile.view for tile in self.tiles.values()]
+
+    def view(self, node: str, kind: str, title: str) -> Optional[DocumentWidget]:
+        """The view of the node ``node`` (a new tile the first time)."""
+        tile = self.tiles.get(node)
+        if tile is None:
+            view = view_document(kind, title)
+            if view is None:
+                return None  # checks and report sections have no view
+            tile = ViewTile(node, view, self)
+            self.tiles[node] = tile
+            self._place()
+        return tile.view
+
+    def show_value(self, node: str, kind: str, value: Any, options: dict) -> Optional[DocumentWidget]:
+        view = self.view(node, kind, options.get("title") or node)
+        if view is not None:
+            view.show_value(value, options)
+        return view
+
+    def _place(self) -> None:
+        """Wide tiles across the page, the small ones side by side in rows of :data:`COLUMNS`."""
+        for tile in self.tiles.values():
+            self.grid.removeWidget(tile)
+        row = column = 0
+        for tile in sorted(self.tiles.values(), key=lambda tile: tile.wide):
+            if tile.wide:
+                if column:
+                    row, column = row + 1, 0
+                self.grid.addWidget(tile, row, 0, 1, self.COLUMNS)
+                row += 1
+            else:
+                self.grid.addWidget(tile, row, column)
+                column += 1
+                if column == self.COLUMNS:
+                    row, column = row + 1, 0
 
 
 def view_document(kind: str, title: str) -> Optional[DocumentWidget]:

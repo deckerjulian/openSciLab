@@ -1,9 +1,9 @@
 flow: Control panel
 description: The panel binds the slider to pwm.duty and the switch to led.value; the monitor runs until the flow is stopped.
 nodes:
-  uno: {type: device.instrument, at: [0, 224]}
-  pwm: {type: gpio.pwm, pin: D9, freq: 1 kHz, duty: 0.5, at: [272, 408]}
-  led: {type: gpio.write, pin: D13, level: 0, at: [272, 256]}
+  uno: {type: device.device, at: [0, 224]}
+  pwm: {type: gpio.pwm, pin: D9, duty: 0.5, frequency: 1 kHz, at: [272, 408]}
+  led: {type: gpio.output, pin: D13, level: 0, at: [272, 256]}
   monitor:
     type: device.monitor
     pins: [D2, D13]

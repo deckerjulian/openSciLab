@@ -1,7 +1,7 @@
 flow: Buffer
 description: data.buffer with 'length' joins the blocks of the stream and drops what is older; 'read' sends it.
 nodes:
-  la: {type: device.instrument, at: [0, 0]}
+  la: {type: device.device, at: [0, 0]}
   stream:
     type: device.stream
     channels: [D0, D1, D2, D8]
@@ -17,7 +17,7 @@ nodes:
 edges:
   - la.device -> stream.device
   - stream.capture -> latest.in
-  - timer.tick -> latest.read
+  - timer.tick -> latest.trigger
   - latest.out -> scope.in
   - latest.out -> clock.in
   - clock.out -> size.in

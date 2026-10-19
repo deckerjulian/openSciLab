@@ -180,7 +180,7 @@ def test_the_overview_installs_the_fitting_image(shell, monkeypatch):
 def test_the_shell_offers_the_connected_hardware(shell):
     from openscilab.ui.documents.hardware import HardwareDocument
 
-    assert "Connected &hardware" in [action.text() for action in shell.devices_menu.actions()]
+    assert "&Boards and firmware" in [action.text() for action in shell.devices_menu.actions()]
     shell.devices_section.hardware_button.click()
     document = shell.active_document()
     assert isinstance(document, HardwareDocument) and shell.show_hardware() is document

@@ -20,10 +20,9 @@ import os
 from typing import Any, Optional
 
 from PySide6.QtCore import Qt, QTimer, Signal
-from PySide6.QtGui import QAction, QFontDatabase, QKeySequence, QUndoStack
+from PySide6.QtGui import QAction, QKeySequence, QUndoStack
 from PySide6.QtWidgets import (
     QApplication,
-    QCheckBox,
     QFileDialog,
     QLabel,
     QMenu,
@@ -50,9 +49,9 @@ from ..flow.highlighter import PythonHighlighter, YamlHighlighter
 from ..flow.inspector import FlowInspector, NodeInspector
 from ..flow.runner import FlowRunner
 from ..icons import icon
-from ..theme import set_role
+from ..theme import set_role, tabular_font
 from ..widgets.completer import attach as attach_completer
-from .base import DocumentWidget
+from .base import DocumentWidget, Switch
 
 log = logging.getLogger(__name__)
 
@@ -81,14 +80,10 @@ class FlowDocument(DocumentWidget):
     problems_changed = Signal(list)
     #: show a tab of the console ("Problems", "Execution")
     console_requested = Signal(str)
-    #: a short note for the status bar (what was done for the user)
-    message = Signal(str)
     #: a view node shows a value: (node, kind, value, options)
     view_requested = Signal(str, str, object, dict)
     #: a document to open in the shell (a subflow)
     open_requested = Signal(object)
-    #: run state changed (the shell updates its Start/Pause/Stop)
-    run_state_changed = Signal(str)
     #: a line for the console's execution tab
     execution_line = Signal(str)
     #: a new panel for this flow (the shell makes it)
@@ -100,6 +95,10 @@ class FlowDocument(DocumentWidget):
     data_requested = Signal(str, str, object, bool)
 
     runnable = True
+    run_tooltip = "Run the flow"
+    can_pause = True
+    time_modes = True
+    simulates_devices = True
 
     def __init__(self, flow: Optional[Flow] = None, path: Optional[str] = None, registry: Optional[Registry] = None,
                  hub=None, project=None, parent_document: Optional["FlowDocument"] = None,
@@ -177,7 +176,7 @@ class FlowDocument(DocumentWidget):
         yaml_layout = QVBoxLayout(yaml_page)
         yaml_layout.setContentsMargins(0, 0, 0, 0)
         self.yaml_edit = QPlainTextEdit(yaml_page)
-        self.yaml_edit.setFont(QFontDatabase.systemFont(QFontDatabase.FixedFont))
+        self.yaml_edit.setFont(tabular_font(self.yaml_edit.font()))
         self.yaml_edit.setLineWrapMode(QPlainTextEdit.NoWrap)
         self.yaml_highlighter = YamlHighlighter(self.yaml_edit.document())
         self._yaml_timer = QTimer(self)
@@ -194,7 +193,7 @@ class FlowDocument(DocumentWidget):
         self.stack.addWidget(yaml_page)
 
         self.python_edit = QPlainTextEdit(self.stack)
-        self.python_edit.setFont(QFontDatabase.systemFont(QFontDatabase.FixedFont))
+        self.python_edit.setFont(tabular_font(self.python_edit.font()))
         self.python_edit.setReadOnly(True)
         self.python_edit.setLineWrapMode(QPlainTextEdit.NoWrap)
         self.python_highlighter = PythonHighlighter(self.python_edit.document())
@@ -410,7 +409,7 @@ class FlowDocument(DocumentWidget):
         if isinstance(value, signals.Event):
             value = value.to_table()
         kind = "table" if isinstance(value, signals.Table) else "log"
-        self.view_requested.emit(keys[0], kind, value, {"title": keys[0]})
+        self.view_requested.emit(keys[0], kind, value, {"title": keys[0], "front": True})
         return True
 
     def open_run_data(self) -> bool:
@@ -473,24 +472,14 @@ class FlowDocument(DocumentWidget):
             action.setChecked(index == 0)
             bar.add_action(f"view-{name.lower()}", action, "view", HIGH)
             self.view_actions.append(action)
-        self.action_run = self._action("Run", "play", self.start_run, "F5")
-        self.action_pause = self._action("Pause", "pause", self.pause_run)
-        self.action_step = self._action("Step", "arrow-right", self.step_run, "F10")
-        self.action_stop = self._action("Stop", "stop", self.stop_run, "Shift+F5")
-        bar.add_action("run", self.action_run, "run", HIGH, pinned=True)
-        bar.add_action("pause", self.action_pause, "run", NORMAL, text=False)
-        bar.add_action("step", self.action_step, "run", NORMAL, text=False)
-        bar.add_action("stop", self.action_stop, "run", HIGH, text=False)
+        # Run, Pause, Step and Stop are the shell's (header, Run menu); so are the time of a run and
+        # the simulators: the switches below hold what the shell shows for this flow
+        self.fast_box = Switch(False, self)
+        self.sim_box = Switch(False, self)
         self.action_run_data = self._action("Run data", "channels", self.open_run_data)
         self.action_run_data.setToolTip("All data of the run in one data view (the nodes show theirs; "
                                         "double-click a node to open its data)")
         bar.add_action("run-data", self.action_run_data, "data", NORMAL)
-        self.fast_box = QCheckBox("Fast (virtual time)", bar)
-        self.fast_box.setToolTip("Run as fast as possible in virtual time (simulators only)")
-        bar.add_widget("fast", self.fast_box, "Fast (virtual time)", "data", LOW)
-        self.sim_box = QCheckBox("Simulate devices", bar)
-        self.sim_box.setToolTip("Use simulators for every device of the flow")
-        bar.add_widget("simulate", self.sim_box, "Simulate devices", "data", LOW)
         self.action_add = self._action("Add node...", "plus", lambda: self.view.open_search(""))
         self.action_add.setToolTip("Add a node (Tab, or type its name on the canvas)")
         bar.add_action("add", self.action_add, "edit", HIGH, title="Add node")
@@ -533,13 +522,14 @@ class FlowDocument(DocumentWidget):
         bar.add_action("align-left", self.action_align_left, "layout", LOW, text=False, default=False)
         bar.add_action("align-top", self.action_align_top, "layout", LOW, text=False, default=False)
         bar.add_action("distribute", self.action_distribute, "layout", LOW, text=False, default=False)
-        for action in (self.action_pause, self.action_step, self.action_stop, self.action_fit, self.action_zoom_in,
+        for action in (self.action_fit, self.action_zoom_in,
                        self.action_zoom_out, self.action_arrange, self.action_align_left, self.action_align_top,
                        self.action_distribute, self.action_comment, self.action_group, self.action_validate):
             if not action.toolTip() or action.toolTip() == action.text():
                 action.setToolTip(action.text())
         bar.finish()
-        self.action_subflow = self._action("Make subflow", "nodes", lambda: self.make_subflow(self.flow.free_id("sub")))
+        self.action_subflow = self._action("Make subflow...", "nodes", self.ask_subflow)
+        self.action_subflow.setToolTip("Put the selected nodes into a subflow of their own, under a name")
         self.action_cut = self._action("Cut", "cut", self.cut_selection, QKeySequence(QKeySequence.Cut).toString())
         self.action_copy = self._action("Copy", "copy", self.copy_selection, QKeySequence(QKeySequence.Copy).toString())
         self.action_paste = self._action("Paste", "paste", self.paste, QKeySequence(QKeySequence.Paste).toString())
@@ -548,9 +538,6 @@ class FlowDocument(DocumentWidget):
                                               QKeySequence(QKeySequence.SelectAll).toString())
 
         self.flow_menu = QMenu("F&low", self)
-        for action in (self.action_run, self.action_pause, self.action_step, self.action_stop):
-            self.flow_menu.addAction(action)
-        self.flow_menu.addSeparator()
         for action in (self.action_add, self.action_comment, self.action_group, self.action_subflow, self.action_panel):
             self.flow_menu.addAction(action)
         self.flow_menu.addSeparator()
@@ -573,7 +560,6 @@ class FlowDocument(DocumentWidget):
         for action in self.view_actions:
             self.flow_menu.addAction(action)
         self.flow_menu.addAction(self.action_validate)
-        self._update_run_actions()
         return bar
 
     def document_menus(self) -> list:
@@ -616,6 +602,17 @@ class FlowDocument(DocumentWidget):
         return x, y
 
     # ============================================================= editing
+    def _title_of_type(self, type_name: str) -> str:
+        """``Timer`` for ``control.timer`` (what the undo history and the messages call a node type)."""
+        spec = self.registry.find(type_name)
+        return spec.title if spec is not None else type_name
+
+    def _param_title(self, node_id: str, name: str) -> str:
+        node = self.flow.nodes.get(node_id)
+        spec = self.registry.find(node.type) if node is not None else None
+        param = spec.param(name) if spec is not None else None
+        return param.display_name if param is not None else name
+
     def _edit(self, text: str, change, merge_key: Optional[tuple] = None, merge_id: int = -1) -> bool:
         """Apply ``change(flow)`` to a copy of the model and push it as one undo step."""
         if self.parent_document is not None:
@@ -752,7 +749,7 @@ class FlowDocument(DocumentWidget):
                             flow.connect(f"{node.id}.device", f"{other_id}.{port.name}")
                             wired.append(f"{other_id}.{port.name} → {node.id}")
 
-        if not self._edit(f"Add {type_name}", change):
+        if not self._edit(f"Add {self._title_of_type(type_name)}", change):
             return None
         self.scene.select_nodes(created)
         if wired:
@@ -809,14 +806,15 @@ class FlowDocument(DocumentWidget):
             flow.connect(source, f"{node.id}.{inputs[0].name}")
             flow.connect(f"{node.id}.{outputs[0].name}", target)
 
-        self._edit(f"Insert {node_type}", change)
+        self._edit(f"Insert {self._title_of_type(node_type)}", change)
         return created[0] if created else None
 
     def _wire_rejected(self, source: str, target: str, message: str, suggestion: str) -> None:
         """A wire that does not fit: said above the graph; a conversion is one click away."""
         if suggestion:
             self._conversion = (source, target, suggestion)
-            self.show_run_banner(f"{message}: a {suggestion} node turns one into the other.", "warning", "convert")
+            self.show_run_banner(f"{message}: a {self._title_of_type(suggestion)} node ({suggestion}) turns one into "
+                                 "the other.", "warning", "convert")
             return
         self.show_run_banner(f"{message}: the ports do not fit.", "warning")
 
@@ -851,6 +849,12 @@ class FlowDocument(DocumentWidget):
     def disconnect_edge(self, edge: Edge) -> None:
         self._edit(f"Remove {edge}", lambda flow: flow.disconnect(edge))
 
+    def _unwire(self, source: str, target: str) -> None:
+        """Removes the wire ``source`` → ``target`` (the inspector unticked a source of a node's inputs)."""
+        for edge in list(self.flow.edges):
+            if str(edge.source) == source and str(edge.target) == target:
+                self.disconnect_edge(edge)
+
     def delete_items(self, node_ids: list[str], edges: list[Edge]) -> None:
         if not node_ids and not edges:
             return
@@ -861,7 +865,7 @@ class FlowDocument(DocumentWidget):
             for node_id in node_ids:
                 flow.remove_node(node_id)
 
-        self._edit("Delete", change)
+        self._edit("Delete" + (f" {len(node_ids)} nodes" if len(node_ids) > 1 else f" {node_ids[0]}" if node_ids else ""), change)
         self.breakpoints -= set(node_ids)
 
     def positions_changed(self, positions: dict[str, tuple[float, float]]) -> None:
@@ -880,7 +884,8 @@ class FlowDocument(DocumentWidget):
             else:
                 node.params[name] = value
 
-        self._edit(f"Set {node_id}.{name}", change, merge_key=("param", node_id, name), merge_id=MERGE_PARAM)
+        self._edit(f"Change {self._param_title(node_id, name)} of {node_id}", change, merge_key=("param", node_id, name),
+                   merge_id=MERGE_PARAM)
 
     def rename_node(self, old: str, new: str) -> None:
         editor = (self.__dict__.get("_node_editors") or {}).get(old)
@@ -897,7 +902,7 @@ class FlowDocument(DocumentWidget):
             flow.nodes[node_id].comment = text
 
         if self.flow.nodes.get(node_id) is not None and self.flow.nodes[node_id].comment != text:
-            self._edit(f"Comment {node_id}", change)
+            self._edit(f"Comment on {node_id}", change)
 
     def align(self, how: str) -> None:
         items = self.scene.selected_nodes()
@@ -1089,7 +1094,7 @@ class FlowDocument(DocumentWidget):
                 flow.connect(str(edge.source), f"{node.id}.{names[0]}")
                 flow.connect(f"{node.id}.{names[1]}", str(edge.target))
 
-            self._edit(f"Insert {type_name}", change)
+            self._edit(f"Insert {self._title_of_type(type_name)}", change)
             self.scene.select_nodes(created)
 
         self.view.open_search("", position, accepts=lambda spec: ports(spec) is not None, chosen=place,
@@ -1101,6 +1106,23 @@ class FlowDocument(DocumentWidget):
 
     def select_all(self) -> None:
         self.scene.select_nodes(list(self.flow.nodes))
+
+    def ask_subflow(self) -> Optional[str]:
+        """*Make subflow…*: the selected nodes into a subflow, under the name the user gives it."""
+        from PySide6.QtWidgets import QInputDialog
+
+        if not self.scene.selected_nodes():
+            self.message.emit("Select the nodes for the subflow first")
+            return None
+        suggested = self.flow.free_id("sub")
+        name, accepted = QInputDialog.getText(self, "Make subflow", "Name of the subflow", text=suggested)
+        name = name.strip().replace(" ", "_")
+        if not accepted or not name:
+            return None
+        if name in self.flow.subflows or name in self.flow.nodes:
+            self.message.emit(f"'{name}' is taken: choose another name")
+            return None
+        return self.make_subflow(name)
 
     def make_subflow(self, name: str) -> Optional[str]:
         """Move the selected nodes into a new subflow and put a subflow node in their place."""
@@ -1169,13 +1191,15 @@ class FlowDocument(DocumentWidget):
             spec = self.flow.spec(node, self.registry)
         except RegistryError:
             spec = None
-        problems = [problem.text for problem in self.problems() if problem.node == node.id]
+        problems = [(problem.severity, problem.text) for problem in self.problems() if problem.node == node.id]
         inspector = NodeInspector(self.flow, node, spec, node.id in self.breakpoints, addresses=self.addresses(),
                                   problems=problems, running=self.runner.running,
                                   suggestions=self.suggestions_for(node.id), devices=list(self.flow.devices),
                                   folder=self.data_dir if self._path or self.project else "",
                                   base=self.project.root if self.project else "", wide=wide)
         inspector.param_changed.connect(self.set_param)
+        inspector.wire_requested.connect(self.connect_ports)
+        inspector.unwire_requested.connect(self._unwire)
         inspector.renamed.connect(self.rename_node)
         inspector.comment_changed.connect(self.set_comment)
         inspector.breakpoint_toggled.connect(self.set_breakpoint)
@@ -1254,7 +1278,7 @@ class FlowDocument(DocumentWidget):
             spec = self.flow.spec(node, self.registry)
         except RegistryError:
             return {}
-        return hints.node_suggestions(self.flow, node_id, spec, self.device_hints())
+        return hints.node_suggestions(self.flow, node_id, spec, self.device_hints(), self.registry)
 
     def problems(self) -> list:
         """What :meth:`Flow.validate` finds, and values that do not fit their kind or their device."""
@@ -1416,7 +1440,7 @@ class FlowDocument(DocumentWidget):
         set_role(self.run_banner, f"banner-{kind}")
         labels = {"problems": "Show problems", "simulate": "Run with simulators", "dismiss": "Dismiss"}
         if action == "convert" and getattr(self, "_conversion", None):
-            labels["convert"] = f"Insert {self._conversion[2]}"
+            labels["convert"] = f"Insert {self._title_of_type(self._conversion[2])}"
         self.run_banner.set_message(html.escape(text), labels.get(action) if text else None)
 
     def _banner_action(self) -> None:
@@ -1436,18 +1460,25 @@ class FlowDocument(DocumentWidget):
         self.show_run_banner("")
 
     # ================================================================== run
-    def _update_run_actions(self) -> None:
-        running = getattr(self, "runner", None) is not None and self.runner.running
-        state = self.runner.state if running else "idle"
-        self.action_run.setEnabled(not running or state == "paused")
-        self.action_run.setText("Continue" if state == "paused" else "Run")
-        self.action_pause.setEnabled(running and state != "paused")
-        self.action_step.setEnabled(running and state == "paused")
-        self.action_stop.setEnabled(running)
-
     @property
     def run_state(self) -> str:
         return self.runner.state if self.runner.running else "idle"
+
+    @property
+    def can_step(self) -> bool:
+        return self.runner.running and self.runner.state == "paused"
+
+    def virtual_time(self) -> bool:
+        return self.fast_box.isChecked()
+
+    def set_virtual_time(self, virtual: bool) -> None:
+        self.fast_box.setChecked(virtual)
+
+    def simulated(self) -> bool:
+        return self.sim_box.isChecked()
+
+    def set_simulated(self, simulated: bool) -> None:
+        self.sim_box.setChecked(simulated)
 
     def start_run(self) -> bool:
         if self.runner.running:
@@ -1480,7 +1511,6 @@ class FlowDocument(DocumentWidget):
         self.runner.views.shown.connect(lambda kind, node, value, options: self.view_requested.emit(
             node, kind, value, options))
         self.execution_line.emit(f"▶ {self.flow.name} ({'virtual' if self.fast_box.isChecked() else 'real'} time)")
-        self._update_run_actions()
         self.run_state_changed.emit("running")
         self.console_requested.emit("Execution")
         self._data_timer.start()
@@ -1496,7 +1526,6 @@ class FlowDocument(DocumentWidget):
         self.runner.stop()
 
     def _run_state(self, state: str, message: str) -> None:
-        self._update_run_actions()
         self.run_state_changed.emit(state)
         if message:
             self.execution_line.emit(f"{state}: {message}")
@@ -1510,7 +1539,6 @@ class FlowDocument(DocumentWidget):
         self._data_timer.stop()
         self.scene.update_data()
         self._refresh_data_views()
-        self._update_run_actions()
         self.run_state_changed.emit(result.state)
         if result.state == "error" and result.error:
             # a device that is not there: running with simulators is one click away

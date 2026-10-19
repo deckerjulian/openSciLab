@@ -17,6 +17,7 @@ from PySide6.QtWidgets import QMenu, QSizePolicy, QToolTip, QWidget
 
 from .. import colors
 from ...core.formatting import to_small_time, to_thousands
+from ..theme import qcolor
 from ..view_model import CaptureViewModel
 from . import overlays
 from .channel_viewer import CHANNEL_COLUMN_WIDTH
@@ -27,7 +28,7 @@ BUS_ROW_HEIGHT = 28
 MIN_RUN_WIDTH = 2.0
 #: runs per pixel of a row above which they are looked up per pixel column
 DENSE_RUNS = 4
-BUS_BASE_COLOR = QColor("#8AAEFF")
+BUS_BASE_COLOR = qcolor("display.bus")
 
 
 def bus_color(bus, index: int) -> QColor:
@@ -82,7 +83,7 @@ class BusViewer(QWidget):
             self._draw_name(painter, metrics, bus, index, top)
             if self.model.is_live:
                 # The values of every sample would be computed again for each frame of a stream
-                painter.setPen(QColor(150, 150, 160))
+                painter.setPen(qcolor("display.bus.text"))
                 painter.drawText(
                     QRectF(CHANNEL_COLUMN_WIDTH + 8, top, self._data_width(), BUS_ROW_HEIGHT),
                     Qt.AlignVCenter | Qt.AlignLeft, "shown when the capture is complete",
@@ -108,7 +109,7 @@ class BusViewer(QWidget):
         name = metrics.elidedText(bus.name, Qt.ElideRight, CHANNEL_COLUMN_WIDTH - 60)
         baseline = top + BUS_ROW_HEIGHT / 2 + metrics.ascent() / 2 - 1
         painter.drawText(QPointF(12, baseline), name)
-        painter.setPen(QColor(150, 150, 160))
+        painter.setPen(qcolor("display.bus.text"))
         width = f"[{len(bus.channels)}]"
         painter.drawText(QPointF(CHANNEL_COLUMN_WIDTH - 8 - metrics.horizontalAdvance(width), baseline), width)
 
@@ -147,7 +148,12 @@ class BusViewer(QWidget):
             # instead of looking at every run. A column without a change lies inside one run –
             # those are the only runs that can be wide enough to draw; a column in which a
             # narrow run begins is busy.
-            edges = first + np.arange(columns + 1) / pixels_per_sample
+            # the first sample of each column, by the same rounding as the columns of the runs above
+            # (first + k / pixels_per_sample can round to the other side of a run that starts there)
+            column = np.arange(columns + 1)
+            edges = np.ceil(first + column / pixels_per_sample)
+            edges = np.where(np.floor((edges - 1 - first) * pixels_per_sample) >= column, edges - 1, edges)
+            edges = np.where(np.floor((edges - first) * pixels_per_sample) < column, edges + 1, edges)
             position = np.searchsorted(all_starts, edges, side="left")
             begun = np.diff(position)  # runs beginning in each column
             candidates = np.unique(np.concatenate(([low], position[:-1][begun == 0] - 1)))

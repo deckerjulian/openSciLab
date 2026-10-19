@@ -316,7 +316,7 @@ def test_a_stopped_flow_leaves_the_devices_of_the_hub_idle(tmp_path):
     scenarios.apply(instrument.simulated_driver, {"scenario": "idle"})
     hub.add(instrument)
     flow = Flow("armed")
-    flow.add_node("device.instrument", "sim", address="sim:free")
+    flow.add_node("device.device", "sim", address="sim:free")
     flow.add_node("device.capture", "cap", channels=["D0"], rate="1 MHz", samples=1000,
                   trigger={"edge": "rising", "source": "D0"})  # an edge that never comes
     flow.connect("sim.device", "cap.device")

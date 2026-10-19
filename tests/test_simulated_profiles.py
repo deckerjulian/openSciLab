@@ -25,12 +25,13 @@ from openscilab.driver.models import AnalogChannel, AnalyzerChannel, CaptureSess
 from openscilab.driver.simulated import available_profiles, load_profile, open_simulated
 from openscilab.driver.simulated.circuit import SOURCE_TYPES, make_source
 
-PROFILES = ["dho924s", "free", "pico", "uno", "uno_r4"]
+PROFILES = ["dho924s", "free", "mega", "pico", "uno", "uno_r4"]
 #: facets every profile must have
 FACETS = {
     "free": {GeneratorFacet},
     "dho924s": {AnalogInFacet, GeneratorFacet},
     "uno": {GpioFacet, MonitorFacet, AnalogInFacet},
+    "mega": {GpioFacet, MonitorFacet, AnalogInFacet, GeneratorFacet},
     "uno_r4": {GpioFacet, MonitorFacet, AnalogInFacet, AnalogOutFacet, GeneratorFacet},
     "pico": {GpioFacet, MonitorFacet, AnalogInFacet, GeneratorFacet},
 }
@@ -127,7 +128,7 @@ def test_wiring_from_the_project(tmp_path):
     flow = project.complete(yaml_io.loads("""
 flow: Wired
 nodes:
-  sim: {type: device.instrument}
+  sim: {type: device.device}
   cap: {type: device.capture, channels: [D3, D15], rate: 100 kHz, samples: 400}
 edges:
   - sim.device -> cap.device
@@ -188,7 +189,7 @@ def test_a_flow_twice_gives_the_same_result():
     text = """
 flow: Twice
 nodes:
-  scope: {type: device.instrument, address: "sim:dho924s"}
+  scope: {type: device.device, address: "sim:dho924s"}
   cap: {type: device.capture, channels: [CH1, D9], rate: 10 MHz, samples: 5000}
 edges:
   - scope.device -> cap.device
@@ -212,11 +213,11 @@ def test_the_device_list_offers_the_simulators_and_the_fault_menu(shell):
     section.refresh()
     labels = [section.list.item(index).text() for index in range(section.list.count())]
     group = next(label for label in labels if label.startswith("Simulators ("))
-    assert "Simulation: Pico" not in " ".join(labels)  # the group starts closed
+    assert "Simulated Pico" not in " ".join(labels)  # the group starts closed
     group_item = section.list.item(labels.index(group))
     section.list.itemClicked.emit(group_item)  # one click opens it
     labels = [section.list.item(index).text().strip() for index in range(section.list.count())]
-    assert {"Arduino Uno", "Uno R4", "Pico", "DHO924S", "free"} <= set(labels)
+    assert {"Arduino Uno", "Uno R4", "Pico", "DHO924S", "16 channel device"} <= set(labels)
     entry = next(section.list.item(index).data(0x0100) for index in range(section.list.count())
                  if section.list.item(index).text().strip() == "Arduino Uno")
     instrument = shell.connect_entry(entry)

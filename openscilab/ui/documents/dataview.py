@@ -6,16 +6,19 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""The data view: captures shown, analysed, decoded and edited (port of ``MainWindow.axaml(.cs)``).
+"""The data view: captures shown, analysed, decoded and edited (port of ``MainWindow.axaml(.cs)``,
+the main window of the logic analyzer it grew out of).
 
-It was the main window up to 7.x and is a ``QMainWindow`` still, so its toolbar, docks (analysis
-panels, listing) and status bar stay, but it lives in a document tab of the shell: its menu bar is
-hidden, the shell shows its *Data* and *Analyze* menus and its view menu as *Waveform*, and *Open,
-Save, Exit* and the window geometry are the shell's.
+It is a document of the shell like the others (docs/design.md, rule 7): its tool bar on top (capture,
+the device and its rate, length and trigger, the panels), the traces with the overview, the listing
+below them (*Listing*, Ctrl+2), and its analysis – decoders, measure, search, markers, the capture –
+in the shell's inspector. Its menus (*Data*, *Analyze*, *Display*) join the shell's; *Open*, *Save*
+and the status bar are the shell's (:attr:`message`); what goes on now (a transfer, a stream) is
+written in the bar below the traces.
 
-A data view does not connect devices or start captures: the device card of an instrument does
-(its :class:`~..devices.capture.CaptureController`), and the captures of that instrument arrive
-here – live, progressively or when they complete. Files and test signals are shown the same way.
+The captures of a device arrive here – live, progressively or when they complete – from its
+:class:`~..devices.capture.CaptureController`; *Run* in the header (F5) captures. Files and test
+signals are shown the same way.
 """
 
 from __future__ import annotations
@@ -29,18 +32,16 @@ import time
 from typing import Optional
 
 import numpy as np
-from PySide6.QtCore import QByteArray, QEvent, QEventLoop, QSize, Qt, QTimer, Signal
-from PySide6.QtGui import QAction, QKeySequence, QShortcut, QUndoStack
+from PySide6.QtCore import QEvent, QEventLoop, QSize, Qt, QTimer, Signal
+from PySide6.QtGui import QAction, QKeySequence, QUndoStack
 from PySide6.QtWidgets import (
     QComboBox,
-    QDockWidget,
     QFileDialog,
     QFrame,
     QGridLayout,
     QHBoxLayout,
     QInputDialog,
     QLabel,
-    QMainWindow,
     QMenu,
     QProgressDialog,
     QPushButton,
@@ -48,8 +49,8 @@ from PySide6.QtWidgets import (
     QScrollBar,
     QSizePolicy,
     QSlider,
+    QSplitter,
     QStackedWidget,
-    QStatusBar,
     QTabWidget,
     QToolBar,
     QVBoxLayout,
@@ -94,7 +95,7 @@ from ..panels.markers_panel import MarkersPanel
 from ..panels.measure_panel import MeasurePanel
 from ..panels.search_panel import SearchPanel
 from ..shell.start_page import native
-from ..theme import ACCENT, TEXT_MUTED, icon_px, set_role, set_variant
+from ..theme import TEXT_MUTED, icon_px, set_role, set_variant
 from ..view_model import (
     CHANNEL_HEIGHT_STEP,
     DEFAULT_CHANNEL_HEIGHT,
@@ -117,8 +118,8 @@ log = logging.getLogger(__name__)
 WINDOW_STATE_FILE = "analyzer-state.json"
 #: Pixels of the name of the source device in the toolbar (longer names are shortened)
 DEVICE_LABEL_WIDTH = 230
-#: Version of the dock layout stored in the window state (a newer layout ignores older ones)
-WINDOW_LAYOUT_VERSION = 4  # 4: one tool bar (capture, device, settings, panels), it adapts to the width
+#: the line under the pinned channels
+PINNED_SEPARATOR = 3
 ZOOM_SLIDER_STEPS = 1000
 #: A streaming capture shows its last 1/10 s until the user zooms
 LIVE_WINDOW_DIVISOR = 10
@@ -141,7 +142,20 @@ def long_duration(seconds: float) -> str:
 #: samples a capture without a device may grow to by inserting
 INSERT_LIMIT = 100_000_000
 
-class DataView(QMainWindow, Document):
+class _Menus:
+    """Where the menus of the data view are made (they join the shell's menu bar)."""
+
+    def __init__(self, parent: QWidget) -> None:
+        self.parent = parent
+        self.menus: list[QMenu] = []
+
+    def addMenu(self, title: str) -> QMenu:  # noqa: N802 - the name of QMenuBar's
+        menu = QMenu(title, self.parent)
+        self.menus.append(menu)
+        return menu
+
+
+class DataView(QWidget, Document):
     document_kind = "data"
     #: Title, file or unsaved state changed (see :class:`~.base.Document`).
     document_changed = Signal()
@@ -151,6 +165,12 @@ class DataView(QMainWindow, Document):
     device_card_requested = Signal(object)
     #: the device list (to open a device and capture with it)
     devices_requested = Signal()
+    #: a short note for the status bar of the shell
+    message = Signal(str)
+    #: a capture started or ended (the header's Run, Stop)
+    run_state_changed = Signal(str)
+    #: show the inspector (the analysis of the data view is there)
+    inspector_requested = Signal()
 
     def __init__(
         self,
@@ -169,8 +189,8 @@ class DataView(QMainWindow, Document):
         #: the data come from elsewhere (the run data of a flow, a scope node): the view shows them
         #: and does not capture (see set_viewer)
         self.viewer = False
-        # A widget in a document tab, not a window of its own.
-        self.setWindowFlags(Qt.Widget)
+        #: the last note for the status bar (or of what goes on now, in the bar below the traces)
+        self._last_message = ""
         self._dirty = False
         #: changed by the user since it was loaded, captured or saved (a new capture then opens
         #: in another data view instead of replacing the changes)
@@ -275,9 +295,8 @@ class DataView(QMainWindow, Document):
         if not isinstance(state, dict):
             return
         try:
-            layout = state.get("layout")
-            if isinstance(layout, str):
-                self.restoreState(QByteArray.fromBase64(layout.encode("ascii")), WINDOW_LAYOUT_VERSION)
+            if state.get("listing"):
+                self.listing_panel.setVisible(True)
             if "preview" in state:
                 # The pinned state of the preview is persisted since V6_5.
                 visible = bool(state["preview"])
@@ -292,7 +311,7 @@ class DataView(QMainWindow, Document):
         settings.persist_settings(
             WINDOW_STATE_FILE,
             {
-                "layout": bytes(self.saveState(WINDOW_LAYOUT_VERSION).toBase64()).decode("ascii"),
+                "listing": not self.listing_panel.isHidden(),
                 "preview": self.action_toggle_preview.isChecked(),
                 "channel_height": self.model.channel_height,
             },
@@ -300,12 +319,11 @@ class DataView(QMainWindow, Document):
 
     # ------------------------------------------------------------------- UI
     def _build_ui(self) -> None:
-        self.addToolBar(Qt.TopToolBarArea, self._build_toolbar())
-
-        central = QWidget(self)
-        layout = QVBoxLayout(central)
+        layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
+        layout.addWidget(self._build_toolbar())
+        central = self
 
         banner_holder = QWidget(central)
         banner_layout = QVBoxLayout(banner_holder)
@@ -324,36 +342,21 @@ class DataView(QMainWindow, Document):
         banner_holder.setVisible(False)
         layout.addWidget(banner_holder)
 
-        layout.addWidget(self._build_capture_area(), 1)
-        self.setCentralWidget(central)
-        self.setDockNestingEnabled(True)
-
-        self.panels_dock = QDockWidget("Analysis", self)
-        self.panels_dock.setObjectName("analysis-dock")
-        self.panels_dock.setWidget(self._build_side_panel())
-        self.panels_dock.setFeatures(QDockWidget.DockWidgetMovable | QDockWidget.DockWidgetClosable)
-        # The tabs are the title; the dock is moved by its tab bar's empty area
-        self.panels_dock.setTitleBarWidget(QWidget(self.panels_dock))
-        self.addDockWidget(Qt.RightDockWidgetArea, self.panels_dock)
-        self.resizeDocks([self.panels_dock], [400], Qt.Horizontal)
-
-        self.listing_dock = QDockWidget("Listing", self)
-        self.listing_dock.setObjectName("listing-dock")
-        self.listing_panel = ListingPanel(self.model, self.listing_dock)
-        self.listing_dock.setWidget(self.listing_panel)
-        self.listing_dock.setFeatures(QDockWidget.DockWidgetMovable | QDockWidget.DockWidgetClosable)
-        self.addDockWidget(Qt.BottomDockWidgetArea, self.listing_dock)
-        self.listing_dock.setVisible(False)
-
-        for button, dock in ((self.listing_tool_button, self.listing_dock), (self.panels_tool_button, self.panels_dock)):
-            button.setChecked(not dock.isHidden())
-            button.toggled.connect(dock.setVisible)
-            dock.visibilityChanged.connect(
-                lambda _visible, button=button, dock=dock: button.setChecked(not dock.isHidden())
-            )
-        status = QStatusBar(self)
-        self.setStatusBar(status)
-        self.statusBar().showMessage("Ready")
+        # the traces, the listing below them (a pane of the splitter, Ctrl+2)
+        self.body_splitter = QSplitter(Qt.Vertical, self)
+        self.body_splitter.setChildrenCollapsible(False)
+        self.body_splitter.addWidget(self._build_capture_area())
+        self.listing_panel = ListingPanel(self.model, self.body_splitter)
+        self.body_splitter.addWidget(self.listing_panel)
+        self.body_splitter.setStretchFactor(0, 3)
+        self.body_splitter.setStretchFactor(1, 1)
+        self.listing_panel.setVisible(False)
+        layout.addWidget(self.body_splitter, 1)
+        # the analysis: decoders, measure, search, markers, the capture – shown in the inspector
+        # (until then hidden: a child without a place in the layout would lie over the traces)
+        self._build_side_panel().hide()
+        self.listing_tool_button.setChecked(False)
+        self.listing_tool_button.toggled.connect(self.listing_panel.setVisible)
 
     def _tool_button(
         self, parent: QWidget, icon_name: str, tip: str, slot=None, checkable: bool = False, text: str = ""
@@ -408,24 +411,21 @@ class DataView(QMainWindow, Document):
         self.measure_tool_button = self._tool_button(
             bar, "ruler", "Cursors and measurements (Ctrl+Shift+M)", lambda: self.show_panel(self.measure_panel),
             text="Measure")
-        self.listing_tool_button = self._tool_button(bar, "list", "Listing below the waveform (Ctrl+2)",
+        self.listing_tool_button = self._tool_button(bar, "list", "The listing below the traces (Ctrl+2)",
                                                      checkable=True, text="Listing")
-        self.panels_tool_button = self._tool_button(bar, "panel", "Analysis panels (Ctrl+1)", checkable=True,
-                                                    text="Panels")
+        self.decoders_tool_button = self._tool_button(
+            bar, "bus", "Protocol decoders (in the inspector)", lambda: self.show_panel(self.decoder_manager),
+            text="Decoders")
+        bar.add_widget("decoders", self.decoders_tool_button, "Decoders", "panels", NORMAL)
+        bar.add_widget("measure", self.measure_tool_button, "Measure", "panels", NORMAL)
         bar.add_widget("search", self.search_tool_button, "Search", "panels", NORMAL, text=False)
-        bar.add_widget("measure", self.measure_tool_button, "Measure", "panels", NORMAL, text=False)
         bar.add_widget("listing", self.listing_tool_button, "Listing", "panels", LOW, text=False)
-        bar.add_widget("panels", self.panels_tool_button, "Analysis panels", "panels", NORMAL, text=False)
-        # ------------------------------------------------------------ file
-        self.open_button = self._tool_button(bar, "folder", "Open a capture (Ctrl+O)", self.open_capture, text="Open")
-        self.save_button = self._tool_button(bar, "save", "Save the capture (Ctrl+S)", self.save_capture, text="Save")
-        bar.add_widget("open", self.open_button, "Open a capture", "file", LOW, text=False)
-        bar.add_widget("save", self.save_button, "Save the capture", "file", LOW, text=False)
+        # (Open and Save are the shell's: header, File menu, Ctrl+O, Ctrl+S)
         # (the names of the buttons the view always had)
         self.capture_button = controls.capture_button
         self.repeat_button = controls.repeat_button
         self.abort_button = controls.stop_button
-        QShortcut(QKeySequence(Qt.Key_F5), self, activated=self.capture, context=Qt.WidgetWithChildrenShortcut)
+
         return bar.finish()
 
     def _fill_device_combo(self) -> None:
@@ -456,7 +456,7 @@ class DataView(QMainWindow, Document):
         self.use_instrument(data)
 
     #: entries of the tool bar for capturing: not in a view of data that come from elsewhere
-    CAPTURE_ENTRIES = ("capture", "again", "record", "stop", "device", "quick", "settings", "profiles", "state", "open")
+    CAPTURE_ENTRIES = ("capture", "again", "record", "stop", "device", "quick", "settings", "profiles", "state")
 
     def set_viewer(self, viewer: bool = True) -> None:
         """A view of data that come from elsewhere - the run data of a flow, a scope node: it shows
@@ -476,7 +476,7 @@ class DataView(QMainWindow, Document):
             return False
         if self.source is None:
             self.devices_requested.emit()
-            self.statusBar().showMessage("Choose a device to capture with (or connect one)", 6000)
+            self.notify("Choose a device to capture with (or connect one)", 6000)
             return False
         return self.capture_controls.start_capture()
 
@@ -557,8 +557,8 @@ class DataView(QMainWindow, Document):
         self._gutters.append(pinned_gutter)
         layout.addWidget(self.pinned_area)
         self.pinned_separator = QFrame(container)
-        self.pinned_separator.setFixedHeight(3)
-        self.pinned_separator.setStyleSheet(f"background-color: {ACCENT};")
+        self.pinned_separator.setFixedHeight(PINNED_SEPARATOR)
+        set_role(self.pinned_separator, "accent-line")
         layout.addWidget(self.pinned_separator)
         self.pinned_area.setVisible(False)
         self.pinned_separator.setVisible(False)
@@ -643,8 +643,8 @@ class DataView(QMainWindow, Document):
         card_layout.addWidget(title)
         card_layout.addWidget(
             hint(
-                "A data view shows captures: capture with a device (its device card in the device "
-                "list, or a flow), open a saved capture, or generate test signals.",
+                "A data view shows captures: capture with a device (Run in the header, or a flow), "
+                "open a saved capture, or compute simulated signals.",
                 card,
             )
         )
@@ -662,7 +662,7 @@ class DataView(QMainWindow, Document):
         set_icon(open_button, "folder")
         open_button.clicked.connect(self.open_capture)
         buttons.addWidget(open_button, 1, 0)
-        simulate_button = QPushButton("Test signals...", card)
+        simulate_button = QPushButton("Simulated signals...", card)
         set_icon(simulate_button, "wave")
         simulate_button.clicked.connect(self.simulated_capture)
         buttons.addWidget(simulate_button, 1, 1)
@@ -741,6 +741,11 @@ class DataView(QMainWindow, Document):
         self.visible_samples_label = QLabel("-", bar)
         set_role(self.visible_samples_label, "hint")
         bar.add_widget("samples", self.visible_samples_label, "Samples on screen", "zoom", LOW)
+        # what goes on now: a transfer, a stream, waiting for the trigger (no status bar of its own)
+        self.status_label = QLabel("", bar)
+        set_role(self.status_label, "hint")
+        self.status_label.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+        bar.add_widget("status", self.status_label, "What goes on now", "zoom", LOW)
         bar.add_stretch()
 
         rows = QLabel(bar)
@@ -802,7 +807,7 @@ class DataView(QMainWindow, Document):
             finally:
                 self._loading -= 1
             self.model.zoom_to_fit()
-            self.statusBar().showMessage("States on their real time", 5000)
+            self.notify("States on their real time", 5000)
         else:
             stored = getattr(self, "_state_session", None)
             self._state_session = None
@@ -849,9 +854,11 @@ class DataView(QMainWindow, Document):
         self.side_tabs = QTabWidget(self)
         self.side_tabs.setObjectName("side-tabs")
         self.side_tabs.setDocumentMode(True)
-        self.side_tabs.setUsesScrollButtons(False)
+        # five tabs in the width of the inspector: none may be cut off and lost
+        self.side_tabs.setUsesScrollButtons(True)
         self.side_tabs.setElideMode(Qt.ElideNone)
-        self.side_tabs.setMinimumWidth(260)
+        self.side_tabs.tabBar().setExpanding(False)
+        self.side_tabs.setMinimumWidth(240)
 
         def page(widget: QWidget) -> QScrollArea:
             holder = QScrollArea(self.side_tabs)
@@ -906,7 +913,7 @@ class DataView(QMainWindow, Document):
         return self.side_tabs
 
     def _build_menu(self) -> None:
-        menu = self.menuBar()
+        menu = self._menus = _Menus(self)
 
         # ------------------------------------------------------------ File
         self.file_menu = file_menu = menu.addMenu("&File")
@@ -946,11 +953,6 @@ class DataView(QMainWindow, Document):
         self.action_export_annotations.triggered.connect(self.export_annotations)
         export_menu.addAction(self.action_export_annotations)
 
-        file_menu.addSeparator()
-        self.action_exit = action_exit = QAction("E&xit", self)
-        action_exit.setShortcut(QKeySequence.Quit)
-        action_exit.triggered.connect(self.close)
-        file_menu.addAction(action_exit)
 
         # ------------------------------------------------------------ Data
         self.data_menu = data_menu = menu.addMenu("&Data")
@@ -960,16 +962,16 @@ class DataView(QMainWindow, Document):
         self.action_repeat.triggered.connect(self.repeat_capture)
         data_menu.addAction(self.action_repeat)
         self.action_stop = QAction("S&top capture", self)
-        self.action_stop.setShortcut(QKeySequence("Shift+F5"))
+
         self.action_stop.triggered.connect(self.abort_capture)
         data_menu.addAction(self.action_stop)
-        self.action_device_card = QAction("&Device card", self)
+        self.action_device_card = QAction("Open the &device", self)
         self.action_device_card.setStatusTip("The device the data come from: capture settings, profiles, device functions")
         self.action_device_card.triggered.connect(lambda: self.source is not None
                                                   and self.device_card_requested.emit(self.source.instrument))
         data_menu.addAction(self.action_device_card)
         data_menu.addSeparator()
-        self.action_simulation = QAction("&Test signals...", self)
+        self.action_simulation = QAction("&Simulated signals...", self)
         self.action_simulation.setStatusTip("Signals of common protocols computed on this computer")
         self.action_simulation.triggered.connect(self.simulated_capture)
         data_menu.addAction(self.action_simulation)
@@ -1160,18 +1162,20 @@ class DataView(QMainWindow, Document):
         self.action_toggle_preview.triggered.connect(self.previewer.setVisible)
         view_menu.addAction(self.action_toggle_preview)
         view_menu.addSeparator()
-        panels_action = self.panels_dock.toggleViewAction()
-        panels_action.setText("&Analysis panels")
-        panels_action.setShortcut(QKeySequence("Ctrl+1"))
-        view_menu.addAction(panels_action)
-        listing_action = self.listing_dock.toggleViewAction()
-        listing_action.setText("&Listing")
+        analysis_action = QAction("&Analysis", self)
+        analysis_action.setStatusTip("Decoders, measure, search, markers and the capture, in the inspector")
+        analysis_action.setShortcut(QKeySequence("Ctrl+1"))
+        analysis_action.triggered.connect(lambda: self.show_panel(self.decoder_manager))
+        view_menu.addAction(analysis_action)
+        self.action_listing = listing_action = QAction("&Listing", self)
+        listing_action.setCheckable(True)
         listing_action.setShortcut(QKeySequence("Ctrl+2"))
+        listing_action.toggled.connect(self.listing_tool_button.setChecked)
+        self.listing_tool_button.toggled.connect(listing_action.setChecked)
         view_menu.addAction(listing_action)
 
     #: Icons of the menu entries that do not set their own (by their text without "&" and "...")
     MENU_ICONS = {
-        "Exit": "exit",
         "Align boards": "align",
         "Find next": "down",
         "Find previous": "up",
@@ -1185,11 +1189,6 @@ class DataView(QMainWindow, Document):
         "Navigate": "arrow-right",
         "Show all channels": "eye",
         "Unpin all channels": "pin",
-        "Keyboard shortcuts": "keyboard",
-        "Online documentation": "book",
-        "Online documentation of the original software (gusmanb)": "book",
-        "Decoder search paths": "folder",
-        "About openSciLab": "info",
         "Export": "export",
     }
 
@@ -1204,9 +1203,8 @@ class DataView(QMainWindow, Document):
                 if action.menu() is not None:
                     visit(action.menu())
 
-        for action in self.menuBar().actions():
-            if action.menu() is not None:
-                visit(action.menu())
+        for menu in self._menus.menus:
+            visit(menu)
 
     def _update_title(self) -> None:
         name = f"openSciLab {__version__}"
@@ -1232,13 +1230,9 @@ class DataView(QMainWindow, Document):
 
     # ------------------------------------------------------------- document
     def _embed(self) -> None:
-        """Become a document tab: the shell shows the menus and owns Open, Save and Exit."""
-        # not the native menu bar of macOS: it would replace the shell's menus whenever the data
-        # view has the focus (Examples, Devices and the others were gone)
-        self.menuBar().setNativeMenuBar(False)
-        self.menuBar().setVisible(False)
+        """A document tab: the shell shows the menus and owns Open and Save."""
         # The shell has these shortcuts and passes them on to the active document.
-        for action in (self.action_open, self.action_save, self.action_save_as, self.action_exit):
+        for action in (self.action_open, self.action_save, self.action_save_as):
             action.setShortcuts([])
         self.view_menu.setTitle("Di&splay")  # "Waveform" is a kind of document of its own
         # keys without Ctrl/Cmd (arrows, +, -) only act while the data view has the focus: they
@@ -1348,27 +1342,29 @@ class DataView(QMainWindow, Document):
         return ["Analyzer"]
 
     def inspector_widget(self, selection=None) -> Optional[QWidget]:
-        """The capture: file, device and the figures of the *Capture* tab."""
-        if getattr(self, "_inspector", None) is None:
-            self._inspector = QLabel(self)
-            self._inspector.setTextFormat(Qt.RichText)
-            self._inspector.setWordWrap(True)
-            self._inspector.setAlignment(Qt.AlignTop | Qt.AlignLeft)
-            self._inspector.setContentsMargins(10, 6, 10, 6)
-            self._inspector.setTextInteractionFlags(Qt.TextSelectableByMouse)
-            self._inspector.hide()
-            self._update_inspector()
-        return self._inspector
+        """The analysis of the data view: decoders, measure, search, markers, the capture."""
+        return self.side_tabs
 
     def _update_inspector(self) -> None:
-        if getattr(self, "_inspector", None) is None:
-            return
-        device = self.driver.device_version if self._has_real_device() else "none"
-        rows = [("File", html.escape(self.current_file or "not saved")), ("Device", html.escape(str(device)))]
-        head = "".join(
-            f"<tr><td style='color:{TEXT_MUTED}'>{name}</td><td>{value}</td></tr>" for name, value in rows
-        )
-        self._inspector.setText(f"<table cellspacing='0' cellpadding='2'>{head}</table><br>{self.info_label.text()}")
+        """(The capture tab of the analysis shows the file, the device and the figures itself.)"""
+
+    # ---------------------------------------------------------- messages
+    def notify(self, text: str, timeout: int = 0) -> None:
+        """A note for the status bar of the shell (saved, exported, ...)."""
+        self._last_message = text
+        if text:
+            self.message.emit(text)
+
+    def show_status(self, text: str) -> None:
+        """What goes on now (a transfer, a stream, waiting for the trigger), in the bar below the traces."""
+        self._last_message = text
+        self.status_label.setText(text)
+        self.status_label.setToolTip(text)
+
+    @property
+    def last_message(self) -> str:
+        """The last note or state the view gave (for the tests and the console)."""
+        return self._last_message
 
     def can_save(self) -> bool:
         return self.model.session is not None and self.model.sample_count > 0
@@ -1537,17 +1533,18 @@ class DataView(QMainWindow, Document):
             return
         progressive = args.session.progressive
         if args.error:
-            self.statusBar().showMessage(f"Transfer interrupted: {args.error}")
+            self.show_status(f"Transfer interrupted: {args.error}")
             self._set_transfer_notice(True)
             return
         self.model.tiles_loaded()
         if progressive is not None and progressive.complete:
-            self.statusBar().showMessage("Transfer complete", 5000)
+            self.show_status("")
+            self.notify("Transfer complete", 5000)
             self._set_transfer_notice(False)
             self._update_info_panel()
             self._update_actions()
         elif progressive is not None:
-            self.statusBar().showMessage(f"Transferring the capture: {progressive.fraction * 100:.0f} %")
+            self.show_status(f"Transferring the capture: {progressive.fraction * 100:.0f} %")
 
     def _prioritize_visible(self) -> None:
         session = self.model.session
@@ -1570,7 +1567,7 @@ class DataView(QMainWindow, Document):
 
         set_role(self.capture_banner, f"banner-{kind}")
         message = html.escape(text) + (f"<br><span style='opacity:0.8'>{html.escape(details)}</span>" if details else "")
-        self.capture_banner.set_message(message if text else "", "Device card" if self.source is not None else
+        self.capture_banner.set_message(message if text else "", "Open the device" if self.source is not None else
                                         ("Dismiss" if text else None))
         self._update_banners()
 
@@ -1587,7 +1584,7 @@ class DataView(QMainWindow, Document):
                              "Capture again to get the samples.")
             return False
         self._set_transfer_notice(False)
-        self.statusBar().showMessage("Transfer resumed")
+        self.show_status("Transfer resumed")
         return True
 
     def wait_for_transfer(self, operation: str) -> bool:
@@ -1664,7 +1661,7 @@ class DataView(QMainWindow, Document):
             self._loading -= 1
         self._set_dirty(True)
         self.record_edit(f"Add {derived.channel_name}")
-        self.statusBar().showMessage(f"Added {derived.channel_name}", 5000)
+        self.notify(f"Added {derived.channel_name}", 5000)
         return derived
 
     def _has_real_device(self) -> bool:
@@ -1682,7 +1679,7 @@ class DataView(QMainWindow, Document):
 
     def simulated_capture(self) -> None:
         """Test signals computed on this computer (the device card has those of a board)."""
-        if self.is_capturing or not self.confirm_replace("Test signals"):
+        if self.is_capturing or not self.confirm_replace("Simulated signals"):
             return
         driver = EmulatedAnalyzerDriver(1)
         dialog = SimulationDialog(driver, on_board=False, parent=self)
@@ -1694,9 +1691,9 @@ class DataView(QMainWindow, Document):
         error = driver.start_capture(dialog.session, self.bridge.completed.emit)
         if error != CaptureError.NONE:
             self._pending_simulation = None
-            messages.error(self, "Simulated capture", "The simulated capture could not be started.", error.message)
+            messages.error(self, "Simulated signals", "The simulated signals could not be computed.", error.message)
             return
-        self.statusBar().showMessage("Computing the simulated capture...")
+        self.show_status("Computing the simulated capture...")
 
     def _apply_simulation_decoders(self, session: CaptureSession) -> None:
         pending, self._pending_simulation = self._pending_simulation, None
@@ -1711,8 +1708,8 @@ class DataView(QMainWindow, Document):
 
     # --------------------------------------------------------------- capture
     def show_panel(self, panel: QWidget) -> None:
-        """Brings a tab of the analysis panels to the front."""
-        self.panels_dock.setVisible(True)
+        """Brings a tab of the analysis to the front (in the inspector of the shell)."""
+        self.inspector_requested.emit()
         for index in range(self.side_tabs.count()):
             holder = self.side_tabs.widget(index)
             if holder.isAncestorOf(panel):
@@ -1753,7 +1750,7 @@ class DataView(QMainWindow, Document):
         except (OSError, ValueError) as error:
             messages.error(self, "Export decoder output", f"{os.path.basename(path)} could not be written.", str(error))
             return
-        self.statusBar().showMessage(f"Exported {path}", 5000)
+        self.notify(f"Exported {path}", 5000)
 
     def back_to_timing(self) -> None:
         """Returns from a state analysis to the capture it was made of."""
@@ -1764,7 +1761,7 @@ class DataView(QMainWindow, Document):
         self.model.set_regions(regions)
         self.load_session(session)
         self._update_title()
-        self.statusBar().showMessage("Back to the timing capture", 5000)
+        self.notify("Back to the timing capture", 5000)
 
     def state_analysis(self) -> None:
         """Resamples the loaded capture on the edges of a clock channel (a new capture of states)."""
@@ -1791,7 +1788,7 @@ class DataView(QMainWindow, Document):
         self._timing_capture = timing
         self._update_title()
         self._update_actions()
-        self.statusBar().showMessage(
+        self.notify(
             f"{to_thousands(state.state_count)} states clocked by channel {dialog.clock_channel + 1}", 8000
         )
 
@@ -1854,7 +1851,8 @@ class DataView(QMainWindow, Document):
         self._action_marks = []
         self._capture_started = time.monotonic()
         self._update_actions()
-        self.statusBar().showMessage("Capturing, waiting for the trigger...")
+        self.run_state_changed.emit("running")
+        self.show_status("Capturing, waiting for the trigger...")
 
     def capture_aborted(self) -> None:
         """The source stopped a capture that delivers nothing (a buffer capture): not capturing
@@ -1865,7 +1863,8 @@ class DataView(QMainWindow, Document):
         self._live_session = self._live_source = None
         self._action_marks = []
         self._update_actions()
-        self.statusBar().showMessage("Capture aborted", 5000)
+        self.run_state_changed.emit("stopped")
+        self.notify("Capture aborted", 5000)
         self.document_changed.emit()
 
     def abort_capture(self) -> None:
@@ -1936,7 +1935,7 @@ class DataView(QMainWindow, Document):
                     f"samples ({to_small_time(count / rate)})")
         if live.state_times is not None:
             text = f"Live state: {to_thousands(count)} states"
-        self.statusBar().showMessage(text + lost)
+        self.show_status(text + lost)
         self.view_toolbar.set_available("roll", True)
 
     # ------------------------------------------- the header's Start/Stop
@@ -2034,7 +2033,7 @@ class DataView(QMainWindow, Document):
             messages.error(self, "Monitor", "The monitor could not be started.", str(error))
             return False
         self._recording_timer.start()
-        self.statusBar().showMessage(f"Recording the monitor of {instrument.name}...")
+        self.show_status(f"Recording the monitor of {instrument.name}...")
         self._update_actions()
         return True
 
@@ -2056,7 +2055,7 @@ class DataView(QMainWindow, Document):
                 model.notify_analog_changed()
         window = max(session.frequency * 10, 50)
         model.set_view(model.sample_count - window, window)
-        self.statusBar().showMessage(
+        self.notify(
             f"Recording the monitor: {to_thousands(recording.count)} samples "
             f"({to_small_time(recording.count / session.frequency)})")
 
@@ -2082,7 +2081,7 @@ class DataView(QMainWindow, Document):
         self._dirty = True
         self._update_title()
         self._update_actions()
-        self.statusBar().showMessage(f"Recorded {to_thousands(recording.count)} monitor samples", 5000)
+        self.notify(f"Recorded {to_thousands(recording.count)} monitor samples", 5000)
         return session
 
     def _apply_live_extras(self, live: CaptureSession, args: CaptureProgressArgs) -> None:
@@ -2098,10 +2097,12 @@ class DataView(QMainWindow, Document):
             live.post_trigger_samples = live.sample_count()
 
     def _on_capture_completed(self, args: CaptureCompletedArgs) -> None:
+        self.status_label.setText("")  # (what went on is over; a transfer that goes on says so again)
         self._update_actions()
         was_live = self._live_session is not None
         live_first = self._live_first
         self._live_session = self._live_source = self._running_capture = None
+        self.run_state_changed.emit("finished" if args.success else "error")
 
         if not args.success:
             if was_live:
@@ -2110,7 +2111,7 @@ class DataView(QMainWindow, Document):
             self.show_capture_problem("The capture failed: no samples were received from the device.",
                                       (f"{args.error} " if args.error else "")
                                       + "Try again; if it fails again, reconnect the device.")
-            self.statusBar().showMessage("Capture failed")
+            self.notify("Capture failed")
             return
         self.show_capture_problem("")
 
@@ -2150,7 +2151,7 @@ class DataView(QMainWindow, Document):
             self.load_session(args.session, reset_view=not was_live)
         if self.model.on_disk and self.provider.instances:
             self.decoder_manager.status_label.setText("Recorded to disk: press Decode now to decode it")
-        self.statusBar().showMessage(
+        self.notify(
             f"Captured {to_thousands(args.session.total_samples)} samples "
             f"at {to_large_frequency(args.session.frequency)}{aligned}"
         )
@@ -2237,7 +2238,7 @@ class DataView(QMainWindow, Document):
 
         report = self._apply_alignment_choices(session, per_device, choices)
         self._after_samples_modified(self.model.first_sample)
-        self.statusBar().showMessage(report, 10000)
+        self.notify(report, 10000)
         messages.info(self, "Align boards", "The boards were aligned.", report.replace("; ", "\n"))
 
     def load_session(self, session: CaptureSession, reset_view: bool = True) -> None:
@@ -2291,7 +2292,7 @@ class DataView(QMainWindow, Document):
         self._update_title()
         self.load_session(session)
         self._set_dirty(True)
-        self.statusBar().showMessage("Created a new capture", 5000)
+        self.notify("Created a new capture", 5000)
 
     def open_capture(self) -> None:
         path, _ = QFileDialog.getOpenFileName(self, "Open capture", "", CAPTURE_FILE_FILTER)
@@ -2345,7 +2346,7 @@ class DataView(QMainWindow, Document):
         self._reset_undo()  # the state edits are compared with has the markers and pins
         self._dirty = False
         self._update_title()
-        self.statusBar().showMessage(f"Opened {path}", 5000)
+        self.notify(f"Opened {path}", 5000)
 
     def save_capture(self) -> None:
         """Save to the file the capture came from, or ask for a name."""
@@ -2436,14 +2437,14 @@ class DataView(QMainWindow, Document):
             # While the file was written (the window stays alive), a capture arrived or the data
             # was edited: what is shown now is not what the file holds.
             self._update_title()
-            self.statusBar().showMessage(f"Saved {path} (as it was when saving started)", 8000)
+            self.notify(f"Saved {path} (as it was when saving started)", 8000)
             return
         self._dirty = False
         self._edited = False
         self._save_count += 1
         self.undo.setClean()
         self._update_title()
-        self.statusBar().showMessage(f"Saved {path}", 5000)
+        self.notify(f"Saved {path}", 5000)
 
     def export_capture(self, kind: str) -> None:
         session = self.model.session
@@ -2493,7 +2494,7 @@ class DataView(QMainWindow, Document):
         finally:
             self._file_busy = False
 
-        self.statusBar().showMessage(f"Exported {path}", 5000)
+        self.notify(f"Exported {path}", 5000)
 
     # ---------------------------------------------------------- sample edits
     def _selection_out_of_range(self) -> None:
@@ -2537,7 +2538,7 @@ class DataView(QMainWindow, Document):
         """Run ``action(first, count)`` on the selection in the ruler (none: says how to make one)."""
         selection = self.sample_marker.selection
         if selection is None or selection.sample_count <= 0:
-            self.statusBar().showMessage("Select samples first: drag in the ruler above the waveform", 5000)
+            self.notify("Select samples first: drag in the ruler above the waveform", 5000)
             return False
         result = action(selection.start, selection.sample_count)
         return result is not False
@@ -2551,7 +2552,7 @@ class DataView(QMainWindow, Document):
 
     def _paste_at_marker(self) -> None:
         if self.clipboard_samples is None:
-            self.statusBar().showMessage("Nothing to paste: copy samples first", 5000)
+            self.notify("Nothing to paste: copy samples first", 5000)
             return
         self.paste_samples(self._edit_position())
 
@@ -2569,7 +2570,7 @@ class DataView(QMainWindow, Document):
             for channel in session.capture_channels
         ]
         self.sample_marker.has_clipboard = True
-        self.statusBar().showMessage(f"Copied {to_thousands(sample_count)} samples", 5000)
+        self.notify(f"Copied {to_thousands(sample_count)} samples", 5000)
         return True
 
     def cut_samples(self, first_sample: int, sample_count: int) -> None:
@@ -2614,7 +2615,7 @@ class DataView(QMainWindow, Document):
         finally:
             self._loading -= 1
         self._after_samples_modified(first_sample, f"Delete {to_thousands(sample_count)} samples")
-        self.statusBar().showMessage(f"Deleted {to_thousands(sample_count)} samples", 5000)
+        self.notify(f"Deleted {to_thousands(sample_count)} samples", 5000)
 
     def _remap_regions_after_delete(
         self, first_sample: int, last_sample: int, sample_count: int
@@ -2714,7 +2715,7 @@ class DataView(QMainWindow, Document):
         finally:
             self._loading -= 1
         self._after_samples_modified(sample, f"Insert {to_thousands(count)} samples")
-        self.statusBar().showMessage(f"Inserted {to_thousands(count)} samples", 5000)
+        self.notify(f"Inserted {to_thousands(count)} samples", 5000)
 
     def shift_channels(self) -> None:
         session = self.model.session
@@ -2742,7 +2743,7 @@ class DataView(QMainWindow, Document):
                 channel.samples = np.concatenate((head, samples[: samples.size - amount]))
 
         self._after_samples_modified(self.model.first_sample, "Shift channels")
-        self.statusBar().showMessage(f"Shifted {len(dialog.shifted_channels)} channel(s)", 5000)
+        self.notify(f"Shifted {len(dialog.shifted_channels)} channel(s)", 5000)
 
     @staticmethod
     def _fill_samples(mode: ShiftMode, rotated: np.ndarray, amount: int) -> np.ndarray:
@@ -2758,7 +2759,7 @@ class DataView(QMainWindow, Document):
             return False
         names = {channel.channel_number: channel.channel_name for channel in self.model.session.capture_channels}
         if self.source.use_channel_names(names):
-            self.statusBar().showMessage(f"{self.source.name} names its channels like this from the next capture",
+            self.notify(f"{self.source.name} names its channels like this from the next capture",
                                          6000)
             return True
         return False
@@ -2812,8 +2813,7 @@ class DataView(QMainWindow, Document):
         self.action_repeat.setEnabled(self.source is not None and not capturing)
         self.action_stop.setEnabled(capturing)
         self.action_device_card.setEnabled(self.source is not None)
-        self.save_button.setEnabled(has_capture)
-        self.open_button.setEnabled(not capturing)
+        self.action_open.setEnabled(not capturing)
         for button in (self.search_tool_button, self.measure_tool_button):
             button.setEnabled(has_capture)
 
@@ -2835,7 +2835,7 @@ class DataView(QMainWindow, Document):
             self.view_toolbar.set_available("roll", False)
         self.empty_primary_button.setEnabled(not capturing)
         # with a device: its card (where captures start), else the device list
-        self.empty_primary_button.setText("Device card..." if self.source is not None else "Devices...")
+        self.empty_primary_button.setText("Open the device" if self.source is not None else "Devices...")
         self.capture_stack.setCurrentIndex(1 if self.model.session is not None else 0)
         self._update_source_label()
 
@@ -2856,8 +2856,11 @@ class DataView(QMainWindow, Document):
             return
 
         trigger = session.trigger_type.label
+        device = self.driver.device_version if self._has_real_device() else "–"
         rows = [
-            ("Frequency", to_large_frequency(session.frequency)),
+            ("File", html.escape(os.path.basename(self.current_file)) if self.current_file else "not saved"),
+            ("Device", html.escape(str(device))),
+            ("Rate", to_large_frequency(session.frequency)),
             ("Total samples", to_thousands(self.model.sample_count)),
             ("Pre-trigger", to_thousands(session.pre_trigger_samples)),
             ("Post-trigger", to_thousands(session.post_trigger_samples)),

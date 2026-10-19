@@ -39,7 +39,7 @@ from .. import colors
 from ...core.analysis import ChannelTransitions
 from ...core.overview import column_envelope
 from ...core.formatting import to_inferred_frequency, to_small_time
-from ..theme import WARNING
+from ..theme import WARNING, qcolor
 from ..view_model import DEFAULT_CHANNEL_HEIGHT, CaptureViewModel
 from . import overlays, time_axis
 from .navigation import WheelNavigator
@@ -392,8 +392,8 @@ class SampleViewer(QWidget):
                 continue
             start, end = progressive.tile_range(tile)
             left, right = max(self._x_for(start), 0.0), min(self._x_for(end), bounds.width())
-            painter.fillRect(QRectF(left, 0, right - left, bounds.height()), QColor(255, 255, 255, 10))
-            painter.setPen(QPen(QColor(255, 255, 255, 20), 1))
+            painter.fillRect(QRectF(left, 0, right - left, bounds.height()), qcolor("display.hover"))
+            painter.setPen(QPen(qcolor("display.hover.edge"), 1))
             x = left
             while x < right:
                 painter.drawLine(QPointF(x, bounds.height()), QPointF(min(x + 12, right), bounds.height() - 12))
@@ -487,7 +487,7 @@ class SampleViewer(QWidget):
             label_width = max(label_width, width)
             box = QRectF(x, y, width, height)
 
-            painter.setBrush(QColor(18, 18, 20, 225))
+            painter.setBrush(qcolor("display.popup"))
             if bit.changing:
                 # The level changes next to the read point: the value may be unreliable.
                 painter.setPen(QPen(QColor(WARNING), 2))
@@ -505,7 +505,7 @@ class SampleViewer(QWidget):
         and the values next to the marked span."""
         from ...sigrok.composition import sample_point
 
-        pen = QPen(QColor(255, 255, 255, 120), 1)
+        pen = QPen(qcolor("display.popup.border"), 1)
         pen.setStyle(Qt.DotLine)
         painter.setPen(pen)
         first, last = self.model.first_sample, self.model.first_sample + self.model.visible_samples
@@ -529,7 +529,7 @@ class SampleViewer(QWidget):
         x = end + 8 if end + 8 + width <= bounds.width() else max(start - 8 - width, 4.0)
         box = QRectF(x, visible.top() + 6, width, height)
         painter.setRenderHint(QPainter.Antialiasing, True)
-        painter.setBrush(QColor(18, 18, 20, 235))
+        painter.setBrush(qcolor("display.popup"))
         painter.setPen(QPen(color, 1.5))
         painter.drawRoundedRect(box, 5, 5)
         painter.setPen(QPen(colors.TEXT_COLOR))
@@ -559,7 +559,7 @@ class SampleViewer(QWidget):
             x = right if right + width <= bounds.width() else max(sample_x - 8 - width, 4.0)
         box = QRectF(x, visible.top() + 6, width, height)
 
-        painter.setBrush(QColor(18, 18, 20, 235))
+        painter.setBrush(qcolor("display.popup"))
         painter.setPen(QPen(color, 1.5))
         painter.drawRoundedRect(box, 5, 5)
         painter.setPen(QPen(colors.TEXT_COLOR))

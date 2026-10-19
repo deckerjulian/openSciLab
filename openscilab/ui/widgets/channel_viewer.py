@@ -39,7 +39,7 @@ from PySide6.QtWidgets import (
 from .. import colors
 from ...driver.models import AnalyzerChannel
 from ..icons import icon
-from ..theme import DISPLAY
+from ..theme import DISPLAY, set_variant
 
 # the waveform display is dark in both themes
 ACCENT_HOVER = DISPLAY["ACCENT_HOVER"]
@@ -56,7 +56,8 @@ CHANNEL_COLUMN_WIDTH = 150
 COMPACT_ROW_HEIGHT = 28
 COLOR_STRIP_WIDTH = 4
 
-_FLAT_BUTTON = "background: transparent; border: none; padding: 0; min-height: 0;"
+#: the width of the visibility and pin buttons of a row
+ROW_BUTTON_WIDTH = 18
 
 
 class ChannelRow(QWidget):
@@ -91,8 +92,8 @@ class ChannelRow(QWidget):
         self.visibility_button.setAutoRaise(True)
         self.visibility_button.setCursor(Qt.PointingHandCursor)
         self.visibility_button.setToolTip("Show/hide this channel")
-        self.visibility_button.setFixedWidth(18)
-        self.visibility_button.setStyleSheet(_FLAT_BUTTON)
+        self.visibility_button.setFixedWidth(ROW_BUTTON_WIDTH)
+        set_variant(self.visibility_button, "flat")
         self.visibility_button.clicked.connect(lambda: self.visibility_toggled.emit(self.channel))
         layout.addWidget(self.visibility_button)
 
@@ -111,8 +112,8 @@ class ChannelRow(QWidget):
         self.pin_button = QToolButton(self)
         self.pin_button.setAutoRaise(True)
         self.pin_button.setCursor(Qt.PointingHandCursor)
-        self.pin_button.setFixedWidth(18)
-        self.pin_button.setStyleSheet(_FLAT_BUTTON)
+        self.pin_button.setFixedWidth(ROW_BUTTON_WIDTH)
+        set_variant(self.pin_button, "flat")
         self.pin_button.clicked.connect(lambda: self.pin_toggled.emit(self.channel))
         layout.addWidget(self.pin_button)
 

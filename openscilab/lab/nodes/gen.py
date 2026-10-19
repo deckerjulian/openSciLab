@@ -23,10 +23,17 @@ from ..engine.runtime import NodeError, NodeRuntime
 from .device import DEVICE_INPUT
 from .registry import In, Out, Param, node
 
-_OUTPUT_PARAMS = [Param("output", "str", description="the generator output (empty: the first that fits)",
-                        suggest="outputs"),
-                  Param("duration", "quantity", 0, "s", description="stop after it (0: play until the flow ends)")]
-_OUTPUTS = [Out("sync", signals.EVENT, "the output started (its device time)"), Out("done", signals.EVENT)]
+def _output_params(kinds: str = "") -> list:
+    """'output' (offering the outputs of ``kinds``, e.g. ``pattern`` or ``analog+square``) and 'duration'."""
+    return [Param("output", "str", description="The generator output (empty: the first that fits)",
+                  suggest="outputs" + (f":{kinds}" if kinds else ""), label="output"),
+            Param("duration", "quantity", 0, "s", description="Stop after it (0: play until the flow ends)",
+                  label="duration", advanced=True)]
+
+
+_OUTPUT_PARAMS = _output_params()
+_OUTPUTS = [Out("sync", signals.EVENT, "The output started (its device time): arm a capture with it"),
+            Out("done", signals.EVENT, "The output stopped")]
 
 
 class _GeneratorNode(NodeRuntime):
@@ -102,18 +109,26 @@ def _number(value: Any) -> float:
     return float(value)
 
 
-@node("gen.waveform", title="Waveform",
+@node("generator.waveform", title="Waveform",
       description="A standard waveform (sine, square, triangle, ramp, pulse with 'duty', DC, noise with "
                   "'amplitude' as its standard deviation) on a generator output. Values at 'frequency' and "
                   "'amplitude' change it while it plays; 'start' starts it (without a wire it starts with the "
                   "flow). On a square-only output (PWM) a square or pulse without 'amplitude' and 'offset' "
                   "swings over the output's whole range.",
-      inputs=[DEVICE_INPUT, In("start", signals.ANY), In("frequency", signals.ANY, "Hz"), In("amplitude", signals.ANY, "V")],
+      inputs=[DEVICE_INPUT, In("start", signals.EVENT, "Start it (without a wire: with the flow)"),
+              In("frequency", signals.ANY, "A new frequency while it plays (Hz)"),
+              In("amplitude", signals.ANY, "A new amplitude while it plays (V)")],
       outputs=_OUTPUTS,
-      params=_OUTPUT_PARAMS + [Param("kind", "choice", waves.SINE, choices=waves.ANALOG_KINDS[:-1]),
-                               Param("frequency", "quantity", "1 kHz", "Hz"), Param("amplitude", "quantity", "1 V", "V"),
-                               Param("offset", "quantity", "0 V", "V"), Param("duty", "float", 0.5)],
-      icon="wave")
+      params=_output_params("analog+square") + [
+          Param("kind", "choice", waves.SINE, choices=waves.ANALOG_KINDS[:-1], label="shape",
+                description="Sine, square, triangle, ramp, pulse, DC or noise"),
+          Param("frequency", "quantity", "1 kHz", "Hz", label="frequency", description="Periods per second"),
+          Param("amplitude", "quantity", "1 V", "V", label="amplitude",
+                description="Half the swing from lowest to highest (noise: the standard deviation)"),
+          Param("offset", "quantity", "0 V", "V", label="offset", description="The middle of the swing"),
+          Param("duty", "float", 0.5, only_if={"kind": (waves.SQUARE, waves.PULSE)}, label="duty cycle",
+                minimum=0.0, maximum=1.0, description="The share of the period at the high level: 0..1")],
+      icon="wave", summary=("kind", "frequency", "amplitude"), keywords=("sine", "square", "function generator", "awg"))
 class WaveformNode(_GeneratorNode):
     async def setup(self) -> None:
         await super().setup()
@@ -152,16 +167,22 @@ class WaveformNode(_GeneratorNode):
             await self.play(self.waveform())
 
 
-@node("gen.arbitrary", title="Arbitrary waveform",
+@node("generator.arbitrary", title="Arbitrary",
       description="Arbitrary points on an analog output: a formula over one pass (x from 0 to 1, numpy "
                   "functions), a CSV file (one column of volts, or time and volts), or the analog signal "
                   "arriving at 'signal'. 'frequency' sets the passes per second; without it a CSV file with "
                   "times and a signal play at their own rate.",
-      inputs=[DEVICE_INPUT, In("signal", signals.ANALOG, "points to play")],
+      inputs=[DEVICE_INPUT, In("signal", signals.ANALOG, "The points to play (an analog signal)")],
       outputs=_OUTPUTS,
-      params=_OUTPUT_PARAMS + [Param("formula", "str", "sin(2*pi*x)"), Param("file", "path"),
-                               Param("frequency", "quantity", "1 kHz", "Hz"), Param("points", "int", 1024)],
-      icon="wave")
+      params=_output_params("analog") + [
+          Param("formula", "str", "sin(2*pi*x)", unless_wired="signal", only_if={"file": None}, label="formula",
+                description="Volts over one pass, x from 0 to 1 (numpy functions)"),
+          Param("file", "path", unless_wired="signal", label="CSV file",
+                description="One column of volts, or time and volts"),
+          Param("frequency", "quantity", "1 kHz", "Hz", label="frequency", description="Passes per second"),
+          Param("points", "int", 1024, unless_wired="signal", only_if={"file": None}, label="points",
+                description="Points of one pass of the formula", minimum=2, advanced=True)],
+      icon="wave", summary=("formula", "frequency"), keywords=("arbitrary", "awg", "formula", "csv"))
 class ArbitraryNode(_GeneratorNode):
     def given_frequency(self) -> Optional[float]:
         """'frequency' when it was written: else a CSV file's times or the signal's rate set it."""
@@ -184,14 +205,19 @@ class ArbitraryNode(_GeneratorNode):
         await self.play(waves.from_analog(value, frequency=self.given_frequency()))
 
 
-@node("gen.pattern", title="Pattern",
+@node("generator.pattern", title="Pattern",
       description="A digital pattern on a pattern output: SDL text per pin ('tracks', e.g. {D0: 'l5;h5;'}) "
                   "at 'rate', or the capture arriving at 'capture'. 'repeat': passes (0: until stopped).",
-      inputs=[DEVICE_INPUT, In("capture", signals.CAPTURE, "a capture to play as pattern")],
+      inputs=[DEVICE_INPUT, In("capture", signals.CAPTURE, "A capture to play as the pattern")],
       outputs=_OUTPUTS,
-      params=_OUTPUT_PARAMS + [Param("tracks", "dict", description="SDL per pin"),
-                               Param("rate", "quantity", "1 MHz", "Hz"), Param("repeat", "int", 0)],
-      icon="channels")
+      params=_output_params("pattern") + [
+          Param("tracks", "dict", description="SDL per pin: Edit pattern… builds them from blocks (clock, square "
+                                              "wave, bytes, ...)",
+                suggest="pins:DOUT", editor="pattern", unless_wired="capture", label="pattern"),
+          Param("rate", "quantity", "1 MHz", "Hz", unless_wired="capture", label="rate",
+                description="Steps of the pattern per second"),
+          Param("repeat", "int", 0, description="Passes (0: until stopped)", label="repeat", minimum=0)],
+      icon="channels", summary=("tracks", "rate", "repeat"), keywords=("digital", "sdl", "bits", "clock"))
 class PatternNode(_GeneratorNode):
     async def run(self) -> None:
         if self.ctx.wired("capture"):
@@ -279,21 +305,25 @@ class _TransmitNode(_GeneratorNode):
         await self.play(waveform, done=count)
 
 
-_TX_PARAMS = _OUTPUT_PARAMS + [Param("data", "str", "Hello", description="text, or bytes as a list"),
-                               Param("rate", "quantity", "1 MHz", "Hz",
-                                     description="sample rate of the pattern (devices without TX_* hardware)")]
-_TX_OUTPUTS = [Out("sync", signals.EVENT, "the transmission started"),
-               Out("done", signals.EVENT, "the transmission is through (data: the bytes sent)"),
-               Out("received", signals.EVENT, "the bytes read back (SPI: on MISO, I²C: 'read' bytes; "
+_TX_PARAMS = _output_params("pattern") + [
+    Param("data", "str", "Hello", description="Text, or bytes as a list", label="data", unless_wired="data"),
+    Param("rate", "quantity", "1 MHz", "Hz", label="pattern rate", advanced=True,
+          description="Samples per second of the pattern (devices without a UART, SPI or I²C of their own)")]
+_TX_INPUT = In("data", signals.ANY, "Send each value (text, bytes, numbers)")
+_TX_OUTPUTS = [Out("sync", signals.EVENT, "The transmission started"),
+               Out("done", signals.EVENT, "The transmission is through (data: the bytes sent)"),
+               Out("received", signals.EVENT, "The bytes read back (SPI: on MISO, I²C: 'read' bytes; "
                                               "with the device's own SPI or I²C)")]
 
 
-@node("gen.tx_uart", title="Send UART",
+@node("generator.uart", title="UART",
       description="Sends the bytes of 'data' (or of each value at 'data') as 8N1 UART frames on 'pin': with "
                   "the device's own UART where it has one (TX_UART), else as a pattern on a pattern output.",
-      inputs=[DEVICE_INPUT, In("data", signals.ANY)], outputs=_TX_OUTPUTS,
-      params=_TX_PARAMS + [Param("pin", "str", "D0", suggest="pins:DOUT"), Param("baud", "quantity", "115200 Hz", "Hz")],
-      icon="arrow-right")
+      inputs=[DEVICE_INPUT, _TX_INPUT], outputs=_TX_OUTPUTS,
+      params=_TX_PARAMS + [Param("pin", "str", "D0", suggest="pins:DOUT", label="TX pin",
+                                 description="The pin that sends"),
+                           Param("baud", "quantity", "115200 Hz", "Hz", label="baud", description="Bits per second")],
+      icon="arrow-right", summary=("pin", "baud", "data"), keywords=("send", "serial", "tx", "transmit"))
 class UartNode(_TransmitNode):
     protocol = "uart"
 
@@ -307,13 +337,16 @@ class UartNode(_TransmitNode):
         return {"baud": self.q("baud")}
 
 
-@node("gen.tx_spi", title="Send SPI",
+@node("generator.spi", title="SPI",
       description="Sends 'data' as SPI mode 0 (MSB first) on the pins 'pins' (CS, SCK, MOSI); with the "
                   "device's own SPI (TX_SPI) the bytes on 'miso' come back at 'received'.",
-      inputs=[DEVICE_INPUT, In("data", signals.ANY)], outputs=_TX_OUTPUTS,
-      params=_TX_PARAMS + [Param("pins", "list", ["D0", "D1", "D2"], suggest="pins:DOUT"), Param("miso", "str", "", suggest="pins:DIN"),
-                           Param("clock", "quantity", "100 kHz", "Hz")],
-      icon="arrow-right")
+      inputs=[DEVICE_INPUT, _TX_INPUT], outputs=_TX_OUTPUTS,
+      params=_TX_PARAMS + [Param("pins", "list", ["D0", "D1", "D2"], suggest="pins:DOUT", label="pins (CS, SCK, MOSI)",
+                                 description="In this order: chip select, clock, data out"),
+                           Param("miso", "str", "", suggest="pins:DIN", label="MISO pin",
+                                 description="The pin data comes back on (the device's own SPI)"),
+                           Param("clock", "quantity", "100 kHz", "Hz", label="clock", description="Bits per second")],
+      icon="arrow-right", summary=("pins", "clock", "data"), keywords=("send", "transmit", "mosi"))
 class SpiNode(_TransmitNode):
     protocol = "spi"
 
@@ -337,14 +370,18 @@ class SpiNode(_TransmitNode):
         return {"frequency": self.q("clock")}
 
 
-@node("gen.tx_i2c", title="Send I²C",
+@node("generator.i2c", title="I²C",
       description="Writes 'data' to the I²C 'address' on the pins 'pins' (SCL, SDA) and reads 'read' bytes "
                   "back (devices with their own I²C, TX_I2C; else the write as a pattern).",
-      inputs=[DEVICE_INPUT, In("data", signals.ANY)], outputs=_TX_OUTPUTS,
-      params=_TX_PARAMS + [Param("pins", "list", ["D0", "D1"], suggest="pins:DOUT"),
-                           Param("address", "any", 0x50, description="7 bit: 72 or 0x48"),
-                           Param("read", "int", 0), Param("clock", "quantity", "100 kHz", "Hz")],
-      icon="arrow-right")
+      inputs=[DEVICE_INPUT, _TX_INPUT], outputs=_TX_OUTPUTS,
+      params=_TX_PARAMS + [Param("pins", "list", ["D0", "D1"], suggest="pins:DOUT", label="pins (SCL, SDA)",
+                                 description="In this order: clock, data"),
+                           Param("address", "any", 0x50, description="The 7 bit address: 72 or 0x48",
+                                 label="address"),
+                           Param("read", "int", 0, label="read bytes", minimum=0,
+                                 description="Bytes read back after the write"),
+                           Param("clock", "quantity", "100 kHz", "Hz", label="clock", description="Bits per second")],
+      icon="arrow-right", summary=("address", "pins", "data"), keywords=("send", "write", "i2c", "twi", "sensor"))
 class I2cNode(_TransmitNode):
     protocol = "i2c"
 
@@ -372,15 +409,18 @@ class I2cNode(_TransmitNode):
         return {"address": self.address(), "frequency": self.q("clock"), "read": int(self.p("read", 0))}
 
 
-@node("gen.replay", title="Replay",
+@node("generator.replay", title="Replay",
       description="Plays a capture: its digital channels on a pattern output under their own names, or only "
                   "the channels of 'pins' under new names (e.g. {CH1: D0}); or one analog channel ('analog') on "
                   "an analog output.",
-      inputs=[DEVICE_INPUT, In("capture", signals.CAPTURE)], outputs=_OUTPUTS,
-      params=_OUTPUT_PARAMS + [Param("pins", "dict", description="capture channel -> output pin"),
-                               Param("analog", "str", description="the analog channel to play", suggest="upstream_channels"),
-                               Param("repeat", "int", 1)],
-      icon="repeat")
+      inputs=[DEVICE_INPUT, In("capture", signals.CAPTURE, "The capture to play")], outputs=_OUTPUTS,
+      params=_OUTPUT_PARAMS + [Param("pins", "dict", description="Capture channel → output pin",
+                                     suggest="upstream_channels", editor="mapping", values="pins:DOUT", label="pins"),
+                               Param("analog", "str", description="The analog channel to play (instead of the pins)",
+                                     suggest="upstream_channels", label="analog channel"),
+                               Param("repeat", "int", 1, label="repeat", description="Passes (0: until stopped)",
+                                     minimum=0)],
+      icon="repeat", summary=("pins", "analog", "repeat"), keywords=("play", "capture", "playback"))
 class ReplayNode(_GeneratorNode):
     async def on_input(self, port: str, value: Any) -> None:
         repeat = int(self.p("repeat", 1))
@@ -401,15 +441,18 @@ class ReplayNode(_GeneratorNode):
         await self.play(waveform)
 
 
-@node("gen.output", title="Generator output",
+@node("generator.file", title="Waveform file",
       description="Plays the waveform arriving at 'waveform' (from a *.wave.yaml 'file' without a wire); "
                   "'sync' marks every start, e.g. to arm a capture.",
-      inputs=[DEVICE_INPUT, In("waveform", signals.ANY), In("stop", signals.ANY)], outputs=_OUTPUTS,
-      params=_OUTPUT_PARAMS + [Param("file", "path", description="a *.wave.yaml or *.sdl file"),
-                               Param("pin", "str", "D0", description="a *.sdl file: the pin it plays on",
-                                     suggest="pins:DOUT"),
-                               Param("rate", "quantity", "1 MHz", "Hz", description="a *.sdl file: its sample rate")],
-      icon="play")
+      inputs=[DEVICE_INPUT, In("waveform", signals.ANY, "A waveform to play (instead of the file)"),
+              In("stop", signals.EVENT, "Stop playing")], outputs=_OUTPUTS,
+      params=_OUTPUT_PARAMS + [Param("file", "path", description="A *.wave.yaml or *.sdl file", unless_wired="waveform",
+                                     label="file"),
+                               Param("pin", "str", "D0", description="A *.sdl file: the pin it plays on",
+                                     suggest="pins:DOUT", only_if={"file": "*.sdl"}, label="pin"),
+                               Param("rate", "quantity", "1 MHz", "Hz", description="A *.sdl file: its sample rate",
+                                     only_if={"file": "*.sdl"}, label="rate")],
+      icon="play", summary=("file", "output"), keywords=("wave.yaml", "sdl", "play"))
 class OutputNode(_GeneratorNode):
     async def run(self) -> None:
         if self.ctx.wired("waveform"):

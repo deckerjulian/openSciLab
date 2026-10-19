@@ -1,0 +1,153 @@
+flow: Loopback test
+description: 'generator.pattern plays 2 ms long patterns on GP2-GP4 for 1 s: a 100 kHz clock on GP2, data on GP3 (two clocks high, two low: 25 kHz) and "openSciLab" as UART frames on GP4 (100 kBd). Its sync arms a capture of GP6-GP8 that starts at the falling edge of GP8: the frequencies of GP6 and GP7, the UART text of GP8. After it a state capture takes 64 states of GP7 on the rising edges of GP6: 1, 1, 0, 0, ... - 16 rising edges. When the pattern is over, PWM on GP2 (1 kHz, 25 %) is measured at GP6, then generator.spi sends "openSciLab" with CS on GP5, SCK on GP4 and MOSI on GP3; MISO is GP7, so the bytes come back.'
+nodes:
+  pico: {type: device.device, signals: {scenario: idle}, at: [0, 592]}
+  pattern:
+    type: generator.pattern
+    tracks:
+      GP2: |-
+        // clock period=10 start=low
+        {l5,h5,}200;
+      GP3: |-
+        // square high=20 low=20 start=high
+        {h20,l20,}50;
+      GP4: |-
+        // UART 100 kBd at 1 MHz (10 samples a bit): idle, "openSciLab" and a line feed, idle
+        $1;{<0>,l10,}1;{<1>,h10,}1;h400;
+        l10;b0x6F;h10; // o
+        l10;b0x70;h10; // p
+        l10;b0x65;h10; // e
+        l10;b0x6E;h10; // n
+        l10;b0x53;h10; // S
+        l10;b0x63;h10; // c
+        l10;b0x69;h10; // i
+        l10;b0x4C;h10; // L
+        l10;b0x61;h10; // a
+        l10;b0x62;h10; // b
+        l10;b0x0A;h10; // \n
+        h500;
+    rate: 1 MHz
+    repeat: 0
+    duration: 1 s
+    at: [288, 584]
+  loop:
+    type: device.capture
+    channels: [GP6, GP7, GP8]
+    rate: 10 MHz
+    duration: 4 ms
+    pre: 100
+    trigger: {edge: falling, source: GP8}
+    at: [576, 376]
+  clock: {type: measure.frequency, at: [864, 264]}
+  clock_check:
+    type: report.check
+    expected: 100000
+    tolerance: 100
+    unit: Hz
+    title: Clock GP2 -> GP6
+    at: [1152, 208]
+  data: {type: measure.frequency, at: [864, 376]}
+  data_check:
+    type: report.check
+    expected: 25000
+    tolerance: 50
+    unit: Hz
+    title: Data GP3 -> GP7
+    at: [1152, 416]
+  uart: {type: decoder.uart, channels: {rx: GP8}, baudrate: 100000, format: ascii, at: [864, 640]}
+  uart_check: {type: control.compare, value: openSciLab, operator: contains, at: [1152, 616]}
+  scope: {type: view.scope, title: GP6-GP8, at: [864, 488]}
+  states:
+    type: device.capture
+    channels: [GP7]
+    clock: GP6
+    clock_edge: rising
+    samples: 64
+    rate: 1 MHz
+    at: [864, 0]
+  bit: {type: convert.bit, bit: GP7, at: [1152, 0]}
+  rising: {type: measure.count, edge: rising, at: [1440, 0]}
+  state_check:
+    type: report.check
+    expected: 16
+    tolerance: 1
+    title: Rising edges of GP7 in 64 states (clock GP6)
+    at: [1728, 0]
+  phase_pwm:
+    type: control.sequence
+    steps: [{set: duty, value: 0.25}]
+    at: [576, 680]
+  pwm: {type: gpio.pwm, pin: GP2, frequency: 1 kHz, at: [864, 832]}
+  pwm_capture:
+    type: device.capture
+    channels: [GP6]
+    rate: 1 MHz
+    duration: 10 ms
+    pre: 100
+    trigger: {edge: rising, source: GP6}
+    at: [1152, 920]
+  pwm_frequency: {type: measure.frequency, at: [1440, 976]}
+  pwm_frequency_check:
+    type: report.check
+    expected: 1000
+    tolerance: 5
+    unit: Hz
+    title: PWM GP2 -> GP6, frequency
+    at: [1728, 928]
+  pwm_duty: {type: measure.duty, at: [1440, 1080]}
+  pwm_duty_check:
+    type: report.check
+    expected: 0.25
+    tolerance: 0.01
+    title: PWM GP2 -> GP6, duty cycle
+    at: [1728, 1128]
+  phase_spi:
+    type: control.sequence
+    steps: [{emit: go}]
+    at: [1440, 744]
+  spi:
+    type: generator.spi
+    pins: [GP5, GP4, GP3]
+    miso: GP7
+    clock: 1 MHz
+    data: openSciLab
+    at: [1728, 728]
+  spi_text:
+    type: control.python
+    inputs: [received]
+    outputs: [text]
+    code: |
+      def on_input(ctx, port, value):
+          ctx.emit("text", signals.Event(times=[ctx.now()], data=[bytes(value.data[-1]).decode(errors="replace")]))
+    at: [2016, 728]
+  spi_check: {type: control.compare, value: openSciLab, operator: ==, at: [2304, 728]}
+edges:
+  - pico.device -> pattern.device
+  - pico.device -> loop.device
+  - pico.device -> states.device
+  - pico.device -> pwm.device
+  - pico.device -> pwm_capture.device
+  - pico.device -> spi.device
+  - pattern.sync -> loop.arm
+  - loop.GP6 -> clock.in
+  - loop.GP7 -> data.in
+  - loop.capture -> uart.in
+  - loop.capture -> scope.in
+  - clock.out -> clock_check.in
+  - data.out -> data_check.in
+  - uart.text -> uart_check.a
+  - loop.done -> states.arm
+  - states.states -> bit.in
+  - bit.out -> rising.in
+  - rising.out -> state_check.in
+  - pattern.done -> phase_pwm.start
+  - phase_pwm.duty -> pwm.duty
+  - pwm.done -> pwm_capture.arm
+  - pwm_capture.GP6 -> pwm_frequency.in
+  - pwm_capture.GP6 -> pwm_duty.in
+  - pwm_frequency.out -> pwm_frequency_check.in
+  - pwm_duty.out -> pwm_duty_check.in
+  - pwm_capture.done -> phase_spi.start
+  - phase_spi.go -> spi.data
+  - spi.received -> spi_text.received
+  - spi_text.text -> spi_check.a

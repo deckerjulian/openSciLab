@@ -25,10 +25,11 @@ from ..theme import (
     ERROR,
     PANEL,
     PANEL_LIGHT,
-    SELECTION,
     TEXT,
     TEXT_MUTED,
+    group_color,
     qcolor,
+    smaller_font,
     token,
     type_color,
 )
@@ -37,24 +38,18 @@ from . import preview
 if TYPE_CHECKING:  # pragma: no cover
     from .canvas import FlowScene
 
-NODE_WIDTH = 190
-HEADER = 28
-PORT_ROW = 20
+#: the width of a node (the layout's columns are this wide plus their gap)
+NODE_WIDTH = 208
+HEADER = 30
+PORT_ROW = 19
 PORT_RADIUS = 5
-PARAM_ROW = 15
-MAX_PARAM_ROWS = 4
+PARAM_ROW = 16
 GRID = 8
 #: the corner that resizes a group or comment, the edge a group is grabbed by
 GRIP = 14
 GROUP_EDGE = 8
 
 
-#: the colour of a node's kind (the first part of its type: ``device.stream`` -> device)
-CATEGORY_COLORS = {
-    "device": "#d4a23c", "gpio": "#e07b53", "gen": "#e0605f", "measure": "#3fb0a6", "dsp": "#47a3d6",
-    "convert": "#8590e3", "decode": "#6bb352", "view": "#5b8def", "data": "#a07fe0", "report": "#d0679f",
-    "control": "#b5b84a", "timing": "#e8a33d", "remote": "#4fb6e3", "structure": "#8a8a92",
-}
 #: the radius of a node's corners
 RADIUS = 7.0
 
@@ -62,7 +57,8 @@ _PIXMAPS: dict = {}
 
 
 def category_color(node_type: str) -> QColor:
-    return QColor(CATEGORY_COLORS.get(node_type.split(".", 1)[0], "#8a8a92"))
+    """The colour of a node's group (the first part of its type: ``device.stream`` -> device)."""
+    return QColor(group_color(node_type.split(".", 1)[0]))
 
 
 def _icon_pixmap(name: str, color: str, size: int):
@@ -91,6 +87,39 @@ def param_text(value) -> str:
     return text
 
 
+#: the shape of a port by the kind of its type (docs/design.md): round for values and events,
+#: square for signals, a diamond for captures and tables, a hexagon for devices
+SIGNAL_SHAPES = {"Digital": "square", "Analog": "square", "States": "square", "Capture": "diamond",
+                 "Table": "diamond", "Device": "hexagon"}
+
+
+def port_shape(type_name: str, radius: float) -> QPainterPath:
+    """The outline of a port of ``type_name`` around (0, 0)."""
+    path = QPainterPath()
+    shape = SIGNAL_SHAPES.get(type_name, "circle")
+    if shape == "square":
+        side = radius * 1.8
+        path.addRoundedRect(QRectF(-side / 2, -side / 2, side, side), 1.5, 1.5)
+    elif shape == "diamond":
+        reach = radius * 1.3
+        path.moveTo(0, -reach)
+        path.lineTo(reach, 0)
+        path.lineTo(0, reach)
+        path.lineTo(-reach, 0)
+        path.closeSubpath()
+    elif shape == "hexagon":
+        import math
+
+        for corner in range(6):
+            angle = math.pi / 6 + corner * math.pi / 3
+            point = QPointF(radius * 1.15 * math.cos(angle), radius * 1.15 * math.sin(angle))
+            path.lineTo(point) if corner else path.moveTo(point)
+        path.closeSubpath()
+    else:
+        path.addEllipse(QPointF(0, 0), radius, radius)
+    return path
+
+
 class PortItem(QGraphicsItem):
     """A port: a dot on the left (input) or right (output) edge of its node."""
 
@@ -105,12 +134,16 @@ class PortItem(QGraphicsItem):
         self.highlight: Optional[str] = None
         self.setAcceptHoverEvents(True)
         self.setCursor(Qt.CrossCursor)
-        self.setToolTip(f"{spec.name}: {spec.type}" + (" (needs a wire)" if is_input and not spec.optional else "")
-                        + (f"\n{spec.description}" if spec.description else "")
-                        + "\nDrag to connect; right-click for more")
-        x = 0 if is_input else NODE_WIDTH
-        self.setPos(x, HEADER + 4 + PORT_ROW * index + PORT_ROW / 2)
+        self.setToolTip(f"<b>{spec.name}</b> · {spec.type}" + (" · needs a wire" if is_input and not spec.optional
+                                                                else "")
+                        + (" · takes several wires" if is_input and spec.multiple else "")
+                        + (f"<br>{spec.description}" if spec.description else "")
+                        + "<br><i>Drag to connect; right-click for more</i>")
         self.setZValue(2)
+
+    def place(self, row: int, width: float) -> None:
+        """At its row on its edge (inputs left, outputs right, side by side)."""
+        self.setPos(0 if self.is_input else width, HEADER + 3 + PORT_ROW * row + PORT_ROW / 2)
 
     @property
     def name(self) -> str:
@@ -143,7 +176,7 @@ class PortItem(QGraphicsItem):
         if self.highlight == "ok":
             painter.setPen(QPen(color, 2))
             painter.setBrush(Qt.NoBrush)
-            painter.drawEllipse(QPointF(0, 0), PORT_RADIUS + 4, PORT_RADIUS + 4)
+            painter.drawPath(port_shape(self.spec.type, PORT_RADIUS + 4))
         elif self.highlight == "no":
             color.setAlpha(70)
         connected = self.node_item.scene_ref is not None and \
@@ -152,15 +185,22 @@ class PortItem(QGraphicsItem):
             # a required input without a wire: the flow cannot run like this
             painter.setPen(QPen(QColor(ERROR), 1.5, Qt.DashLine))
             painter.setBrush(Qt.NoBrush)
-            painter.drawEllipse(QPointF(0, 0), PORT_RADIUS + 3.5, PORT_RADIUS + 3.5)
+            painter.drawPath(port_shape(self.spec.type, PORT_RADIUS + 3.5))
         radius = PORT_RADIUS + (1.5 if self.hovered or self.highlight == "ok" else 0)
-        # a ring in the colour of its type, filled when wired; a dark rim lifts it off the node's edge
+        # the shape of its type in the colour of its type, filled when wired; a dark rim lifts it off
+        # the node's edge; an input that takes several wires has a second line
+        shape = port_shape(self.spec.type, radius)
         painter.setPen(QPen(QColor(PANEL), 3))
         painter.setBrush(Qt.NoBrush)
-        painter.drawEllipse(QPointF(0, 0), radius + 0.5, radius + 0.5)
+        painter.drawPath(port_shape(self.spec.type, radius + 0.5))
         painter.setPen(QPen(color, 2))
         painter.setBrush(QBrush(color if connected or self.hovered else QColor(PANEL)))
-        painter.drawEllipse(QPointF(0, 0), radius - 0.5, radius - 0.5)
+        painter.drawPath(port_shape(self.spec.type, radius - 0.5))
+        if self.is_input and self.spec.multiple:
+            painter.setPen(QPen(color, 1))
+            painter.setBrush(Qt.NoBrush)
+            painter.drawPath(port_shape(self.spec.type, radius + 2.5))
+        del shape
 
     def hoverEnterEvent(self, event) -> None:  # noqa: N802 - Qt naming
         self.hovered = True
@@ -230,9 +270,11 @@ class NodeItem(QGraphicsObject):
             self.ports.clear()
             for port, is_input, index in wanted:
                 self.ports[(port.name, is_input)] = PortItem(self, port, is_input, index)
+        for item in self.ports.values():
+            item.place(item.index, NODE_WIDTH)
         self.setZValue(-10 if node.type == "structure.group" else (5 if node.type == "structure.comment" else 0))
         self.reserved = preview.reserved_height(spec, self.is_decoration)
-        tip = node.type if spec is None else f"{spec.title} ({node.type})\n{spec.description}"
+        tip = node.type if spec is None else f"<b>{spec.full_title}</b> · {node.type}<br>{spec.description}"
         self.base_tooltip = tip + (f"\n\n{node.comment}" if node.comment else "")
         self.setToolTip(self.base_tooltip if not getattr(self, "error", "") else f"Error: {self.error}")
         self.update()
@@ -240,13 +282,22 @@ class NodeItem(QGraphicsObject):
     def port(self, name: str, is_input: bool) -> Optional[PortItem]:
         return self.ports.get((name, is_input))
 
-    def param_rows(self) -> list[str]:
+    def param_rows(self) -> list[tuple[str, str]]:
+        """``(label, value)`` of the settings the node shows: those of its summary, with their
+        effective values (defaults too: a new timer shows its interval)."""
         if self.spec is None:
-            return [f"unknown type {self.node.type}"]
-        rows = [f"{key}: {param_text(value)}" for key, value in self.node.params.items()]
-        if len(rows) > MAX_PARAM_ROWS:
-            rows = rows[:MAX_PARAM_ROWS - 1] + [f"… {len(rows) - MAX_PARAM_ROWS + 1} more"]
-        return rows
+            return [("", f"unknown type {self.node.type}")]
+        from ...lab.hints import summary
+
+        return summary(self.spec, self.node.params)
+
+    @property
+    def shows_ref(self) -> bool:
+        """Whether the node's name says more than its title (``cap2``, ``pump`` – not ``capture``)."""
+        if self.spec is None:
+            return True
+        base = self.spec.name
+        return not (self.node_id == base or (self.node_id.startswith(base) and self.node_id[len(base):].isdigit()))
 
     def _size(self) -> tuple[float, float]:
         if getattr(self, "_live_size", None) is not None:
@@ -260,10 +311,13 @@ class NodeItem(QGraphicsObject):
         width, height = self._base_size()
         return width, height + self.data_height()
 
+    def port_rows(self) -> int:
+        return max((sum(1 for key in self.ports if key[1]), sum(1 for key in self.ports if not key[1])), default=0)
+
     def _base_size(self) -> tuple[float, float]:
-        rows = max((sum(1 for key in self.ports if key[1]), sum(1 for key in self.ports if not key[1])), default=0)
+        rows = self.port_rows()
         params = len(self.param_rows())
-        return NODE_WIDTH, HEADER + 4 + rows * PORT_ROW + (params * PARAM_ROW + 8 if params else 0) + 6
+        return NODE_WIDTH, HEADER + 3 + rows * PORT_ROW + (params * PARAM_ROW + 9 if params else 0) + 6
 
     def layout_height(self) -> float:
         """The height to arrange the node with: with the room for its data, shown or not."""
@@ -350,7 +404,9 @@ class NodeItem(QGraphicsObject):
         self.update()
 
     def breakpoint_rect(self) -> QRectF:
-        return QRectF(6, (HEADER - 12) / 2 + 1, 12, 12)
+        """The dot at the right of the title that stops the run before this node (a click)."""
+        width, _height = self._size()
+        return QRectF(width - 19, (HEADER - 12) / 2, 12, 12)
 
     # ---------------------------------------------------------------- paint
     def paint(self, painter: QPainter, option: QStyleOptionGraphicsItem, widget=None) -> None:
@@ -391,13 +447,14 @@ class NodeItem(QGraphicsObject):
         elif self.state == "running":
             frame = QColor(token("run.running"))
         elif selected:
-            frame = QColor(SELECTION)
+            frame = QColor(ACCENT)
         body = QPainterPath()
         body.addRoundedRect(rect, RADIUS, RADIUS)
         # a soft shadow under the node
         painter.setPen(Qt.NoPen)
         for spread, alpha in ((6, 14), (4, 22), (2, 34)):
-            shade = QColor(0, 0, 0, alpha)
+            shade = qcolor("shadow")
+            shade.setAlpha(alpha)
             painter.setBrush(shade)
             painter.drawRoundedRect(rect.adjusted(-spread / 2, spread / 2, spread / 2, spread), RADIUS + spread / 2,
                                     RADIUS + spread / 2)
@@ -408,11 +465,11 @@ class NodeItem(QGraphicsObject):
             painter.setBrush(Qt.NoBrush)
             painter.drawRoundedRect(rect, RADIUS, RADIUS)
         painter.fillPath(body, QColor(PANEL_LIGHT))
-        # the title bar in the colour of the node's kind, a stripe of it on top
+        # the title bar tinted with the colour of the node's group, a stripe of it on top
         painter.save()
         painter.setClipPath(body)
         tint = QColor(accent)
-        tint.setAlpha(46)
+        tint.setAlpha(40)
         painter.fillRect(QRectF(0, 0, width, HEADER), QColor(PANEL))
         painter.fillRect(QRectF(0, 0, width, HEADER), tint)
         painter.fillRect(QRectF(0, 0, width, 3), accent)
@@ -423,103 +480,100 @@ class NodeItem(QGraphicsObject):
         painter.setBrush(Qt.NoBrush)
         painter.drawRoundedRect(rect.adjusted(0.5, 0.5, -0.5, -0.5), RADIUS, RADIUS)
 
-        # breakpoint (where it goes is shown while the pointer is on the node), then the icon
-        bp = self.breakpoint_rect()
-        if self.breakpoint:
-            painter.setBrush(QColor(token("run.breakpoint")))
-            painter.setPen(Qt.NoPen)
-            painter.drawEllipse(bp)
-        elif self.hovered or selected:
-            painter.setBrush(Qt.NoBrush)
-            painter.setPen(QPen(QColor(BORDER_STRONG), 1))
-            painter.drawEllipse(bp.adjusted(2, 2, -2, -2))
-        left = 22.0
+        # the icon of the node in its group's colour, its title, its name when that says more
+        left = 9.0
         if self.spec is not None and self.spec.icon:
-            painter.drawPixmap(QPointF(left, (HEADER - 14) / 2 + 1), _icon_pixmap(self.spec.icon, accent.lighter(115).name(), 14))
-            left += 19
-
+            painter.drawPixmap(QPointF(left, (HEADER - 14) / 2 + 1), _icon_pixmap(self.spec.icon, accent.lighter(120).name(), 14))
+            left += 20
+        # the right of the title: breakpoint, state, problems
+        right = width - 22.0
+        if self.state not in ("idle",):
+            right -= 14
+        if self.problems:
+            right -= 16
         font = QFont(painter.font())
         font.setBold(True)
         painter.setFont(font)
         painter.setPen(QColor(TEXT))
-        title = self.node_id
-        subtitle = self.spec.title if self.spec else self.node.type
+        title = self.spec.title if self.spec is not None else self.node.type
         metrics = QFontMetrics(font)
-        room = int(width - left - 22 - (18 if self.problems else 0))
+        room = int(right - left - 4)
         shown = metrics.elidedText(title, Qt.ElideRight, room)
         painter.drawText(QRectF(left, 1, room, HEADER), Qt.AlignLeft | Qt.AlignVCenter, shown)
-        if self.spec is not None and subtitle and subtitle.lower() != title.lower():
-            # what kind of node it is, after its name
+        if self.shows_ref:
             used = metrics.horizontalAdvance(shown) + 6
-            if room - used > 30:
-                light = QFont(font)
+            if room - used > 24:
+                light = smaller_font(font)
                 light.setBold(False)
-                light.setPointSizeF(max(light.pointSizeF() - 1, 7))
                 painter.setFont(light)
                 painter.setPen(QColor(TEXT_MUTED))
                 painter.drawText(QRectF(left + used, 1, room - used, HEADER), Qt.AlignLeft | Qt.AlignVCenter,
-                                 QFontMetrics(light).elidedText(subtitle, Qt.ElideRight, int(room - used)))
+                                 QFontMetrics(light).elidedText(self.node_id, Qt.ElideRight, int(room - used)))
                 painter.setFont(font)
-                painter.setPen(QColor(TEXT))
+        # breakpoint: a red dot when set, a ring while the pointer is on the node (a click sets it)
+        bp = self.breakpoint_rect()
+        if self.breakpoint:
+            painter.setBrush(QColor(token("run.breakpoint")))
+            painter.setPen(Qt.NoPen)
+            painter.drawEllipse(bp.adjusted(1, 1, -1, -1))
+        elif (self.hovered or selected) and not self.is_decoration:
+            painter.setBrush(Qt.NoBrush)
+            painter.setPen(QPen(QColor(BORDER_STRONG), 1.2, Qt.DotLine))
+            painter.drawEllipse(bp.adjusted(1.5, 1.5, -1.5, -1.5))
+        x = width - 22.0
+        if self.state not in ("idle",):
+            state_token = {"waiting": "run.waiting", "running": "run.running", "done": "run.done",
+                           "error": "run.error", "paused": "run.waiting"}.get(self.state, "run.idle")
+            x -= 14
+            painter.setBrush(QColor(token(state_token)))
+            painter.setPen(Qt.NoPen)
+            painter.drawEllipse(QRectF(x + 2, (HEADER - 9) / 2, 9, 9))
         if self.problems:
             # what keeps the flow from running (or may go wrong), on the node itself
             severe = any(severity == "error" for severity, _text in self.problems)
-            painter.setBrush(QColor(ERROR if severe else token("run.waiting")))
+            x -= 16
+            badge = QRectF(x + 1, (HEADER - 13) / 2, 13, 13)
+            painter.setBrush(QColor(ERROR if severe else token("status.warning")))
             painter.setPen(Qt.NoPen)
-            badge = QRectF(width - 36, (HEADER - 12) / 2 + 1, 12, 12)
             painter.drawEllipse(badge)
             painter.setPen(QColor(PANEL))
             painter.drawText(badge, Qt.AlignCenter, "!")
-        # state badge
-        if self.state not in ("idle",):
-            state_token = {"waiting": "run.waiting", "running": "run.running", "done": "run.done",
-                           "error": "run.error"}.get(self.state, "run.idle")
-            painter.setBrush(QColor(token(state_token)))
-            painter.setPen(Qt.NoPen)
-            painter.drawEllipse(QRectF(width - 18, (HEADER - 10) / 2 + 1, 10, 10))
 
+        font = smaller_font(font)
         font.setBold(False)
-        font.setPointSizeF(max(font.pointSizeF() - 1, 7))
         painter.setFont(font)
         small = QFontMetrics(font)
-        # ports: the name beside its dot, brighter when it is wired
+        # ports: the name beside its shape, brighter when it is wired; an input and an output of a
+        # row share it (the one that is alone in its row gets all of it)
         scene = self.scene_ref
+        taken = {(port.index, is_input) for (_name, is_input), port in self.ports.items()}
         for (name, is_input), port in self.ports.items():
             y = port.pos().y()
             wired = scene is not None and scene.port_connected(port.ref, is_input)
             painter.setPen(QColor(TEXT if wired else TEXT_MUTED))
+            room = (width - 26) if (port.index, not is_input) not in taken else (width / 2 - 14)
             if is_input:
-                painter.drawText(QRectF(12, y - PORT_ROW / 2, width / 2 - 14, PORT_ROW), Qt.AlignLeft | Qt.AlignVCenter,
-                                 small.elidedText(name, Qt.ElideRight, int(width / 2 - 14)))
+                painter.drawText(QRectF(13, y - PORT_ROW / 2, room, PORT_ROW), Qt.AlignLeft | Qt.AlignVCenter,
+                                 small.elidedText(name, Qt.ElideRight, int(room)))
             else:
-                painter.drawText(QRectF(width / 2, y - PORT_ROW / 2, width / 2 - 12, PORT_ROW),
-                                 Qt.AlignRight | Qt.AlignVCenter, small.elidedText(name, Qt.ElideLeft, int(width / 2 - 12)))
-        # parameters: a small table below a line, the name muted, the value bright
-        rows = max((sum(1 for key in self.ports if key[1]), sum(1 for key in self.ports if not key[1])), default=0)
-        y = HEADER + 4 + rows * PORT_ROW
+                painter.drawText(QRectF(width - 13 - room, y - PORT_ROW / 2, room, PORT_ROW),
+                                 Qt.AlignRight | Qt.AlignVCenter, small.elidedText(name, Qt.ElideLeft, int(room)))
+        # the settings: their names muted, their values bright, below a line
+        y = HEADER + 3 + self.port_rows() * PORT_ROW
         params = self.param_rows()
         if params:
             painter.setPen(QPen(QColor(BORDER), 1))
             painter.drawLine(QPointF(10, y + 3), QPointF(width - 10, y + 3))
-            y += 7
-        if not self.ports and not params:
+            y += 8
+        for label, value in params:
+            key_width = min(small.horizontalAdvance(label) + 10, int((width - 20) * 0.5)) if label else 0
             painter.setPen(QColor(TEXT_MUTED))
-            painter.drawText(QRectF(10, y, width - 20, PARAM_ROW), Qt.AlignLeft | Qt.AlignVCenter, subtitle)
-        for row in params:
-            key, separator, value = row.partition(": ")
-            if not separator:
-                painter.setPen(QColor(TEXT_MUTED))
-                painter.drawText(QRectF(10, y, width - 20, PARAM_ROW), Qt.AlignLeft | Qt.AlignVCenter,
-                                 small.elidedText(row, Qt.ElideRight, int(width - 20)))
-            else:
-                key_width = min(small.horizontalAdvance(key) + 8, int((width - 20) * 0.45))
-                painter.setPen(QColor(TEXT_MUTED))
-                painter.drawText(QRectF(10, y, key_width, PARAM_ROW), Qt.AlignLeft | Qt.AlignVCenter,
-                                 small.elidedText(key, Qt.ElideRight, key_width - 6))
-                painter.setPen(QColor(TEXT))
-                painter.drawText(QRectF(10 + key_width, y, width - 20 - key_width, PARAM_ROW),
-                                 Qt.AlignRight | Qt.AlignVCenter,
-                                 small.elidedText(value, Qt.ElideRight, int(width - 20 - key_width)))
+            painter.drawText(QRectF(10, y, key_width, PARAM_ROW), Qt.AlignLeft | Qt.AlignVCenter,
+                             small.elidedText(label, Qt.ElideRight, max(key_width - 6, 0)))
+            painter.setPen(QColor(TEXT))
+            painter.drawText(QRectF(10 + key_width, y, width - 20 - key_width, PARAM_ROW),
+                             Qt.AlignRight | Qt.AlignVCenter,
+                             small.elidedText(value, Qt.ElideRight, int(width - 20 - key_width)))
             y += PARAM_ROW
         if self.data_height():
             preview.paint(painter, self.data_rect(), self.data_entries, font)

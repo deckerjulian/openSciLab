@@ -133,3 +133,24 @@ def test_declining_the_parent_adds_nothing(manager, decoder_registry, monkeypatc
     manager.add_decoder()
 
     assert manager.provider.instances == []
+
+
+def test_a_decoder_is_added_at_once_and_its_options_are_edited_below_the_list(
+        application, decoder_registry, monkeypatch):
+    from openscilab.ui.dialogs.decoder_options import DecoderOptionsDialog
+
+    model = CaptureViewModel()
+    model.set_session(make_session())
+    manager = DecoderManager(model, SigrokProvider(decoder_registry))
+    manager.auto_decode.setChecked(False)
+    choose_in_browser(monkeypatch, decoder_registry.get("testdec"))
+    manager.add_decoder()  # (no second dialog: the channels are found by name or come first)
+    (instance,) = manager.provider.instances
+    assert manager.selected_instance() is instance
+    manager.edit_selected()
+    _editing, editor = manager._editing
+    assert isinstance(editor, DecoderOptionsDialog) and not editor.isWindow()  # a part of the panel
+    assert not manager.options_holder.isHidden()
+    editor._accept()
+    assert manager._editing is None and manager.options_holder.isHidden()
+    manager.close()

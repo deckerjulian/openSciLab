@@ -113,7 +113,7 @@ def test_the_capture_settings_are_edited_without_touching_the_defaults(applicati
     dialog.clear_capture_settings()
     dialog.clear_decoders()
     dialog._accept()
-    assert dialog.profile is None and "needs capture settings or decoders" in dialog.message.text()
+    assert dialog.profile is None and "needs a capture setup or decoders" in dialog.message.text()
 
 
 def test_the_profiles_menu_edits_a_profile(application, monkeypatch, make_dataview):

@@ -2,7 +2,7 @@
 
 Every function of openSciLab works without hardware: a simulated instrument behaves like the real
 one, including its limits (rates, memory depth, stream throughput, latency, reserved pins). Open
-one from the device list of the sidebar (*Simulation: Arduino Uno*, ...), in a flow as a device
+one from the device list of the sidebar (*Simulated Arduino Uno*, ...), in a flow as a device
 `sim:<profile>`, on the command line (`openscilab capture --device sim:free ...`) or in scripts:
 
 ```python
@@ -58,10 +58,10 @@ In a flow the device node says it, in scripts `open_simulated`:
 
 ```yaml
 nodes:
-  uart: {type: device.instrument, address: "sim:free",
+  uart: {type: device.device, address: "sim:free",
          signals: {scenario: uart, text: "Hello\n", baud: 9600, channel: 1}}
-  c64:  {type: device.instrument, address: "sim:pico*2", signals: {scenario: c64}}
-  own:  {type: device.instrument, address: "sim:uno#2",
+  c64:  {type: device.device, address: "sim:pico*2", signals: {scenario: c64}}
+  own:  {type: device.device, address: "sim:uno#2",
          signals: {channels: {D5: {type: square, frequency: 1 kHz}}}}
 ```
 
@@ -76,7 +76,7 @@ Without `signals`, a flow that opens the simulator itself (virtual time) uses wh
 of the same address in the device list was told.
 
 To see the C64 at work: connect *Simulated multi device…* (Pico, 2 boards), choose *C64 bus* on
-its *Signals* tab, load the profile *C64 expansion port - LogicAnalyzer V2: board B (master) + board A (slave)* (*Profiles* in the header of the device card) and
+its *Signals* tab, load the profile *C64 expansion port - LogicAnalyzer V2: board B (master) + board A (slave)* (*Profiles* in the tool bar of its data view) and
 capture – the result is the capture `examples/c64-demo.lac`, decoded by the C64 bus decoder.
 
 ## Profiles
@@ -85,12 +85,13 @@ capture – the result is the capture `examples/c64-demo.lac`, decoded by the C6
 | --- | --- |
 | `free` | 16 logic channels with test signals (counter with clock, UART, SPI, I²C, 1 kHz); pattern generator on D0-D7 (looped back); trigger input `TRIG IN` on D15. Built in. |
 | `uno` | Arduino Uno with the openSciLab firmware: GPIO with latency and watchdog, PWM, A0-A5 (10 bit, 5 V). The limits of its firmware: captures of 448 samples (8 channels) up to 100 kHz, pins only, at most 2 s after the trigger; streams of 11.5 kB/s (115200 baud) up to 20 kHz. Wired: D7 → D3, PWM of D9 → RC low pass (10 kΩ, 10 µF) → A0, a bouncing push button on D2. |
+| `mega` | Arduino Mega 2560 with the openSciLab firmware: all 70 pins (68 channels, D0/D1 carry the USB serial line), A0-A15 (10 bit, 5 V), state mode clocked by D2, D3, D18-D21 or a pin change pin. Captures of 4096 samples (one port of pins; 372 with all 68 channels) up to 100 kHz, streams of 11.5 kB/s up to 20 kHz. Wired: D34 → D35, A0 → A1, D3 → D2 (a clock for the state mode). |
 | `uno_r4` | Arduino Uno R4: like the Uno, D0/D1 free (native USB), 14 bit ADC, a 12 bit DAC on A0 (also a generator output). Captures of 12288 samples up to 1 MHz, streams of 500 kB/s up to 100 kHz. Wired: DAC (A0) → A1, D7 → D3, PWM of D9 → RC → A2. |
 | `pico` | Raspberry Pi Pico with the firmware 8: 24 channels (GP2-GP22, GP26-GP28), 100 MHz, depth by the number of channels, GPIO/PWM on every pin, ADC on GP26-GP28, pattern generator on consecutive pins from GP2 (up to GP22), stream 800 kB/s as the firmware reports. |
 | `daq` | A USB DAQ in the class of an NI USB-6001: AI0-AI7 (±10 V, 14 bit, one multiplexed ADC: 20 kS/s for all inputs together), AO0/AO1 (±10 V, 12 bit, AO0 also a generator output), P0.0-P0.7 and P1.0-P1.3; blocks arrive as over USB, its sample clock runs 30 ppm fast. Wired: P0.0 → P0.1 (loopback for the latency), AO0 → AI2; P0.7 free for a sync signal. |
 | `dho924s` | Rigol DHO924S: 4 analog channels (12 bit) and 16 logic channels, large captures arrive progressively over a simulated network; generator output GI (25 MHz) on CH1 with its sync on D15. |
 
-The values of `uno`, `uno_r4`, `pico` and `dho924s` are provisional (`"provisional"` in the file)
+The values of `uno`, `uno_r4`, `mega`, `pico` and `dho924s` are provisional (`"provisional"` in the file)
 until they are measured on the real devices.
 
 Profiles are JSON files in `examples/sim/`. Your own go into the folder `sim` of the settings
@@ -167,7 +168,7 @@ simulation:
     sim: [{from: D15, to: D3}]
 ```
 
-On the device card, *Signals → Wires* adds and removes wires of a connected simulator (*Add
+In the document of a device, *Signals → Wires* adds and removes wires of a connected simulator (*Add
 wire…*: from a pin to a channel), e.g. an output to a channel to measure the latency on the
 *Timing* tab (whose *Wire them* adds that wire at once). The wires are kept per device address and
 come back with the next connection, as the signals do.

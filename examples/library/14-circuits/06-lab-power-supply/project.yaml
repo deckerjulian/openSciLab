@@ -1,0 +1,10 @@
+project: Hybrid AC/DC lab power supply
+description: 'A lab supply that gives a set DC voltage, a set AC voltage or both (up to 230 V, AC as RMS) at OUT
+  against COM - built as good ones are, hybrid: turn RV_DC and RV_AC (at the 5 V reference: 0 to 230 V each); two
+  switching regulators (PWM, 500 Hz here so that it runs live - real ones switch at 50-200 kHz with far smaller
+  chokes) keep the rails VPOS and VNEG 10 V beyond the peak the output needs, and a linear power amplifier (PA94)
+  on those rails makes the output follow the setting exactly, its ripple gone, with little heat. The oscilloscope
+  shows the switching node SW, VPOS, OUT and VNEG.'
+open:
+- circuits/power-supply.circuit.yaml
+- flows/check.flow.yaml

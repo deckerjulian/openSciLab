@@ -71,6 +71,10 @@ ARDUINO_AVR_BAUD = 115200
 ARDUINO_FAST_BAUD = 2_000_000
 #: Arduino boards whose USB is the MCU itself (Uno R4, Leonardo): any baud rate works
 _ARDUINO_NATIVE = {0x0069, 0x1002, 0x0036, 0x8036}
+#: Arduino Mega 2560 (and ADK): opening the port restarts it into an STK500v2 bootloader that stays
+#: in it when a byte arrives during its first second, so the host waits before it asks
+ARDUINO_SLOW_BOOT = {(0x2341, 0x0010), (0x2341, 0x0042), (0x2341, 0x0242), (0x2341, 0x0044),
+                     (0x2A03, 0x0010), (0x2A03, 0x0042)}
 
 
 @dataclass
@@ -87,6 +91,11 @@ class ArduinoPort:
     def __post_init__(self) -> None:
         if not self.bauds:
             self.bauds = (self.baud,)
+
+    @property
+    def slow_boot(self) -> bool:
+        """The board's bootloader must not be asked while it runs (``ARDUINO_SLOW_BOOT``)."""
+        return (self.vid, self.pid) in ARDUINO_SLOW_BOOT
 
     @property
     def label(self) -> str:

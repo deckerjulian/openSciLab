@@ -44,7 +44,7 @@ def test_addresses_of_simulators():
     address = SimAddress.parse("pico*2#3")
     assert (address.profile, address.boards, address.instance) == ("pico", 2, 3)
     assert str(address) == "sim:pico*2#3" and address.spec == "pico*2"
-    assert address.title("Simulation: Pico") == "Simulation: Pico × 2 (3)"
+    assert address.title("Simulated Pico") == "Simulated Pico × 2 (3)"
     with pytest.raises(ValueError):
         SimAddress.parse("pico*9")
     with pytest.raises(ValueError):
@@ -142,7 +142,7 @@ def test_a_capture_file_is_played_on_its_channels():
 def test_a_multi_device_of_simulated_boards():
     instrument = open_simulated("pico*2", fast=True)
     driver = instrument.capture.driver
-    assert instrument.uri == "sim:pico*2" and instrument.name == "Simulation: Pico × 2"
+    assert instrument.uri == "sim:pico*2" and instrument.name == "Simulated Pico × 2"
     assert (driver.channel_count, driver.board_count, driver.channels_per_device) == (48, 2, 24)
     names = driver.channel_names()
     assert names[0] == "B1.GP2" and names[24] == "B2.GP2"
@@ -174,7 +174,7 @@ def test_a_flow_tells_its_simulator_what_to_simulate(tmp_path):
     from openscilab.lab.engine import Engine
 
     flow = Flow("uart")
-    flow.add_node("device.instrument", "sim", address="sim:free",
+    flow.add_node("device.device", "sim", address="sim:free",
                   signals={"scenario": "uart", "text": "A", "baud": 100_000, "channel": 1})
     flow.add_node("device.capture", "cap", channels=["D0"], rate="1 MHz", samples=2000)
     flow.connect("sim.device", "cap.device")
@@ -189,10 +189,10 @@ def test_two_simulators_of_one_profile_in_a_flow(tmp_path):
     from openscilab.lab.engine import Engine
 
     flow = Flow("two")
-    flow.add_node("device.instrument", "a", address="sim:uno")
-    flow.add_node("device.instrument", "b", address="sim:uno#2")
+    flow.add_node("device.device", "a", address="sim:uno")
+    flow.add_node("device.device", "b", address="sim:uno#2")
     for name in ("a", "b"):
-        flow.add_node("gpio.write", f"write_{name}", pin="D7", level=1)
+        flow.add_node("gpio.output", f"write_{name}", pin="D7", level=1)
         flow.connect(f"{name}.device", f"write_{name}.device")
     engine = Engine(flow, mode="virtual", data_dir=str(tmp_path))
     assert engine.run().ok
@@ -212,7 +212,7 @@ def test_the_device_list_connects_a_simulator_again_and_again(shell):
     first = shell.connect_entry(sim_entry(shell, "uno"))
     second = shell.connect_entry(sim_entry(shell, "uno"))
     assert (first.uri, second.uri) == ("sim:uno", "sim:uno#2")
-    assert first.name == "Simulation: Arduino Uno" and second.name == "Simulation: Arduino Uno (2)"
+    assert first.name == "Simulated Arduino Uno" and second.name == "Simulated Arduino Uno (2)"
     assert shell.device_card(first) is not shell.device_card(second)
     shell.disconnect_instrument(first, ask=False)
     third = shell.connect_entry(sim_entry(shell, "uno"))

@@ -118,7 +118,7 @@ def test_conversion_table_and_compatibility():
     assert signals.compatible("Analog", "Any")
     assert not signals.compatible("Analog", "Digital")
     found = signals.conversion("Analog", "Digital")
-    assert found is not None and found.node == "dsp.threshold"
+    assert found is not None and found.node == "signal.threshold"
     assert signals.conversion("Table", "Bool") is None
 
     digital = signals.convert(Analog(values=[0.0, 3.3], time=TimeBase.uniform(1)), "Digital")

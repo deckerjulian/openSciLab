@@ -31,7 +31,7 @@ from ...core import units
 from .. import colors
 from ...core.overview import column_envelope
 from ...driver.models import AnalogChannel
-from ..theme import DISPLAY
+from ..theme import DISPLAY, DISPLAY_ANALOG, qcolor, smaller_font
 
 # the waveform display is dark in both themes
 BORDER = DISPLAY["BORDER"]
@@ -47,7 +47,7 @@ RAW_ENVELOPE_LIMIT = 64
 #: Pixels per sample from which every sample gets a dot
 POINT_WIDTH = 6.0
 #: Colours of the analog tracks (after the digital palette)
-ANALOG_COLORS = ("#f5c542", "#4fc3f7", "#e57373", "#81c784", "#ba68c8", "#ffb74d", "#4db6ac", "#f06292")
+ANALOG_COLORS = DISPLAY_ANALOG
 
 
 def analog_color(channel: AnalogChannel) -> QColor:
@@ -167,8 +167,8 @@ class AnalogViewer(QWidget):
         font.setBold(True)
         painter.setFont(font)
         painter.drawText(rect.adjusted(12, 4, -6, -rect.height() / 2), Qt.AlignLeft | Qt.AlignTop, channel.display_name)
+        font = smaller_font(font, 1.5)
         font.setBold(False)
-        font.setPointSizeF(max(font.pointSizeF() - 1.5, 7))
         painter.setFont(font)
         painter.setPen(QColor(TEXT_MUTED))
         low, high = self.model.analog_range(channel)
@@ -255,13 +255,13 @@ class AnalogViewer(QWidget):
     def _draw_missing(self, painter: QPainter, rect: QRectF, progressive) -> None:
         """Hatch the parts that did not arrive yet (``progressive`` as the paint read it: the model
         may drop it while the paint runs, when the transfer ends)."""
-        hatch = QColor(255, 255, 255, 22)
+        hatch = qcolor("display.hatch")
         for tile in progressive.tiles_of(self.model.first_sample, self.model.first_sample + self.model.visible_samples):
             if progressive.loaded[tile]:
                 continue
             start, end = progressive.tile_range(tile)
             left, right = self.x_for(start), self.x_for(end)
-            painter.fillRect(QRectF(left, rect.top(), right - left, rect.height()), QColor(255, 255, 255, 8))
+            painter.fillRect(QRectF(left, rect.top(), right - left, rect.height()), qcolor("display.band"))
             painter.setPen(QPen(hatch, 1))
             x = left - rect.height()
             while x < right:

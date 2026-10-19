@@ -95,6 +95,14 @@ class SerialLink(ByteLink):
         except Exception:  # noqa: BLE001 - best effort
             log.debug("self._serial.close() failed: best effort", exc_info=True)
 
+    def wait_for_boot(self) -> None:
+        """Stay silent while the bootloader the opening of the port started runs."""
+        time.sleep(BOOT_QUIET_S)
+        try:
+            self._serial.reset_input_buffer()
+        except Exception as error:  # noqa: BLE001 - the port went away
+            raise LinkError(str(error)) from error
+
     def restart(self) -> bool:
         """Reset the board by DTR and stay silent while its bootloader runs."""
         try:

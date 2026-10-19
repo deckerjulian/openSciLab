@@ -43,8 +43,8 @@ def test_an_sdl_pattern_played_and_captured_is_identical():
     seen = run("""
 flow: Pattern
 nodes:
-  sim: {type: device.instrument, address: "sim:free"}
-  gen: {type: gen.pattern, rate: 1 MHz, tracks: {D0: "l5;h3;l2;h10;l4;h6;", D1: "h7;l13;h10;",
+  sim: {type: device.device, address: "sim:free"}
+  gen: {type: generator.pattern, rate: 1 MHz, tracks: {D0: "l5;h3;l2;h10;l4;h6;", D1: "h7;l13;h10;",
         D2: "{l1,h1,}15;", D7: "h1;l29;"}}
   cap: {type: device.capture, channels: [D0, D1, D2, D7], rate: 1 MHz, samples: 90,
         trigger: {edge: rising, source: D7}}
@@ -66,8 +66,8 @@ def test_the_afg_drives_ch1():
     seen = run("""
 flow: AFG
 nodes:
-  scope: {type: device.instrument, address: "sim:dho924s"}
-  gen: {type: gen.waveform, kind: square, frequency: 10 kHz, amplitude: 1.5 V, offset: 0.5 V}
+  scope: {type: device.device, address: "sim:dho924s"}
+  gen: {type: generator.waveform, kind: square, frequency: 10 kHz, amplitude: 1.5 V, offset: 0.5 V}
   cap: {type: device.capture, channels: [CH1], rate: 10 MHz, samples: 20000}
 edges:
   - scope.device -> gen.device
@@ -108,9 +108,9 @@ def test_replaying_a_capture():
     seen = run("""
 flow: Replay
 nodes:
-  sim: {type: device.instrument, address: "sim:free"}
+  sim: {type: device.device, address: "sim:free"}
   first:  {type: device.capture, channels: [D9], rate: 1 MHz, samples: 3000}
-  replay: {type: gen.replay, pins: {D9: D3}, repeat: 0}
+  replay: {type: generator.replay, pins: {D9: D3}, repeat: 0}
   second: {type: device.capture, channels: [D3], rate: 1 MHz, samples: 3000}
 edges:
   - sim.device -> first.device
@@ -130,8 +130,8 @@ def test_sending_uart():
     seen = run("""
 flow: UART
 nodes:
-  sim: {type: device.instrument, address: "sim:free"}
-  tx:  {type: gen.tx_uart, pin: D4, baud: 100 kHz, rate: 1 MHz, data: "Hi"}
+  sim: {type: device.device, address: "sim:free"}
+  tx:  {type: generator.uart, pin: D4, baud: 100 kHz, rate: 1 MHz, data: "Hi"}
   cap: {type: device.capture, channels: [D4], rate: 1 MHz, samples: 300,
         trigger: {edge: falling, source: D4}}
 edges:
@@ -174,8 +174,8 @@ def test_a_waveform_file_on_an_output(tmp_path):
     seen = run(f"""
 flow: File
 nodes:
-  scope: {{type: device.instrument, address: "sim:dho924s"}}
-  out: {{type: gen.output, file: "{path}", duration: 1 ms}}
+  scope: {{type: device.device, address: "sim:dho924s"}}
+  out: {{type: generator.file, file: "{path}", duration: 1 ms}}
   cap: {{type: device.capture, channels: [CH1], rate: 1 MHz, samples: 400}}
 edges:
   - scope.device -> out.device

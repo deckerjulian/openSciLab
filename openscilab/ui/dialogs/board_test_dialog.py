@@ -13,7 +13,6 @@ from __future__ import annotations
 from typing import Optional
 
 from PySide6.QtCore import QThread, Qt, Signal
-from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QDialog,
@@ -29,10 +28,10 @@ from PySide6.QtWidgets import (
 
 from ...driver.base import AnalyzerDriverBase, SelfTestResult, UnsupportedFeatureError
 from ..icons import set_icon
-from ..theme import set_role, set_variant
+from ..theme import qcolor, set_role, set_variant
 from .common import Banner, button_box, dialog_layout, heading, hint
 
-SEVERITY_COLORS = {"ok": QColor(46, 122, 64), "warning": QColor(154, 98, 18), "fail": QColor(168, 50, 50)}
+SEVERITY_COLORS = {"ok": qcolor("status.ok"), "warning": qcolor("status.warning"), "fail": qcolor("status.fail")}
 SEVERITY_TEXT = {"ok": "OK", "warning": "Warning", "fail": "Failed", "info": "Info"}
 
 #: Explanations of the firmware status codes that are not self-explanatory.
@@ -127,7 +126,7 @@ class BoardTestPanel(QWidget):
         self.running_changed.emit(False)
         if isinstance(outcome, UnsupportedFeatureError):
             self._set_summary(
-                "The firmware of this device has no self-test. Flash the firmware from the "
+                "The firmware of this device has no self-test. Install the firmware from the "
                 "firmware/ folder of this project (see firmware/README.md).",
                 "warning",
             )

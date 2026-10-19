@@ -37,7 +37,6 @@ from PySide6.QtWidgets import (
     QHeaderView,
     QLabel,
     QListWidget,
-    QMenu,
     QPushButton,
     QScrollArea,
     QSizePolicy,
@@ -207,6 +206,13 @@ class Sparkline(QWidget):
 #: Columns of the pin table
 COL_PIN, COL_CHANNEL, COL_NAME, COL_CAN, COL_MODE, COL_VALUE, COL_ACTION = range(7)
 PIN_COLUMNS = ["Pin", "Channel", "Name", "Can", "Mode", "Value", "Action"]
+#: the modes of a pin as people say them
+MODE_TITLES = {MODE_INPUT: "Input", MODE_INPUT_PULLUP: "Input (pull-up)", MODE_INPUT_PULLDOWN: "Input (pull-down)",
+               MODE_OUTPUT: "Output", MODE_PWM: "PWM", MODE_ANALOG: "Analog input"}
+#: what a pin can do, short (the capabilities the firmware reports: DIN, DOUT, ...)
+CAPABILITY_TITLES = {"DIN": "in", "DOUT": "out", "PULLUP": "pull-up", "PULLDOWN": "pull-down", "PWM": "PWM",
+                     "ADC": "analog in", "DAC": "analog out", "CLOCK": "clock", "CLOCK_SW": "clock (slow)",
+                     "SQUARE": "square wave"}
 PIN_WIDTHS = {COL_PIN: 48, COL_CHANNEL: 64, COL_NAME: 110, COL_CAN: 160, COL_MODE: 104, COL_VALUE: 84}
 
 
@@ -221,6 +227,8 @@ class DeviceDocument(DocumentWidget):
     document_kind = "device"
 
     data_requested = Signal(object)
+    #: a device node for the instrument in a flow (the active one, else a new one)
+    flow_requested = Signal(object)
     disconnect_requested = Signal(object)
     #: open the device again (it was disconnected or unplugged)
     reconnect_requested = Signal(object)
@@ -332,7 +340,7 @@ class DeviceDocument(DocumentWidget):
         if instrument.capture is not None:
             self.timing_page = self._build_timing_page()
             self.tabs.addTab(self.timing_page, icon("clock"), "Timing")
-        self.tabs.addTab(self._build_details_page(), icon("info"), "Details")
+        self.tabs.addTab(self._build_details_page(), icon("info"), "Overview")
 
         #: the pins the table was built for: other pins rebuild it, a status change does not
         self._pin_signature = None
@@ -387,17 +395,24 @@ class DeviceDocument(DocumentWidget):
         titles.addWidget(self.kind_label)
         header.addLayout(titles, 1)
 
-        self.data_button = QPushButton("Capture...", self)
-        set_icon(self.data_button, "record")
-        set_variant(self.data_button, "primary")
-        self.data_button.setToolTip("Capture with this device in a data view (settings, start, the captures)")
+        # Capture is Run in the header (F5); here: where captures are set up and shown, and the
+        # way into a flow
+        self.data_button = QPushButton("Data view", self)
+        set_icon(self.data_button, "channels")
+        self.data_button.setToolTip("The data view of this device: set up the next capture, its captures, decoders "
+                                    "and measurements (Run in the header captures)")
         self.data_button.clicked.connect(lambda: self.data_requested.emit(self.instrument))
         header.addWidget(self.data_button)
-        self.stream_record_button = QPushButton("Record", self)
+        self.flow_button = QPushButton("Use in a flow", self)
+        set_icon(self.flow_button, "nodes")
+        self.flow_button.setToolTip("Put this device into a flow: the open flow, or a new one")
+        self.flow_button.clicked.connect(lambda: self.flow_requested.emit(self.instrument))
+        header.addWidget(self.flow_button)
+        self.stream_record_button = QPushButton("Stream to disk", self)
         self.stream_record_button.setObjectName("stream-record")
-        set_icon(self.stream_record_button, "save")
-        self.stream_record_button.setToolTip("Record a stream to the disk until Stop: everything is kept (as long as "
-                                             "the disk has room); the recording opens in the data view")
+        set_icon(self.stream_record_button, "record")
+        self.stream_record_button.setToolTip("Stream to the disk until Stop: everything is kept (as long as the disk "
+                                             "has room); the recording opens in the data view")
         self.stream_record_button.clicked.connect(lambda: self.stream_record_requested.emit(self.instrument))
         self.stream_record_button.setVisible(getattr(self, "controller", None) is not None
                                              and self.controller.can_record())
@@ -411,28 +426,23 @@ class DeviceDocument(DocumentWidget):
         self.web_control_button.clicked.connect(self.open_web_control)
         self.web_control_button.setVisible(False)
         header.addWidget(self.web_control_button)
-        # the capture profiles of the device: saved settings (and decoders) loaded at a click
-        self.profiles_button = QPushButton("Profiles", self)
-        set_icon(self.profiles_button, "bookmark")
-        self.profiles_button.setToolTip("Capture profiles: load saved settings for this device, save the current "
-                                        "ones, the standard profiles")
-        self.profiles_menu = QMenu(self.profiles_button)
-        self.profiles_menu.aboutToShow.connect(self._fill_profiles)
-        self.profiles_button.setMenu(self.profiles_menu)
-        header.addWidget(self.profiles_button)
+        # (the capture profiles of the device are where captures are set up: the data view)
         # what concerns the device itself: buttons on the Details tab (made here, placed there)
         controller = self.controller
-        self.action_settings = QAction(icon("gear"), "Capture settings...", self)
+        self.action_settings = QAction(icon("gear"), "Capture setup...", self)
         self.action_settings.setToolTip("Channels, rate, length and trigger of the next capture")
         self.action_self_test = QAction(icon("checklist"), "Self-test...", self)
+        self.action_self_test.setToolTip("The board checks its pins, clock and memory")
         self.action_generated = QAction(icon("wave"), "Test signals of the board...", self)
         self.action_generated.setToolTip("Captures of test signals the board generates itself")
         self.action_network = QAction(icon("wifi"), "Network settings...", self)
+        self.action_network.setToolTip("The WLAN the board joins and its address")
         self.action_restart = QAction(icon("refresh"), "Restart device...", self)
         self.action_restart.setToolTip("Restart the device: outputs are released, what was set on it is gone")
         self.action_bootloader = QAction(icon("power"), "Restart into the bootloader...", self)
         self.action_bootloader.setToolTip("For a firmware update: the board appears as a USB drive")
         self.action_firmware = QAction(icon("chip"), "Update firmware...", self)
+        self.action_firmware.setToolTip("Install the firmware of this version of openSciLab")
         self.action_bridge = QAction(icon("import"), "Install bridge app...", self)
         self.action_bridge.setToolTip("Install the openSciLab bridge app on the oscilloscope (with adb over the "
                                       "network): captures are read on the instrument and come much faster")
@@ -527,8 +537,34 @@ class DeviceDocument(DocumentWidget):
             self._palette_actions = actions
         return self._palette_actions
 
-    # capturing happens in the data view (the header's Start captures there)
-    runnable = False
+    # ---------------------------------------------------- the header's Run
+    # Run captures with the settings of the next capture; the capture shows in the data view
+    run_label = "Capture"
+    run_tooltip = "Capture with the settings of the next capture; the data view shows it"
+
+    @property
+    def runnable(self) -> bool:
+        return self.controller is not None
+
+    @property
+    def can_start_run(self) -> bool:
+        return self.controller is not None and self.instrument in self.hub \
+            and self.instrument.status != InstrumentStatus.DISCONNECTED
+
+    @property
+    def run_state(self) -> str:
+        return "running" if self.controller is not None and self.controller.is_capturing else "idle"
+
+    def start_run(self) -> bool:
+        if self.controller is None or self.controller.is_capturing:
+            return False
+        session = self.controller.settings()
+        self.data_requested.emit(self.instrument)  # the data view that shows the capture
+        return session is not None and self.controller.capture(session)
+
+    def stop_run(self) -> None:
+        if self.controller is not None:
+            self.controller.abort()
 
     def channel_name(self, pin: PinInfo) -> str:
         """The name the capture settings give the channel of ``pin``."""
@@ -541,11 +577,6 @@ class DeviceDocument(DocumentWidget):
         if pin.analog_channel is not None:
             return self.controller.analog_names().get(pin.analog_channel, "")
         return ""
-
-    def _fill_profiles(self) -> None:
-        self.profiles_menu.clear()
-        if self.controller is not None:
-            self.controller.fill_profiles_menu(self.profiles_menu, self)
 
     def capture_summary(self) -> str:
         """The settings of the next capture in a line."""
@@ -562,7 +593,6 @@ class DeviceDocument(DocumentWidget):
         connected = self.instrument in self.hub and self.instrument.status != InstrumentStatus.DISCONNECTED
         self.action_reconnect.setVisible(bool(self.instrument.uri))
         self.action_copy.setVisible(True)
-        self.profiles_button.setVisible(controller is not None)
         self.capture_label.setVisible(controller is not None)
         if controller is None:
             for action in (self.action_settings, self.action_self_test, self.action_generated, self.action_network,
@@ -576,7 +606,6 @@ class DeviceDocument(DocumentWidget):
         summary = self.capture_summary()
         self.capture_label.setText(summary)
         self.capture_label.setToolTip(summary)
-        self.profiles_button.setEnabled(connected)
         for action, visible in ((self.action_settings, True),
                                 (self.action_generated, connected and controller.can_simulate_on_board()),
                                 (self.action_self_test, bool(driver.has_self_test)),
@@ -802,16 +831,19 @@ class DeviceDocument(DocumentWidget):
         return self._limits
 
     def _update_device_box(self) -> None:
-        """The buttons of the functions the device has, three in a row."""
+        """The functions the device has: a row each, the button and what it does."""
         box = getattr(self, "device_box", None)
         if box is None:
             return
         shown = [button for button in self.device_tool_buttons if button.defaultAction().isVisible()]
         for button in self.device_tool_buttons:
             self.device_grid.removeWidget(button)
+            self.device_grid.removeWidget(button.description)
             button.setVisible(button in shown)
+            button.description.setVisible(button in shown)
         for index, button in enumerate(shown):
-            self.device_grid.addWidget(button, index // 3, index % 3)
+            self.device_grid.addWidget(button, index, 0)
+            self.device_grid.addWidget(button.description, index, 1)
         box.setVisible(bool(shown))
 
     # ---------------------------------------------------------------- pins
@@ -908,11 +940,17 @@ class DeviceDocument(DocumentWidget):
         self.device_grid = QGridLayout()
         self.device_grid.setSpacing(6)
         self.device_tool_buttons = []
+        self.device_grid.setColumnStretch(1, 1)
         for action in self.device_actions:
             button = QToolButton(self.device_box)
             button.setDefaultAction(action)  # enabled and text follow the action (visible: see below)
             button.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
             button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+            # what it does, beside it (not only in a tool tip)
+            button.description = QLabel(action.toolTip() if action.toolTip() != action.text() else "",
+                                        self.device_box)
+            button.description.setWordWrap(True)
+            set_role(button.description, "hint")
             self.device_tool_buttons.append(button)
         box_layout.addLayout(self.device_grid)
         layout.addWidget(self.device_box)
@@ -979,7 +1017,7 @@ class DeviceDocument(DocumentWidget):
         layout.addWidget(note(
             "Samples are placed on this computer's clock - between the start command and their arrival, unless "
             "something better is known: a <b>latency</b> measured below, a <b>sync signal</b> every device records "
-            "(flow nodes <i>timing.sync</i> and <i>timing.align</i>), a <b>shared sample clock</b>, or a device and "
+            "(flow nodes <i>time.sync</i> and <i>time.align</i>), a <b>shared sample clock</b>, or a device and "
             "a computer that both follow <b>PTP, GPS or NTP</b>."))
         row = QHBoxLayout()
         self.time_settings_button = QPushButton("This computer's clock...", content)
@@ -1005,7 +1043,7 @@ class DeviceDocument(DocumentWidget):
             self.clock_box.addItem(title, key)
         self.clock_box.setToolTip("Shared or external: the sample clock of this device comes from another one "
                                   "(a reference clock, the clock output of an instrument); aligning it with a "
-                                  "sync signal (timing.align, drift auto) then fits only the offset")
+                                  "sync signal (time.align, drift auto) then fits only the offset")
         self.clock_box.activated.connect(self._clock_chosen)
         layout.addWidget(self.clock_box)
 
@@ -1062,7 +1100,7 @@ class DeviceDocument(DocumentWidget):
         row.addWidget(self.forget_latency_button)
         self.calibrate_button = QPushButton("In a flow (example)...", content)
         set_icon(self.calibrate_button, "nodes")
-        self.calibrate_button.setToolTip("Opens the example flow with the node timing.calibrate")
+        self.calibrate_button.setToolTip("Opens the example flow with the node time.latency")
         self.calibrate_button.clicked.connect(lambda: self.example_requested.emit("13-time/02-calibrate-latency"))
         row.addWidget(self.calibrate_button)
         row.addStretch(1)
@@ -1080,7 +1118,7 @@ class DeviceDocument(DocumentWidget):
         sync_row.addWidget(QLabel("Seed", self.sync_box))
         self.sync_seed = QSpinBox(self.sync_box)
         self.sync_seed.setRange(1, 999)
-        self.sync_seed.setToolTip("The same seed, the same intervals (as timing.sync)")
+        self.sync_seed.setToolTip("The same seed, the same intervals (as time.sync)")
         sync_row.addWidget(self.sync_seed)
         self.sync_button = QPushButton("Start", self.sync_box)
         set_icon(self.sync_button, "play")
@@ -1092,7 +1130,7 @@ class DeviceDocument(DocumentWidget):
         layout.addWidget(self.sync_box)
         self.sync_note = note("Edges at irregular intervals (20-60 ms) on the pin: wire it to a channel of every "
                               "device to align, e.g. an input of a DAQ that records it with its data. A flow "
-                              "aligns by it with <i>timing.align</i> (or <i>remote.sync</i>).")
+                              "aligns by it with <i>time.align</i> (or <i>remote.align</i>).")
         layout.addWidget(self.sync_note)
         layout.addStretch(1)
         scroll.setWidget(content)
@@ -1209,7 +1247,7 @@ class DeviceDocument(DocumentWidget):
         self.wire_button.setVisible(simulation is not None and self.signals_panel is not None)
         if not has_gpio:
             self.latency_note.setText("Measuring needs an output of the device wired to one of its channels; this "
-                                      "device has no outputs. A latency of a flow (timing.calibrate with another "
+                                      "device has no outputs. A latency of a flow (time.latency with another "
                                       "instrument) or a sync signal places its samples instead.")
         elif emulates_usb:
             self.latency_note.setText("The simulator emulates a USB link (Signals tab): wire the output to the "
@@ -1505,10 +1543,12 @@ class DeviceDocument(DocumentWidget):
         self.value_labels.clear()
         self.history.clear()
         for row, pin in enumerate(pins):
-            channel = "–" if pin.channel is None else str(pin.channel)
+            # the capture channel of the pin as the data view numbers it (CH1 is channel 0)
+            channel = "–" if pin.channel is None else f"CH{pin.channel + 1}"
             if pin.analog_channel is not None:
                 channel = f"{channel} / A{pin.analog_channel}" if pin.channel is not None else f"A{pin.analog_channel}"
-            can = ", ".join(sorted(pin.capabilities)) + f" · {pin.logic_level:g} V"
+            can = ", ".join(CAPABILITY_TITLES.get(item, item) for item in sorted(pin.capabilities)) \
+                + f" · {pin.logic_level:g} V"
             if not pin.usable:
                 can = f"reserved: {pin.reserved}"
             for column, value in ((COL_PIN, pin.name), (COL_CHANNEL, channel), (COL_NAME, self.channel_name(pin)),
@@ -1523,7 +1563,7 @@ class DeviceDocument(DocumentWidget):
                 continue
             mode = QComboBox(self.pin_table)
             for item in modes_of(pin):
-                mode.addItem(item, item)
+                mode.addItem(MODE_TITLES.get(item, item), item)
             mode.setCurrentIndex(max(mode.findData(gpio.mode(pin.name)), 0))
             mode.setEnabled(pin.usable)
             mode.currentIndexChanged.connect(lambda _index, name=pin.name, box=mode: self.set_mode(name, box.currentData()))
@@ -1584,8 +1624,10 @@ class DeviceDocument(DocumentWidget):
                     name.setText(self.channel_name(pin))
 
     def _actions(self, pin: PinInfo) -> QWidget:
-        """The actions a pin offers, one line each: switch and pulse, PWM, DAC."""
+        """The actions a pin offers in its mode: switch and pulse (PWM: frequency and duty), DAC."""
         widget = QWidget(self.pin_table)
+        lines: dict[str, list[QWidget]] = {"out": [], "pwm": []}
+        self.__dict__.setdefault("_action_lines", {})[pin.name] = lines
         layout = QGridLayout(widget)
         layout.setContentsMargins(2, 2, 2, 2)
         layout.setHorizontalSpacing(4)
@@ -1612,6 +1654,7 @@ class DeviceDocument(DocumentWidget):
             pulse = QPushButton("Pulse", widget)
             pulse.clicked.connect(lambda _checked=False, name=pin.name, box=width: self.pulse(name, box.value() / 1000))
             layout.addWidget(pulse, line, 3)
+            lines["out"] += [switch, width, pulse]
             line += 1
         if PIN_PWM in pin.capabilities:
             frequency = QDoubleSpinBox(widget)
@@ -1633,6 +1676,7 @@ class DeviceDocument(DocumentWidget):
             apply.clicked.connect(lambda _checked=False, name=pin.name, f=frequency, d=duty: self.pwm(
                 name, f.value(), d.value() / 100))
             layout.addWidget(apply, line, 3)
+            lines["pwm"] += [frequency, duty, apply]
             line += 1
         if PIN_DAC in pin.capabilities and self.instrument.facet(_analog_out()) is not None:
             volts = QDoubleSpinBox(widget)
@@ -1645,7 +1689,24 @@ class DeviceDocument(DocumentWidget):
             dac.clicked.connect(lambda _checked=False, name=pin.name, box=volts: self.set_voltage(name, box.value()))
             layout.addWidget(dac, line, 3)
         layout.setColumnStretch(4, 1)
+        gpio = self.instrument.gpio
+        try:
+            self._show_actions_of(pin.name, gpio.mode(pin.name) if gpio is not None else "")
+        except Exception:  # noqa: BLE001 - a pin the device cannot tell the mode of: everything
+            log.debug("The mode of %s is not known", pin.name, exc_info=True)
         return widget
+
+    def _show_actions_of(self, pin: str, mode: str) -> None:
+        """The actions of the pin's mode: PWM sets frequency and duty, the others switch and pulse
+        (only one line of controls per pin; a pin without PWM keeps its switch)."""
+        lines = getattr(self, "_action_lines", {}).get(pin)
+        if not lines:
+            return
+        pwm = mode == MODE_PWM and bool(lines["pwm"])
+        for control in lines["out"]:
+            control.setVisible(not pwm or not lines["pwm"])
+        for control in lines["pwm"]:
+            control.setVisible(pwm)
 
     def _switch(self, name: str, button: QPushButton, on: bool) -> None:
         """Drive ``name``; the switch goes back when the pin was not driven (declined, error)."""
@@ -1683,7 +1744,9 @@ class DeviceDocument(DocumentWidget):
         if mode in (MODE_OUTPUT, MODE_PWM) and not self._confirm_output(pin):
             self._refresh_modes()
             return False
-        return self._do(f"{pin}: {mode}", lambda: self.instrument.gpio.set_mode(pin, mode))
+        done = self._do(f"{pin}: {MODE_TITLES.get(mode, mode)}", lambda: self.instrument.gpio.set_mode(pin, mode))
+        self.pin_table.resizeRowsToContents()  # (the actions of the mode: _refresh_modes)
+        return done
 
     def write(self, pin: str, value: int) -> bool:
         if not self._confirm_output(pin):
@@ -1731,6 +1794,7 @@ class DeviceDocument(DocumentWidget):
                 box.blockSignals(True)
                 box.setCurrentIndex(max(box.findData(gpio.mode(name)), 0))
                 box.blockSignals(False)
+                self._show_actions_of(name, gpio.mode(name))
         self.strip.modes = {pin.name: gpio.mode(pin.name) for pin in self.strip.pins}
         self.strip.update()
 

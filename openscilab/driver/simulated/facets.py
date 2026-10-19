@@ -605,14 +605,7 @@ class SimulatedGenerator(_DeviceFacet, GeneratorFacet):
 
         received = b""
         start = self._now()
-        if protocol == "spi" and pins.get("miso"):
-            sck = tracks[names[1]]
-            rising = np.flatnonzero((sck[1:] == 1) & (sck[:-1] == 0)) + 1
-            levels = np.array([self.device.circuit.digital(pins["miso"], start + index / rate, 1e9, 1)[0]
-                               for index in rising], dtype=np.uint8)
-            whole = len(levels) // 8 * 8
-            received = np.packbits(levels[:whole]).tobytes()
-        elif protocol == "i2c":
+        if protocol == "i2c":
             devices = {int(str(key), 0): value for key, value in (self.device.profile.get("i2c_devices") or {}).items()}
             answer = devices.get(address)
             if answer is None:
@@ -632,6 +625,14 @@ class SimulatedGenerator(_DeviceFacet, GeneratorFacet):
             source = WaveSource(waveform, start, pin=net, high=level, before=before)
             source.transmission = True
             circuit.drive(net, source)
+        if protocol == "spi" and pins.get("miso"):
+            # read after driving: MISO may be wired to MOSI (a loopback) or to what the clock moves
+            sck = tracks[names[1]]
+            rising = np.flatnonzero((sck[1:] == 1) & (sck[:-1] == 0)) + 1
+            levels = np.array([circuit.digital(pins["miso"], start + index / rate, 1e9, 1)[0]
+                               for index in rising], dtype=np.uint8)
+            whole = len(levels) // 8 * 8
+            received = np.packbits(levels[:whole]).tobytes()
         self.transmit_end = start + waveform.duration
         self.device.outputs_changed()
         self.device.log(f"{protocol.upper()}: sent {len(data)} byte(s)" +

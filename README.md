@@ -11,10 +11,11 @@ view* of the lab. Windows, macOS and Linux; GPL-3.0.
 
 > **Beta (0.1).** The application is covered by about 2100 automated tests and every function
 > works with the simulators. On real hardware it has been tried on a Pico 2 (Pico firmware 8, the
-> logic analyzer and the inputs), an Arduino Mega 2560 (inputs, outputs, analog inputs, monitor,
-> captures, pattern generator over loopback wires), a Rigol DHO924S (analog and logic channels, the
-> bridge app) and a DSLogic U2Pro16; the outputs of the Pico firmware and the Arduino firmware on
-> the other boards have **not been checked on real hardware yet**. Reports of what works on your hardware, and what does not, are very welcome.
+> logic analyzer and the inputs), a Pico W (Pico firmware 8: captures, streams, state mode, trigger
+> sequences, GPIO, PWM, pulses, pattern generator, UART/SPI/I²C over loopback wires), an Arduino Mega
+> 2560 (inputs, outputs, analog inputs, monitor, captures, pattern generator over loopback wires), a
+> Rigol DHO924S (analog and logic channels, the bridge app) and a DSLogic U2Pro16; the Arduino
+> firmware on the other boards has **not been checked on real hardware yet**. Reports of what works on your hardware, and what does not, are very welcome.
 
 ![A flow that sweeps a PWM duty cycle and measures the voltage behind an RC low pass](docs/images/flow-editor.png)
 
@@ -22,7 +23,7 @@ view* of the lab. Windows, macOS and Linux; GPL-3.0.
 
 * **Instruments side by side.** Pico boards, Arduino boards, DreamSourceLab DSLogic analyzers, a
   Rigol DHO900 oscilloscope, measuring devices on other computers and simulators – each with a
-  device card for its pins, signals, timing and details. What openSciLab offers follows from what
+  document of its own for its pins, signals, timing and functions. What openSciLab offers follows from what
   a device reports it can do.
 * **Flows.** Nodes for devices, GPIO, generators, every sigrok protocol decoder, measurements,
   signal processing, control (timers, sweeps, sequences, state machines, Python), data, views and
@@ -40,6 +41,11 @@ view* of the lab. Windows, macOS and Linux; GPL-3.0.
   measurement, clock drift, NTP/PTP.
 * **Reports** in HTML or PDF with passed and failed checks; `openscilab run --report` makes a flow a
   test on the command line.
+* **Circuits**: draw analog, digital and RF circuits from a catalog of about 23 000 components
+  (openSciLab's own, KiCad's symbol libraries, SPICE models of makers) and simulate them **live** with
+  ngspice - probes on the schematic, LEDs that light, switches and knobs to operate while it runs,
+  Arduinos running their firmware (emulated with simavr) - or compute operating points, sweeps,
+  transients and S-parameters; a circuit's probes are channels of a device for the data view and flows.
 * **Simulators** that behave like the real devices – with their limits, wiring, faults and USB
   timing – and can be told what to simulate: a UART, SPI, I²C, a counter, the C64 bus, a capture
   file.
@@ -50,15 +56,16 @@ view* of the lab. Windows, macOS and Linux; GPL-3.0.
 
 | Device | Connection | What openSciLab does with it | State |
 | --- | --- | --- | --- |
-| Raspberry Pi Pico, Pico 2, Pico W, Pico 2 W, RP2040-Zero, LogicAnalyzer Interceptor, LogicAnalyzer board V2 of gusmanb (inputs only, behind level shifters) | USB, WiFi; openSciLab Pico firmware | 24 channel logic analyzer (100 MHz, 200 MHz with *Turbo*), streams, trigger sequences, state mode, 2–5 boards as one analyzer; GPIO, PWM, pulses, ADC, monitor, pattern generator, UART/SPI/I²C | version 8 tested on a Pico 2 on gusmanb's LogicAnalyzer board V2: captures, streams, monitor, latency; its outputs (GPIO, PWM, generators, UART/SPI/I²C) not yet tried (inputs only on that board) |
+| Raspberry Pi Pico, Pico 2, Pico W, Pico 2 W, RP2040-Zero, LogicAnalyzer Interceptor, LogicAnalyzer board V2 of gusmanb (inputs only, behind level shifters) | USB, WiFi; openSciLab Pico firmware | 24 channel logic analyzer (100 MHz, 200 MHz with *Turbo*), streams, trigger sequences, state mode, 2–5 boards as one analyzer; GPIO, PWM, pulses, ADC, monitor, pattern generator, UART/SPI/I²C | version 8 tested on a Pico 2 on gusmanb's LogicAnalyzer board V2 (captures, streams, monitor, latency; inputs only on that board) and on a Pico W with loopback wires (captures, streams, state mode, trigger sequences, GPIO, PWM, pulses, monitor, pattern generator, UART/SPI/I²C) |
 | Arduino Uno, Nano, Mega 2560, Uno R4 Minima, ESP32, ESP32-S3 | USB; openSciLab Arduino firmware | logic analyzer of its pins (buffer, stream, state), analog inputs, GPIO, PWM, monitor, pattern/square/arbitrary generator, UART/SPI/I²C | tested on a Mega 2560 (all 70 pins): inputs and outputs, analog inputs, monitor, buffer and stream captures, pattern generator; the other boards not yet |
 | DreamSourceLab DSLogic Plus, U2Pro16, U3Pro16, U3Pro32 | USB; DSView firmware | logic analyzer up to 1 GHz, streams, record to disk | experimental, tested on a U2Pro16 |
-| Rigol DHO900 (DHO924S ...) | network: SCPI, or the bridge app on the instrument; USB (USBTMC) | 4 analog channels, edge trigger on them or on the 16 logic channels, large captures arriving progressively, generator, its screen live with its settings beside it (front panel, also in a window of its own), captures as set on the instrument | tested on a DHO924S (modified firmware NK v0.5.2): network, bridge app (installed from its device card), USB; the logic channels D0–D15 too, together with the analog ones - they need a firmware that gives them out over SCPI (Rigol 00.01.05.00.00 or later by its release notes; the NK mod only with a patch of its library) |
+| Rigol DHO900 (DHO924S ...) | network: SCPI, or the bridge app on the instrument; USB (USBTMC) | 4 analog channels, edge trigger on them or on the 16 logic channels, large captures arriving progressively, generator, its screen live with its settings beside it (front panel, also in a window of its own), captures as set on the instrument | tested on a DHO924S (modified firmware NK v0.5.2): network, bridge app (installed from its document), USB; the logic channels D0–D15 too, together with the analog ones - they need a firmware that gives them out over SCPI (Rigol 00.01.05.00.00 or later by its release notes; the NK mod only with a patch of its library) |
 | Measuring devices on other computers | network; Python package `openscilab_device` | values, streams, outputs and commands with their time | beta |
+| Circuits (`circuit:<file>`) | built in; ngspice and the AVR emulator in openSciLab's vendor folder | the probes of a circuit simulated live as analog and logic channels; Arduino Uno, Nano, Mega 2560 and ATmega chips running a firmware file | new |
 | Simulators (`sim:free`, `sim:uno`, `sim:uno_r4`, `sim:pico`, `sim:daq`, `sim:dho924s`, `remote-sim:…`) | built in | everything above, several at once, wired together | ready |
 
-New devices - and node types for the flows - are added as plugins that need no change of
-openSciLab, or devices as drivers in the project, see
+New devices, node types for the flows and whole sections of the window (as *Circuits* is one) are
+added as plugins that need no change of openSciLab, or devices as drivers in the project, see
 [docs/drivers.md](docs/drivers.md).
 
 ## Getting started
@@ -119,7 +126,8 @@ Python ≥ 3.10; on Linux Qt needs `libegl1 libgl1 libxkbcommon0 libfontconfig1 
   [docs/simulator.md](docs/simulator.md) (simulators and their profiles),
   [docs/timing.md](docs/timing.md) (the time of samples),
   [docs/remote.md](docs/remote.md) (remote devices and their protocol),
-  [docs/drivers.md](docs/drivers.md) (new devices),
+  [docs/drivers.md](docs/drivers.md) (new devices, plugins and their sections),
+  [docs/circuits.md](docs/circuits.md) (circuits, their simulation and microcontrollers),
   [docs/protocols.md](docs/protocols.md) (capabilities and the protocols of the firmware),
   [firmware/README.md](firmware/README.md) (building and the Pico firmware),
   [docs/improvements.md](docs/improvements.md) (what the logic analyzer fixes compared with the
@@ -137,17 +145,19 @@ ruff check openscilab tests
 openscilab/
 ├── core/        signals, analysis, files, timing, firmware handling (no Qt)
 ├── driver/      devices: pico/, arduino/, dslogic/, rigoldho/, remote/, simulated/, process/ (devices in a process of their own)
+├── circuits/    circuits: model, catalog (own, KiCad, SPICE), netlist, ngspice, microcontrollers (no Qt)
 ├── lab/         flows: model, engine, nodes/, projects, panels, reports, examples (no Qt)
 ├── plugins/     plugin loader; the plugins of openSciLab's own devices (registered like any other)
 ├── sigrok/      sigrokdecode compatible runtime for the protocol decoders
 ├── sdl/         Signal Description Language
-├── ui/          Qt interface: shell, documents (data view, flow, panel, device card ...), widgets
+├── ui/          Qt interface: shell, documents (data view, flow, panel, device ...), circuits/, widgets
+├── vendor/      tools of others per platform (ngspice, the AVR emulator; built by tools/build_vendor.py)
 ├── api.py, cli.py   Python API and command line
 openscilab_device/   the package for measuring devices on other computers
 decoders/        sigrok protocol decoders (libsigrokdecode, LogicAnalyzer 6.5) and c64bus
 examples/        example library (library/), simulator profiles (sim/), captures, profiles, plugins
 firmware/        Pico firmware (C), Arduino firmware (PlatformIO), bridge app (Android)
-packaging/       PyInstaller build, icons, AppImage
+packaging/       PyInstaller build, icons, AppImage, the shim of the AVR emulator (simavr/)
 tests/           pytest suite
 ```
 
@@ -202,7 +212,7 @@ Use it at your own risk, and keep an eye on your hardware:
 * The inputs of the Pico boards tolerate **3.3 V**. Higher voltages – 5 V systems such as a
   Commodore 64 included – need a level shifter or a divider, on the trigger input as well.
 * Flows and panels switch real outputs: check what a flow drives before you run it on hardware.
-  The *All outputs safe* button of a device card and the watchdog of the firmware release them.
+  The *All outputs safe* button of a device and the watchdog of the firmware release them.
 * The *Turbo* Pico firmware overclocks the board to 400 MHz with raised core voltage, outside the
   specification of the RP2040/RP2350.
 * Protocol decoders, driver plugins and `control.python` nodes are Python code that is executed:

@@ -33,8 +33,17 @@ def test_the_library_has_categories_with_examples():
 
 @pytest.mark.parametrize("example", EXAMPLES, ids=[example.key for example in EXAMPLES])
 def test_an_example_runs_and_passes_its_checks(example, tmp_path):
-    if not DECODERS and "decode." in open_texts(example.path):
+    texts = open_texts(example.path)
+    if not DECODERS and "decoder." in texts:
         pytest.skip("the sigrok decoders are not installed in ./decoders")
+    if "circuit:" in texts:
+        from openscilab.circuits import engines
+        from openscilab.circuits.mcu import avr
+
+        if not engines.available():
+            pytest.skip("ngspice is not installed")
+        if "mcu." in texts and not avr.available():
+            pytest.skip("the AVR emulator is not installed")
     root = templates.copy_project(example.path, str(tmp_path / "copy"))
     project = Project.open(root)
     assert templates.files_to_open(root) or templates.views_to_open(root), "the example opens nothing"
@@ -73,14 +82,13 @@ def open_texts(folder: str) -> str:
 def test_the_examples_menu_lists_the_categories(shell):
     menu = shell.examples_menu
     titles = [action.text() for action in menu.actions()]
-    assert titles[:6] == ["Save project as &template...", "All templates (start page)", "", "Start a project",
-                          "Basics", "Digital I/O"]
-    basics = menu.actions()[4].menu()
+    assert titles[:5] == ["All examples (start page)", "", "Start a project", "Basics", "Digital I/O"]
+    basics = menu.actions()[3].menu()
     assert [action.text() for action in basics.actions()][:2] == ["First capture", "Edge trigger"]
     assert basics.actions()[0].toolTip().startswith("Captures the 8 bit counter")
     assert len(shell.example_actions) == len(EXAMPLES)
     commands = [command.title for command in shell.commands()]
-    assert any("Templates" in title and "Blink" in title for title in commands)  # also in the palette
+    assert any("Examples" in title and "Blink" in title for title in commands)  # also in the palette
 
 
 def test_an_example_opens_as_a_temporary_copy(shell):
@@ -121,6 +129,6 @@ def test_every_node_type_is_used_by_an_example():
     that runs and checks its result - so every node is known to work and to make sense."""
     from openscilab.lab.nodes.registry import default_registry
 
-    types = {name for name in default_registry.types() if not name.startswith("decode.")}
+    types = {name for name in default_registry.types() if not name.startswith("decoder.")}
     missing = sorted(types - _node_types_of_examples())
     assert missing == [], f"node types without an example: {missing}"

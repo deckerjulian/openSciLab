@@ -1,6 +1,6 @@
 {
   "name": "daq",
-  "title": "Simulation: USB DAQ",
+  "title": "Simulated USB DAQ",
   "description": "A measuring box on USB in the class of an NI USB-6001: AI0-AI7 analog inputs (±10 V, 14 bit), AO0/AO1 analog outputs (±10 V, 12 bit), P0.0-P0.7 and P1.0-P1.3 digital lines. Its blocks arrive as over USB (frames, latency, jitter) and its sample clock runs 30 ppm fast, so the time of its samples has to be found as with the real box. Wired: P0.0 → P0.1 (a loopback to measure the latency), AO0 → AI2; P0.7 is free for a sync signal (wire a pin of another simulator to it); AI0 a 50 Hz sine, AI1 a slow triangle, P0.2 a 100 Hz square.",
   "provisional": "Values in the class of a USB DAQ (NI USB-6001), not of one measured box.",
   "digital": [

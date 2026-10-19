@@ -6,9 +6,9 @@
 
 """The controls that capture with an instrument, for the data view that shows the captures.
 
-:class:`CaptureControls` makes the widgets once – the quick settings (rate, length, trigger),
-*Settings…* (all settings: apply them or capture), *Profiles*, *Capture*, *Capture again*,
-*Stop*, the state of the device, a summary of the settings of the next capture and the channel
+:class:`CaptureControls` makes the widgets once – the quick setup (rate, length, trigger),
+*Capture setup…* (the whole setup: keep it or capture), *Profiles*, *Capture*, *Stream to disk*,
+*Capture again*, *Stop*, the state of the device, a summary of the next capture and the channel
 table – and binds them to the capture controller of an instrument (:meth:`bind`), or to none.
 The data view puts the bar into its capture tool bar and the summary and the channels into its
 *Capture* tab.
@@ -41,7 +41,7 @@ class CaptureControls(QObject):
     """Capture widgets bound to one capture controller at a time."""
 
     def __init__(self, parent: QWidget, repeat=None, stop=None) -> None:
-        """``repeat``, ``stop``: what *Again* and *Stop* do instead of asking the controller (the data
+        """``repeat``, ``stop``: what *Capture again* and *Stop* do instead of asking the controller (the data
         view also stops a recording)."""
         super().__init__(parent)
         self._parent = parent
@@ -50,10 +50,10 @@ class CaptureControls(QObject):
         self.quick_capture = QuickCaptureBar(parent)
         self.quick_capture.settings_requested.connect(self.capture_settings)
         self.quick_capture.changed.connect(self.update)
-        self.settings_button = QPushButton("Settings...", parent)
+        self.settings_button = QPushButton("Capture setup...", parent)
         set_variant(self.settings_button, "tool")
         set_icon(self.settings_button, "gear")
-        self.settings_button.setToolTip("Channels and their names, rate, trigger, acquisition: apply them, or capture")
+        self.settings_button.setToolTip("Channels and their names, rate, trigger, mode: keep them, or capture")
         self.settings_button.clicked.connect(self.capture_settings)
         self.profiles_button = QPushButton("Profiles", parent)
         set_variant(self.profiles_button, "tool")
@@ -64,23 +64,23 @@ class CaptureControls(QObject):
         self.capture_button = QPushButton("Capture", parent)
         set_variant(self.capture_button, "primary")
         set_icon(self.capture_button, "record")
-        self.capture_button.setToolTip("Capture with these settings (F5)")
+        self.capture_button.setToolTip("Capture with this setup (Run, F5)")
         self.capture_button.clicked.connect(self.start_capture)
-        self.record_button = QPushButton("Record", parent)
+        self.record_button = QPushButton("Stream to disk", parent)
         set_variant(self.record_button, "tool")
         set_icon(self.record_button, "save")
-        self.record_button.setToolTip("Record a stream to the disk until Stop: everything is kept (as long as the "
-                                      "disk has room), at the rate of the settings or the highest the stream reaches")
+        self.record_button.setToolTip("Stream to the disk until Stop: everything is kept (as long as the disk has "
+                                      "room), at the rate of the setup or the highest the stream reaches")
         self.record_button.clicked.connect(self.record_stream)
-        self.repeat_button = QPushButton("Again", parent)
+        self.repeat_button = QPushButton("Capture again", parent)
         set_variant(self.repeat_button, "tool")
         set_icon(self.repeat_button, "repeat")
-        self.repeat_button.setToolTip("Capture again with the settings of the last capture (Ctrl+R)")
+        self.repeat_button.setToolTip("Capture again with the setup of the last capture (Ctrl+R)")
         self.repeat_button.clicked.connect(repeat or self.repeat_capture)
         self.stop_button = QPushButton("Stop", parent)
         set_variant(self.stop_button, "danger")
         set_icon(self.stop_button, "stop")
-        self.stop_button.setToolTip("Stop the running capture (Shift+F5)")
+        self.stop_button.setToolTip("Stop the running capture (Stop, Shift+F5)")
         self.stop_button.clicked.connect(stop or self.stop_capture)
         self.state_label = QLabel(parent)
         set_role(self.state_label, "hint")
@@ -132,7 +132,7 @@ class CaptureControls(QObject):
 
     # ----------------------------------------------------------- capturing
     def capture_settings(self) -> bool:
-        """All settings: *Use settings* keeps them, *Start capture* captures."""
+        """The whole setup: *Keep setup* keeps it, *Capture* captures."""
         if self.controller is None:
             return False
         started = self.controller.start_capture(self.parent_widget)
@@ -204,7 +204,7 @@ class CaptureControls(QObject):
             return "No device: choose one above to capture (or open a capture file)."
         session = self.controller.settings()
         if session is None:
-            return "No settings yet: choose rate and length, or open Settings."
+            return "No capture setup yet: choose rate and length, or open Capture setup."
         parts = [units.format_quantity(session.frequency, "Hz"),
                  f"{session.pre_trigger_samples + session.post_trigger_samples:,} samples",
                  f"{len(session.capture_channels)} channels"]

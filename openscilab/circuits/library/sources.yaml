@@ -1,0 +1,223 @@
+# openSciLab's own components: sources
+- type: source.dc
+  title: DC voltage source
+  category: Sources
+  prefix: V
+  keywords: battery dc supply voltage source
+  description: A constant voltage (pin 1 is plus).
+  symbol: &source
+    shapes:
+      - {circle: [0, 0, 16]}
+      - {text: "+", at: [0, -7], size: 10}
+      - {line: [-4, 8, 4, 8]}
+    pins:
+      - {number: "1", name: "+", at: [0, -30], angle: 90, length: 14}
+      - {number: "2", name: "-", at: [0, 30], angle: 270, length: 14}
+    reference: {at: [22, -6], align: left}
+    value: {at: [22, 8], align: left}
+    pin_names: false
+  params:
+    - {name: value, label: Voltage, unit: V, default: 5 V, live: true, description: The voltage of pin 1 against pin 2.}
+  spice: "{ref:V} {pin.1} {pin.2} DC {value}"
+  current: "i({ref:V})"
+
+- type: source.sine
+  title: Sine source
+  category: Sources
+  prefix: V
+  keywords: ac sine signal generator oscillator
+  description: A sine voltage (also the source of AC analyses).
+  symbol:
+    shapes:
+      - {circle: [0, 0, 16]}
+      - {bezier: [-10, 0, -6, -12, -2, -12, 0, 0]}
+      - {bezier: [0, 0, 2, 12, 6, 12, 10, 0]}
+    pins:
+      - {number: "1", name: "+", at: [0, -30], angle: 90, length: 14}
+      - {number: "2", name: "-", at: [0, 30], angle: 270, length: 14}
+    reference: {at: [22, -6], align: left}
+    value: {at: [22, 8], align: left}
+    pin_names: false
+  params:
+    - {name: amplitude, label: Amplitude, unit: V, default: 1 V, description: The peak voltage.}
+    - {name: frequency, label: Frequency, unit: Hz, default: 1 kHz, min: 0, description: The frequency.}
+    - {name: offset, label: Offset, unit: V, default: 0 V, description: The voltage the sine swings around.}
+    - {name: phase, label: Phase, default: "0", description: The phase at the start in degrees.}
+    - {name: ac, label: AC amplitude, unit: V, default: 1 V, description: The amplitude in AC analyses.}
+  show: [amplitude, frequency]
+  spice: "{ref:V} {pin.1} {pin.2} DC {offset} AC {ac} SIN({offset} {amplitude} {frequency} 0 0 {phase})"
+  current: "i({ref:V})"
+
+- type: source.square
+  title: Square source
+  category: Sources
+  prefix: V
+  keywords: square clock pwm pulse generator
+  description: A square wave between two levels (a clock, PWM).
+  symbol:
+    shapes:
+      - {circle: [0, 0, 16]}
+      - {line: [-10, 6, -5, 6, -5, -6, 3, -6, 3, 6, 10, 6]}
+    pins:
+      - {number: "1", name: "+", at: [0, -30], angle: 90, length: 14}
+      - {number: "2", name: "-", at: [0, 30], angle: 270, length: 14}
+    reference: {at: [22, -6], align: left}
+    value: {at: [22, 8], align: left}
+    pin_names: false
+  params:
+    - {name: low, label: Low, unit: V, default: 0 V, description: The low level.}
+    - {name: high, label: High, unit: V, default: 5 V, description: The high level.}
+    - {name: frequency, label: Frequency, unit: Hz, default: 1 kHz, min: 0, description: The frequency.}
+    - {name: duty, label: Duty cycle, default: "0.5", min: 0, max: 1, description: The share of the period at the high level.}
+    - {name: rise, label: Rise time, unit: s, default: 10 ns, min: 0, description: The time of each edge.}
+  show: [frequency, duty]
+  spice: "{ref:V} {pin.1} {pin.2} DC {low} PULSE({low} {high} 0 {rise} {rise} {{max(duty/frequency - rise, rise)}} {{1/frequency}})"
+  current: "i({ref:V})"
+
+- type: source.pulse
+  title: Pulse source
+  category: Sources
+  prefix: V
+  keywords: pulse step generator
+  description: Pulses after a delay (SPICE PULSE).
+  symbol:
+    shapes:
+      - {circle: [0, 0, 16]}
+      - {line: [-10, 6, -4, 6, -4, -6, 4, -6, 4, 6, 10, 6]}
+    pins:
+      - {number: "1", name: "+", at: [0, -30], angle: 90, length: 14}
+      - {number: "2", name: "-", at: [0, 30], angle: 270, length: 14}
+    reference: {at: [22, -6], align: left}
+    value: {at: [22, 8], align: left}
+    pin_names: false
+  params:
+    - {name: low, label: Low, unit: V, default: 0 V, description: The level before and between the pulses.}
+    - {name: high, label: High, unit: V, default: 5 V, description: The level of a pulse.}
+    - {name: delay, label: Delay, unit: s, default: 0 s, min: 0, description: The time before the first pulse.}
+    - {name: rise, label: Rise time, unit: s, default: 1 us, min: 0, description: The time of a rising edge.}
+    - {name: fall, label: Fall time, unit: s, default: 1 us, min: 0, description: The time of a falling edge.}
+    - {name: width, label: Width, unit: s, default: 500 us, min: 0, description: The time at the high level.}
+    - {name: period, label: Period, unit: s, default: 1 ms, min: 0, description: The time from one pulse to the next.}
+  show: [high, period]
+  spice: "{ref:V} {pin.1} {pin.2} DC {low} PULSE({low} {high} {delay} {rise} {fall} {width} {period})"
+  current: "i({ref:V})"
+
+- type: source.triangle
+  title: Triangle source
+  category: Sources
+  prefix: V
+  keywords: triangle sawtooth ramp oscillator pwm carrier
+  description: A triangle between two levels - the carrier a comparator turns into PWM.
+  symbol:
+    shapes:
+      - {circle: [0, 0, 16]}
+      - {line: [-11, 5, -5, -6, 1, 5, 7, -6, 11, 1]}
+    pins:
+      - {number: "1", name: "+", at: [0, -30], angle: 90, length: 14}
+      - {number: "2", name: "-", at: [0, 30], angle: 270, length: 14}
+    reference: {at: [22, -6], align: left}
+    value: {at: [22, 8], align: left}
+    pin_names: false
+  params:
+    - {name: low, label: Low, unit: V, default: 0 V, description: The lowest level.}
+    - {name: high, label: High, unit: V, default: 5 V, description: The highest level.}
+    - {name: frequency, label: Frequency, unit: Hz, default: 1 kHz, min: 0, description: Triangles per second.}
+  show: [high, frequency]
+  spice: "{ref:V} {pin.1} {pin.2} DC {low} PULSE({low} {high} 0 {{0.4995/frequency}} {{0.4995/frequency}} {{0.001/frequency}} {{1/frequency}})"
+  current: "i({ref:V})"
+
+- type: source.sine_reference
+  title: Sine reference
+  category: Sources
+  prefix: X
+  keywords: sine reference oscillator amplitude control vca dds ac source programmable
+  description: "A sine whose RMS value follows a control voltage (A to A0: volts per volt) - the reference of a programmable AC source: a potentiometer sets its amplitude. Its output (+ to -) can sit on another voltage (a DC part)."
+  symbol:
+    shapes:
+      - {rect: [-20, -20, 20, 20], fill: background}
+      - {arc: [-12, 0, -6, -8, 0, 0]}
+      - {arc: [0, 0, 6, 8, 12, 0]}
+      - {text: "A", at: [-14, -10], size: 6}
+    pins:
+      - {number: "1", name: "+", at: [0, -40], angle: 90, length: 20}
+      - {number: "2", name: "-", at: [0, 40], angle: 270, length: 20}
+      - {number: "3", name: A, at: [-40, -10], angle: 0, length: 20}
+      - {number: "4", name: A0, at: [-40, 10], angle: 0, length: 20}
+    reference: {at: [26, -10], align: left}
+    value: {at: [26, 4], align: left}
+    pin_names: false
+  params:
+    - {name: frequency, label: Frequency, unit: Hz, default: 50 Hz, min: 0, description: Its frequency.}
+  show: [frequency]
+  spice: |
+    {ref:B} {pin.1} {pin.2} V = V({pin.3},{pin.4})*1.41421356*sin(6.28318531*{frequency}*time)
+    {ref:R}in {pin.3} {pin.4} 10Meg
+
+- type: source.pwl
+  title: Piecewise linear source
+  category: Sources
+  prefix: V
+  keywords: pwl piecewise arbitrary waveform
+  description: "A voltage through points of time and value: 0 0 1m 5 2m 0."
+  symbol:
+    shapes:
+      - {circle: [0, 0, 16]}
+      - {line: [-10, 6, -4, -6, 2, 2, 10, -4]}
+    pins:
+      - {number: "1", name: "+", at: [0, -30], angle: 90, length: 14}
+      - {number: "2", name: "-", at: [0, 30], angle: 270, length: 14}
+    reference: {at: [22, -6], align: left}
+    value: {at: [22, 8], align: left}
+    pin_names: false
+  params:
+    - {name: points, label: Points, default: "0 0 1m 5 2m 0", kind: text, description: Pairs of time and voltage.}
+    - {name: repeat, label: Repeat, default: "no", choices: ["no", "yes"], description: Start again after the last point.}
+  show: [points]
+  spice: "{ref:V} {pin.1} {pin.2} PWL({points}){repeat=yes? r=0}"
+  current: "i({ref:V})"
+
+- type: source.current
+  title: DC current source
+  category: Sources
+  prefix: I
+  keywords: current source constant
+  description: A constant current flowing out of pin 1 through the circuit back into pin 2.
+  symbol:
+    shapes:
+      - {circle: [0, 0, 16]}
+      - {line: [0, 10, 0, -8]}
+      - {line: [-4, -3, 0, -9, 4, -3]}
+    pins:
+      - {number: "1", at: [0, -30], angle: 90, length: 14}
+      - {number: "2", at: [0, 30], angle: 270, length: 14}
+    reference: {at: [22, -6], align: left}
+    value: {at: [22, 8], align: left}
+    pin_names: false
+  params:
+    - {name: value, label: Current, unit: A, default: 1 mA, live: true, description: The current.}
+  spice: "{ref:I} {pin.2} {pin.1} DC {value}"
+
+- type: source.battery
+  title: Battery
+  category: Sources
+  prefix: BT
+  keywords: battery cell
+  description: A battery with its internal resistance (pin 1 is plus).
+  symbol:
+    shapes:
+      - {line: [-12, -4, 12, -4], width: 2}
+      - {line: [-6, 4, 6, 4], width: 3}
+      - {text: "+", at: [16, -10], size: 9}
+    pins:
+      - {number: "1", name: "+", at: [0, -20], angle: 90, length: 16}
+      - {number: "2", name: "-", at: [0, 20], angle: 270, length: 16}
+    reference: {at: [18, 4], align: left}
+    value: {at: [18, 16], align: left}
+    pin_names: false
+  params:
+    - {name: value, label: Voltage, unit: V, default: 9 V, live: true, description: The open voltage.}
+    - {name: resistance, label: Internal resistance, unit: Ω, default: "0.5", min: 0, description: Its internal resistance.}
+  spice: |
+    {ref:V} {ref}_i {pin.2} DC {value}
+    {ref:R} {pin.1} {ref}_i {{max(resistance, 1e-6)}}
+  current: "i({ref:V})"

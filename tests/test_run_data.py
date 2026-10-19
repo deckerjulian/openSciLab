@@ -17,10 +17,10 @@ from openscilab.lab.run_data import RunData
 
 FLOW = """flow: Clock
 nodes:
-  sim: {type: device.instrument, address: sim:free}
+  sim: {type: device.device, address: sim:free}
   capture: {type: device.capture, channels: [D15, D8], rate: 1 MHz, samples: 4000}
   frequency: {type: measure.frequency}
-  check: {type: report.check, name: Clock, expected: 1000, tolerance: 1, unit: Hz}
+  check: {type: report.check, title: Clock, expected: 1000, tolerance: 1, unit: Hz}
   points: {type: data.table, columns: [f]}
   scope: {type: view.scope}
 edges:
@@ -51,7 +51,7 @@ def test_captures_and_numbers_on_one_time_axis():
                              analog={"CH1": np.array([3.0, 3.0, 3.0, 3.0])})
     data.add("cap", "capture", [first, second], [1.0, 2.0])
     data.add("mean", "out", [signals.Scalar(value=1.25, unit="V", at=1.004), signals.Scalar(value=3.0, unit="V", at=2.004)])
-    data.add("check", "pass", [signals.Bool(value=True, at=2.5)])
+    data.add("check", "result", [signals.Bool(value=True, at=2.5)])
     data.add("cap", "done", [signals.Event(times=[1.0])])
     assert data.get("cap", "capture").kind == "signal" and data.get("mean", "out").kind == "number"
     assert data.get("cap", "done").kind == "event" and not data.get("cap", "done").viewable
@@ -60,12 +60,12 @@ def test_captures_and_numbers_on_one_time_axis():
     assert session.frequency == 1000
     digital = {channel.channel_name: channel.samples for channel in session.capture_channels}
     analog = {channel.channel_name: channel.volts() for channel in session.analog_channels}
-    assert set(digital) == {"cap.D0", "check.pass"} and set(analog) == {"cap.CH1", "mean.out"}
+    assert set(digital) == {"cap.D0", "check.result"} and set(analog) == {"cap.CH1", "mean.out"}
     assert list(digital["cap.D0"][:4]) == [1, 0, 1, 0]  # the first capture at the start of the axis
     assert list(digital["cap.D0"][1000:1004]) == [1, 1, 1, 1]  # the second one second later
     assert np.allclose(analog["cap.CH1"][:4], [0.5, 1.0, 1.5, 2.0], atol=1e-3)
     assert np.isclose(analog["mean.out"][500], 1.25, atol=1e-3) and np.isclose(analog["mean.out"][1100], 3.0, atol=1e-3)
-    assert digital["check.pass"][-1] == 1 and digital["check.pass"][0] == 0
+    assert digital["check.result"][-1] == 1 and digital["check.result"][0] == 0
     assert [channel.channel_name for channel in data.to_session(["mean.out"]).analog_channels] == ["mean.out"]
     assert data.to_session(["cap.done"]) is None
 
@@ -91,7 +91,7 @@ def run_flow(shell):
 
 
 def test_the_nodes_show_their_data_and_open_it(shell):
-    from openscilab.ui.documents.chart import ValueDocument
+    from openscilab.ui.documents.chart import ViewsDocument
     from openscilab.ui.documents.dataview import DataView
 
     document = run_flow(shell)
@@ -110,13 +110,14 @@ def test_the_nodes_show_their_data_and_open_it(shell):
     assert {channel.channel_name for channel in view.model.session.capture_channels} == {"capture.D15", "capture.D8"}
 
     assert document.open_node_data("points")  # a table: a table view
-    assert any(isinstance(item, ValueDocument) for item in shell.documents())
+    views = shell.active_document()
+    assert isinstance(views, ViewsDocument) and "points.table" in views.tiles
 
     assert document.open_run_data()
     whole = shell.active_document()
     names = {channel.channel_name for channel in whole.model.session.capture_channels} | {
         channel.channel_name for channel in whole.model.session.analog_channels}
-    assert {"capture.D15", "capture.D8", "frequency.out", "check.pass"} <= names
+    assert {"capture.D15", "capture.D8", "frequency.out", "check.result"} <= names
     assert whole.model.visible_samples == whole.model.sample_count  # the whole run at first
 
     # another run updates the open data views in place

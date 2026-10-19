@@ -1,0 +1,85 @@
+# openSciLab's own components: switches you operate while the circuit runs
+- type: switch
+  title: Switch
+  category: Switches
+  prefix: SW
+  keywords: switch toggle spst on off
+  description: A switch; click it while the circuit runs.
+  symbol:
+    shapes:
+      - {circle: [-16, 0, 2]}
+      - {circle: [16, 0, 2]}
+      - {line: [-14, -1, 14, -12], when: "state=0"}
+      - {line: [-14, -1, 14, -3], when: "state=1"}
+    pins:
+      - {number: "1", at: [-30, 0], angle: 0, length: 12}
+      - {number: "2", at: [30, 0], angle: 180, length: 12}
+    reference: {at: [0, -18]}
+    value: false
+    pin_names: false
+  params:
+    - {name: state, label: Closed, default: "0", choices: ["0", "1"], live: true, description: "1: closed, 0: open."}
+  control: {kind: switch, param: state}
+  show: []
+  spice: "{ref:R} {pin.1} {pin.2} {{0.01 + (1-state)*1e9}}"
+  current: "@{ref:R}[i]"
+
+- type: button
+  title: Push button
+  category: Switches
+  prefix: SW
+  keywords: button push tactile momentary
+  description: A push button; closed while you hold it down (the circuit running).
+  symbol:
+    shapes:
+      - {circle: [-16, 0, 2]}
+      - {circle: [16, 0, 2]}
+      - {line: [-16, -10, 16, -10], when: "state=0"}
+      - {line: [-16, -2, 16, -2], when: "state=1"}
+      - {line: [0, -10, 0, -18], when: "state=0"}
+      - {line: [0, -2, 0, -18], when: "state=1"}
+      - {line: [-6, -18, 6, -18]}
+    pins:
+      - {number: "1", at: [-30, 0], angle: 0, length: 12}
+      - {number: "2", at: [30, 0], angle: 180, length: 12}
+    reference: {at: [0, -26]}
+    value: false
+    pin_names: false
+  params:
+    - {name: state, label: Pressed, default: "0", choices: ["0", "1"], live: true, description: "1: pressed (closed), 0: released."}
+  control: {kind: button, param: state}
+  show: []
+  spice: "{ref:R} {pin.1} {pin.2} {{0.01 + (1-state)*1e9}}"
+  current: "@{ref:R}[i]"
+
+- type: switch.voltage
+  title: Voltage-controlled switch
+  category: Switches
+  prefix: S
+  keywords: switch electronic voltage controlled mosfet igbt transistor pwm power relay
+  description: "An electronic switch - a power transistor with its driver, simplified: closed while the control voltage (pin 3 to pin 4) is above the threshold."
+  symbol:
+    shapes:
+      - {circle: [-16, 0, 2]}
+      - {circle: [16, 0, 2]}
+      - {line: [-14, -1, 14, -10]}
+      - {line: [0, -5, 0, 16]}
+      - {rect: [-14, 16, 14, 24], fill: background}
+      - {text: "+", at: [-8, 20], size: 6}
+      - {text: "−", at: [8, 20], size: 6}
+    pins:
+      - {number: "1", at: [-30, 0], angle: 0, length: 12}
+      - {number: "2", at: [30, 0], angle: 180, length: 12}
+      - {number: "3", name: "+", at: [-10, 40], angle: 270, length: 16}
+      - {number: "4", name: "-", at: [10, 40], angle: 270, length: 16}
+    reference: {at: [0, -18]}
+    value: false
+    pin_names: false
+  params:
+    - {name: threshold, label: Threshold, unit: V, default: 2.5 V, description: The control voltage at which it switches.}
+    - {name: hysteresis, label: Hysteresis, unit: V, default: 0.2 V, min: 0, description: "Half the band around the threshold within which it stays as it is."}
+    - {name: ron, label: On resistance, unit: Ω, default: "0.1", min: 0, description: Its resistance when closed.}
+    - {name: roff, label: Off resistance, unit: Ω, default: 10Meg, min: 0, description: Its resistance when open.}
+  show: []
+  spice: "{ref:S} {pin.1} {pin.2} {pin.3} {pin.4} osl_sw_{ref}"
+  definitions: [".model osl_sw_{ref} SW(Ron={ron} Roff={roff} Vt={threshold} Vh={hysteresis})"]

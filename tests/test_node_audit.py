@@ -42,17 +42,17 @@ def test_quantities_in_the_unit_of_a_signal():
 
 def test_compare_limit_and_threshold_take_prefixed_units(registry):
     current = Scalar(value=15.0, unit="mA")
-    assert run_node(registry, "control.compare", {"a": [current]}, outputs=("result",), op="<",
+    assert run_node(registry, "control.compare", {"a": [current]}, outputs=("result",), operator="<",
                     value="20 mA")["result"][0].value
     assert run_node(registry, "control.compare", {"a": [Scalar(value=3.29, unit="V")]}, outputs=("result",),
-                    op="within", value="3.3 V", tolerance="50 mV")["result"][0].value
-    assert run_node(registry, "control.compare", {"a": ["10 ms"]}, outputs=("result",), op="startswith",
+                    operator="within", value="3.3 V", tolerance="50 mV")["result"][0].value
+    assert run_node(registry, "control.compare", {"a": ["10 ms"]}, outputs=("result",), operator="startswith",
                     value="10")["result"][0].value  # (text stays text)
-    limited = run_node(registry, "control.limit", {"in": [Scalar(value=25.0, unit="mA")]}, outputs=("ok", "out"),
+    limited = run_node(registry, "control.range", {"in": [Scalar(value=25.0, unit="mA")]}, outputs=("result", "out"),
                        high="0.02 A")
-    assert not limited["ok"][0].value and limited["out"][0].value == 20.0 and limited["out"][0].unit == "mA"
+    assert not limited["result"][0].value and limited["out"][0].value == 20.0 and limited["out"][0].unit == "mA"
     analog = Analog(values=[0.005, 0.015], unit="A", time=TimeBase.uniform(10))
-    digital = run_node(registry, "dsp.threshold", {"in": [analog]}, threshold="10 mA")["out"][0]
+    digital = run_node(registry, "signal.threshold", {"in": [analog]}, threshold="10 mA")["out"][0]
     assert list(digital.values) == [0, 1]
 
 
@@ -61,18 +61,18 @@ def test_debounce_counts_a_change_across_two_blocks(registry):
     # a low pulse of 6 ms at 1 kHz split by the block boundary: longer than 5 ms, so it is kept
     first = Digital(values=[1] * 10 + [0] * 3, time=TimeBase.uniform(1000, 0.0))
     second = Digital(values=[0] * 3 + [1] * 10, time=TimeBase.uniform(1000, 0.013))
-    out = run_node(registry, "dsp.debounce", {"in": [first, second]}, time="5 ms")["out"]
+    out = run_node(registry, "signal.debounce", {"in": [first, second]}, time="5 ms")["out"]
     assert np.concatenate([block.values for block in out]).min() == 0
 
 
 def test_math_pairs_the_blocks_of_two_signals_by_time(registry):
     a = [Analog(values=np.ones(10) * index, time=TimeBase.uniform(1000, index * 0.01)) for index in range(3)]
     b = [Analog(values=np.ones(10), time=TimeBase.uniform(1000, index * 0.01)) for index in range(3)]
-    out = run_node(registry, "dsp.math", {"a": a, "b": b}, expression="a + b")["out"]
+    out = run_node(registry, "signal.math", {"a": a, "b": b}, expression="a + b")["out"]
     starts = [round(block.time.start, 6) for block in out]
     assert starts == sorted(set(starts)) and len(out) == 3  # each piece of time once
     assert [float(block.values[0]) for block in out] == [1.0, 2.0, 3.0]
-    smallest = run_node(registry, "dsp.math", {"a": [Analog(values=[3.0, -2.0, 1.0], time=TimeBase.uniform(10))]},
+    smallest = run_node(registry, "signal.math", {"a": [Analog(values=[3.0, -2.0, 1.0], time=TimeBase.uniform(10))]},
                         expression="min(a)")["out"][0]
     assert smallest.value == -2.0 and smallest.unit == "V"
 
@@ -80,7 +80,7 @@ def test_math_pairs_the_blocks_of_two_signals_by_time(registry):
 def test_resample_keeps_its_grid_across_blocks(registry):
     blocks = [Analog(values=np.arange(7, dtype=float) + 7 * index, time=TimeBase.uniform(1000, index * 0.007))
               for index in range(4)]
-    out = run_node(registry, "dsp.resample", {"in": blocks}, rate="300 Hz")["out"]
+    out = run_node(registry, "signal.resample", {"in": blocks}, rate="300 Hz")["out"]
     times = np.concatenate([block.times() for block in out])
     assert np.allclose(np.diff(times), 1 / 300)  # no gap or overlap where the blocks meet
 
@@ -88,12 +88,12 @@ def test_resample_keeps_its_grid_across_blocks(registry):
 def test_a_filter_is_placed_without_its_delay_and_skips_empty_blocks(registry):
     step = Analog(values=np.r_[np.zeros(1000), np.ones(1000)], time=TimeBase.uniform(10_000))
     empty = Analog(values=np.zeros(0), time=TimeBase.uniform(10_000, 0.2))
-    out = run_node(registry, "dsp.filter", {"in": [step, empty]}, kind="lowpass", cutoff="500 Hz", taps=101)["out"]
+    out = run_node(registry, "signal.filter", {"in": [step, empty]}, kind="lowpass", cutoff="500 Hz", taps=101)["out"]
     assert len(out) == 1  # (nothing for the empty block)
     crossing = out[0].times()[np.argmax(out[0].values >= 0.5)]
     assert crossing == pytest.approx(0.1, abs=2e-4)  # where the step is, not 5 ms later
     with pytest.raises(AssertionError, match="half the sample rate"):
-        run_node(registry, "dsp.filter", {"in": [step]}, kind="lowpass", cutoff="6 kHz")
+        run_node(registry, "signal.filter", {"in": [step]}, kind="lowpass", cutoff="6 kHz")
 
 
 def test_measurements_keep_a_rate_that_is_no_whole_number(registry):
@@ -148,7 +148,7 @@ def test_a_virtual_capture_sees_a_stimulus_after_a_wait():
     result, seen = run("""
 flow: t
 nodes:
-  uno: {type: device.instrument, address: sim:uno}
+  uno: {type: device.device, address: sim:uno}
   capture: {type: device.capture, channels: [D3], rate: 100 kHz, samples: 448, pre: 20,
             trigger: {edge: rising, source: D3}}
   later: {type: control.sequence, steps: [{wait_for: armed}, {wait: 3 ms}, {emit: go}]}
@@ -168,7 +168,7 @@ def test_a_virtual_stream_ends_at_stop():
     result, seen = run("""
 flow: t
 nodes:
-  la: {type: device.instrument, address: sim:free}
+  la: {type: device.device, address: sim:free}
   stream: {type: device.stream, channels: [D15], rate: 100 kHz, duration: 1 s}
   stop: {type: control.timer, delay: 50 ms, count: 1}
 edges:
@@ -184,7 +184,7 @@ def test_virtual_captures_of_usb_devices_have_the_flows_time():
     result, seen = run("""
 flow: t
 nodes:
-  pico: {type: device.instrument, address: sim:pico}
+  pico: {type: device.device, address: sim:pico}
   wait: {type: control.timer, delay: 200 ms, count: 1}
   capture: {type: device.capture, channels: [GP12], rate: 1 MHz, samples: 1000}
 edges:
@@ -199,8 +199,8 @@ def test_a_generator_stopped_during_a_capture_shows_until_its_stop():
     result, seen = run("""
 flow: t
 nodes:
-  r4: {type: device.instrument, address: sim:uno_r4}
-  dc: {type: gen.waveform, kind: dc, offset: 3 V, amplitude: 0 V, duration: 5 ms}
+  r4: {type: device.device, address: sim:uno_r4}
+  dc: {type: generator.waveform, kind: dc, offset: 3 V, amplitude: 0 V, duration: 5 ms}
   stream: {type: device.stream, channels: [A1], rate: 10 kHz, duration: 10 ms}
 edges:
   - r4.device -> dc.device
@@ -215,10 +215,10 @@ def test_state_mode_sends_the_states():
     result, seen = run("""
 flow: t
 nodes:
-  la: {type: device.instrument, address: sim:free}
+  la: {type: device.device, address: sim:free}
   capture: {type: device.capture, channels: [D0, D1, D2, D3], clock: D8, samples: 32, rate: 100 MHz,
             trigger: {pattern: '1x11', source: D0}}
-  bit: {type: convert.state_bit, bit: D1}
+  bit: {type: convert.bit, bit: D1}
 edges:
   - la.device -> capture.device
   - capture.states -> bit.in
@@ -234,9 +234,9 @@ def test_transmit_payloads_and_the_end_of_a_transmission():
     result, seen = run("""
 flow: t
 nodes:
-  uno: {type: device.instrument, address: sim:uno}
+  uno: {type: device.device, address: sim:uno}
   go: {type: control.sequence, steps: [{emit: send}]}
-  spi: {type: gen.tx_spi, pins: [D10, D13, D11], clock: 10 kHz, data: [1, 2, 3]}
+  spi: {type: generator.spi, pins: [D10, D13, D11], clock: 10 kHz, data: [1, 2, 3]}
 edges:
   - uno.device -> spi.device
   - go.send -> spi.data
@@ -268,10 +268,10 @@ def test_an_rc_low_pass_follows_any_source():
     result, seen = run("""
 flow: t
 nodes:
-  uno: {type: device.instrument, address: sim:uno}
-  square: {type: gen.waveform, output: SQUARE, kind: square, frequency: 1 kHz}
+  uno: {type: device.device, address: sim:uno}
+  square: {type: generator.waveform, output: SQUARE, kind: square, frequency: 1 kHz}
   wait: {type: control.timer, delay: 1 s, count: 1}
-  a0: {type: gpio.read, pin: A0, analog: true}
+  a0: {type: gpio.input, pin: A0, analog: true}
 edges:
   - uno.device -> square.device
   - uno.device -> a0.device
@@ -318,9 +318,9 @@ def test_decoders_join_the_data_of_the_row_that_has_it():
     result, seen = run("""
 flow: t
 nodes:
-  la: {type: device.instrument, address: sim:free}
+  la: {type: device.device, address: sim:free}
   capture: {type: device.capture, channels: [D10, D11, D12], rate: 16 MHz, samples: 64000}
-  spi: {type: decode.spi, channels: {clk: D10, mosi: D11, cs: D12}}
+  spi: {type: decoder.spi, channels: {clk: D10, mosi: D11, cs: D12}}
 edges:
   - la.device -> capture.device
   - capture.capture -> spi.in

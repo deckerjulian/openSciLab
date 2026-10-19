@@ -16,7 +16,6 @@ from typing import Any, Optional
 
 import numpy as np
 from PySide6.QtCore import QAbstractTableModel, QModelIndex, Qt
-from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QCheckBox,
@@ -126,7 +125,7 @@ class ListingModel(QAbstractTableModel):
             if role == Qt.DisplayRole:
                 return str(level)
             if role == Qt.ForegroundRole:
-                return colors.get_channel_color(channel) if level else QColor(120, 120, 128)
+                return colors.get_channel_color(channel) if level else colors.LOW_LEVEL_COLOR
             return None
         if role != Qt.DisplayRole:
             return None

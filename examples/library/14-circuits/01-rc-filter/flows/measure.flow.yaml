@@ -1,0 +1,11 @@
+flow: Measure the low pass
+description: The circuit is a device (circuit:); its probe OUT is the logic channel OUT_L - its frequency is that of the source.
+nodes:
+  rc: {type: device.device, address: "circuit:circuits/rc-filter.circuit.yaml", at: [0, 0]}
+  capture: {type: device.capture, channels: [OUT_L], rate: 200 kHz, duration: 20 ms, at: [288, 0]}
+  frequency: {type: measure.frequency, at: [576, 0]}
+  check: {type: report.check, expected: 1000, tolerance: 20, unit: Hz, title: Frequency at OUT, at: [864, 0]}
+edges:
+  - rc.device -> capture.device
+  - capture.OUT_L -> frequency.in
+  - frequency.out -> check.in

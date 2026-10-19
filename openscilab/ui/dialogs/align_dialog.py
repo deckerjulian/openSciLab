@@ -20,7 +20,7 @@ from .common import button_box, dialog_layout, hint
 
 def option_text(option: DeviceAlignment) -> str:
     if option.method == "reference":
-        method = f"Reference line {option.source} (exact)"
+        method = f"Reference channel {option.source} (exact)"
     else:
         method = f"Clock {option.source} (estimate)"
     if not option.changed:
@@ -45,7 +45,7 @@ class AlignDialog(QDialog):
         layout = dialog_layout(self)
         layout.addWidget(
             hint(
-                "Several methods can align these boards. A reference line (a signal of the board also "
+                "Several methods can align these boards. A reference channel (a signal of the board also "
                 "connected to the first board) measures the offset exactly; the clock method estimates "
                 "it from the edges of the clock on the first board.",
                 self,

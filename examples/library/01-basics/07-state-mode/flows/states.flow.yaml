@@ -1,7 +1,7 @@
 flow: State mode
 description: device.capture with 'clock' sends the states at 'states'; 'rate' only stamps their times.
 nodes:
-  la: {type: device.instrument, at: [0, 48]}
+  la: {type: device.device, at: [0, 64]}
   capture:
     type: device.capture
     channels: [D0, D1, D2, D3]
@@ -10,11 +10,11 @@ nodes:
     samples: 64
     rate: 100 MHz
     trigger: {pattern: '1111', source: D0}
-    at: [272, 48]
-  bit: {type: convert.state_bit, bit: D1, at: [544, 64]}
-  rising: {type: measure.count, edge: rising, at: [808, 0]}
-  check: {type: report.check, name: Rising edges of D1 in 64 states, expected: 16, at: [1080, 0]}
-  view: {type: view.scope, title: D1 state by state, at: [808, 128]}
+    at: [288, 64]
+  bit: {type: convert.bit, bit: D1, at: [576, 88]}
+  rising: {type: measure.count, edge: rising, at: [864, 0]}
+  check: {type: report.check, expected: 16, title: Rising edges of D1 in 64 states, at: [1152, 0]}
+  view: {type: view.scope, title: D1 state by state, at: [864, 168]}
 edges:
   - la.device -> capture.device
   - capture.states -> bit.in

@@ -107,7 +107,7 @@ CAPABILITY_PATTERN_GEN = "PATTERN_GEN="
 CAPABILITY_GEN_SQUARE = "GEN_SQUARE"
 #: Analog function/arbitrary waveform generator outputs (``GeneratorFacet``)
 CAPABILITY_AFG = "AFG"
-#: Protocol transmitters (``GeneratorFacet``, nodes ``gen.tx_*``)
+#: Protocol transmitters (``GeneratorFacet``, nodes ``generator.uart``, ``generator.spi``, ``generator.i2c``)
 CAPABILITY_TX_UART = "TX_UART"
 CAPABILITY_TX_SPI = "TX_SPI"
 CAPABILITY_TX_I2C = "TX_I2C"

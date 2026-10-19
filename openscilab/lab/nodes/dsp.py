@@ -23,7 +23,7 @@ import numpy as np
 
 from ...core import signals
 from ..engine.runtime import NodeError, NodeRuntime
-from .registry import In, Out, Param, collect, node
+from .registry import UNITS, In, Out, Param, collect, node
 
 try:  # pragma: no cover - depends on the installation
     import scipy.signal as _scipy_signal
@@ -53,12 +53,19 @@ def continues(previous: Optional[signals.Analog], block: signals.Analog) -> bool
 
 
 # --------------------------------------------------------------- threshold
-@node("dsp.threshold", title="Threshold",
+
+_ANALOG_IN = In("in", signals.ANALOG, "An analog signal (also the blocks of a stream)", optional=False)
+_ANALOG_OUT = Out("out", signals.ANALOG, "The processed signal")
+
+@node("signal.threshold", title="Threshold",
       description="1 above the threshold, 0 below; with hysteresis the level changes only beyond "
                   "threshold ± hysteresis/2.",
-      inputs=[In("in", signals.ANALOG, optional=False)], outputs=[Out("out", signals.DIGITAL)],
-      params=[Param("threshold", "quantity", 1.65, description="in the unit of the signal, or a quantity (1.65 V, 10 mA)"),
-              Param("hysteresis", "quantity", 0.0, description="like 'threshold'")], icon="wave")
+      inputs=[_ANALOG_IN], outputs=[Out("out", signals.DIGITAL, "1 above the threshold, 0 below")],
+      params=[Param("threshold", "quantity", 1.65, label="threshold",
+                    description="In the unit of the signal, or a quantity (1.65 V, 10 mA)"),
+              Param("hysteresis", "quantity", 0.0, label="hysteresis",
+                    description="The band around the threshold the level does not change in (like 'threshold')")],
+      icon="wave", summary=("threshold", "hysteresis"), keywords=("comparator", "analog to digital", "schmitt"))
 class Threshold(NodeRuntime):
     async def setup(self) -> None:
         self.level = 0
@@ -80,11 +87,13 @@ class Threshold(NodeRuntime):
         self.ctx.emit("out", digital)
 
 
-@node("dsp.debounce", title="Debounce",
+@node("signal.debounce", title="Debounce",
       description="Removes pulses shorter than 'time' (a bouncing switch becomes one edge). In a stream a change "
                   "that goes on into the next block counts with its whole length (it shows from that block on).",
-      inputs=[In("in", signals.DIGITAL, optional=False)], outputs=[Out("out", signals.DIGITAL)],
-      params=[Param("time", "quantity", "5 ms", "s")], icon="wave")
+      inputs=[In("in", signals.DIGITAL, "A digital signal (a bouncing switch)", optional=False)],
+      outputs=[Out("out", signals.DIGITAL, "The signal without the short pulses")],
+      params=[Param("time", "quantity", "5 ms", "s", label="time", description="Pulses shorter than this go")],
+      icon="wave", summary=("time",), keywords=("bounce", "switch", "glitch", "button"))
 class Debounce(NodeRuntime):
     async def setup(self) -> None:
         self.level: Optional[int] = None
@@ -149,16 +158,23 @@ def fir_taps(kind: str, cutoff, rate: float, taps: int) -> np.ndarray:
     raise NodeError(f"unknown filter kind {kind!r}")
 
 
-@node("dsp.filter", title="Filter",
+@node("signal.filter", title="Filter",
       description="Low-pass, high-pass, band-pass, band-stop or moving average. 'fir' (windowed sinc, "
                   "numpy; without delay: its output is placed half its length earlier) or 'iir' (Butterworth, "
                   "needs scipy). 'cutoff' is one frequency, or [low, high].",
-      inputs=[In("in", signals.ANALOG, optional=False)], outputs=[Out("out", signals.ANALOG)],
-      params=[Param("kind", "choice", "lowpass", choices=("lowpass", "highpass", "bandpass", "bandstop", "moving_average")),
-              Param("cutoff", "any", "1 kHz", description="Hz, or [low, high]"),
-              Param("method", "choice", "fir", choices=("fir", "iir")),
-              Param("order", "int", 4, description="IIR order"), Param("taps", "int", 101, description="FIR length")],
-      icon="wave")
+      inputs=[_ANALOG_IN], outputs=[_ANALOG_OUT],
+      params=[Param("kind", "choice", "lowpass", choices=("lowpass", "highpass", "bandpass", "bandstop", "moving_average"),
+                    label="kind", description="Low-pass, high-pass, band-pass, band-stop or moving average"),
+              Param("cutoff", "any", "1 kHz", description="Hz, or [low, high] for a band", label="cutoff",
+                    only_if={"kind": ("lowpass", "highpass", "bandpass", "bandstop")}),
+              Param("method", "choice", "fir", choices=("fir", "iir"), label="method", advanced=True,
+                    description="FIR (windowed sinc) or IIR (Butterworth, needs scipy)",
+                    only_if={"kind": ("lowpass", "highpass", "bandpass", "bandstop")}),
+              Param("order", "int", 4, description="The order of the IIR filter", only_if={"method": ("iir",)},
+                    label="order", advanced=True, minimum=1),
+              Param("taps", "int", 101, description="The length of the FIR filter (moving average: its length)",
+                    only_if={"method": ("fir",)}, label="taps", advanced=True, minimum=1)],
+      icon="wave", summary=("kind", "cutoff"), keywords=("lowpass", "highpass", "bandpass", "smooth", "noise"))
 class Filter(NodeRuntime):
     async def setup(self) -> None:
         self.previous: Optional[signals.Analog] = None
@@ -226,12 +242,15 @@ class Filter(NodeRuntime):
 
 
 # ---------------------------------------------------------------- spectrum
-@node("dsp.fft", title="FFT",
+@node("signal.fft", title="FFT",
       description="Spectrum of an analog signal: a table of frequency and amplitude (dB or linear). The mean "
                   "(DC) is taken off first, so the 0 Hz line shows only what the window leaves of it.",
-      inputs=[In("in", signals.ANALOG, optional=False)], outputs=[Out("out", signals.TABLE)],
-      params=[Param("window", "choice", "hann", choices=("hann", "hamming", "blackman", "rect")),
-              Param("scale", "choice", "dB", choices=("dB", "linear"))], icon="chart")
+      inputs=[_ANALOG_IN], outputs=[Out("out", signals.TABLE, "The spectrum: frequency and amplitude")],
+      params=[Param("window", "choice", "hann", choices=("hann", "hamming", "blackman", "rect"), label="window",
+                    description="The window the signal is weighted with"),
+              Param("scale", "choice", "dB", choices=("dB", "linear"), label="scale",
+                    description="The amplitude in dB or linear")],
+      icon="chart", summary=("window", "scale"), keywords=("spectrum", "frequency", "harmonics", "fourier"))
 class Fft(NodeRuntime):
     async def on_input(self, port: str, value: Any) -> None:
         analog = require_analog(value, self.node.id)
@@ -261,10 +280,11 @@ def spectrum(values: np.ndarray, rate: float, window: str = "hann", scale: str =
 
 
 # -------------------------------------------------- derivative and integral
-@node("dsp.derivative", title="Derivative",
+@node("signal.derivative", title="Derivative",
       description="Change per second (unit/s): each sample minus the one before, by the time between them "
                   "(the first sample of a signal takes the change to the second).",
-      inputs=[In("in", signals.ANALOG, optional=False)], outputs=[Out("out", signals.ANALOG)], icon="wave")
+      inputs=[_ANALOG_IN], outputs=[Out("out", signals.ANALOG, "The change per second")], icon="wave",
+      keywords=("slope", "rate of change", "differentiate"))
 class Derivative(NodeRuntime):
     async def setup(self) -> None:
         self.previous: Optional[signals.Analog] = None
@@ -290,11 +310,12 @@ class Derivative(NodeRuntime):
         self.ctx.emit("out", signals.Analog(name=analog.name, unit=unit, values=derivative, time=analog.time))
 
 
-@node("dsp.integral", title="Integral",
+@node("signal.integral", title="Integral",
       description="Running integral over time (unit·s, trapezoids), across the blocks of a stream; it starts "
                   "at 0 with the first sample, 'reset' starts again at 0.",
-      inputs=[In("in", signals.ANALOG, optional=False), In("reset", signals.ANY)],
-      outputs=[Out("out", signals.ANALOG)], icon="wave")
+      inputs=[_ANALOG_IN, In("reset", signals.EVENT, "Start again at 0")],
+      outputs=[Out("out", signals.ANALOG, "The running integral (unit·s)")], icon="wave",
+      keywords=("area", "sum", "charge", "energy"))
 class Integral(NodeRuntime):
     async def setup(self) -> None:
         self.total = 0.0
@@ -324,13 +345,16 @@ class Integral(NodeRuntime):
 
 
 # ----------------------------------------------------------------- average
-@node("dsp.average", title="Average",
+@node("signal.average", title="Average",
       description="'captures': the sample-by-sample mean of the last 'count' signals of the same length and "
                   "unit (scope averaging); 'moving': a moving average over 'count' samples (without delay: "
                   "placed half its length earlier).",
-      inputs=[In("in", signals.ANALOG, optional=False)], outputs=[Out("out", signals.ANALOG)],
-      params=[Param("mode", "choice", "captures", choices=("captures", "moving")), Param("count", "int", 8)],
-      icon="wave")
+      inputs=[_ANALOG_IN], outputs=[_ANALOG_OUT],
+      params=[Param("mode", "choice", "captures", choices=("captures", "moving"), label="mode",
+                    description="The mean of several captures (scope averaging) or a moving average"),
+              Param("count", "int", 8, label="count", minimum=1,
+                    description="How many captures (moving: how many samples)")],
+      icon="wave", summary=("mode", "count"), keywords=("mean", "smooth", "noise"))
 class Average(NodeRuntime):
     async def setup(self) -> None:
         self.history: deque = deque(maxlen=max(int(self.p("count", 8)), 1))
@@ -362,10 +386,12 @@ class Average(NodeRuntime):
 
 
 # ---------------------------------------------------------------- resample
-@node("dsp.resample", title="Resample",
+@node("signal.resample", title="Resample",
       description="A signal at another rate: linear interpolation for analog, nearest sample for digital.",
-      inputs=[In("in", signals.ANY, optional=False)], outputs=[Out("out", signals.ANY)],
-      params=[Param("rate", "quantity", "1 kHz", "Hz")], icon="wave")
+      inputs=[In("in", signals.ANY, "An analog or digital signal", optional=False)],
+      outputs=[Out("out", signals.ANY, "The signal at the new rate")],
+      params=[Param("rate", "quantity", "1 kHz", "Hz", label="rate", description="Samples per second")],
+      icon="wave", summary=("rate",), keywords=("decimate", "interpolate", "downsample"))
 class Resample(NodeRuntime):
     async def setup(self) -> None:
         self.previous: Any = None
@@ -413,7 +439,7 @@ def _largest(*values):
     return np.max(values[0]) if len(values) == 1 else functools.reduce(np.maximum, values)
 
 
-#: names an expression of dsp.math can use
+#: names an expression of signal.math can use
 MATH_NAMESPACE = {
     "np": np, "pi": math.pi, "e": math.e, "abs": np.abs, "sqrt": np.sqrt, "sin": np.sin, "cos": np.cos,
     "tan": np.tan, "exp": np.exp, "log": np.log, "log10": np.log10, "min": _smallest, "max": _largest,
@@ -441,13 +467,19 @@ def _argument(value: Any):
     return value
 
 
-@node("dsp.math", title="Math",
+@node("signal.math", title="Math",
       description="An expression of the inputs a, b, c, d with numpy (e.g. 'a * 2 - b', 'sqrt(a**2 + b**2)', "
                   "'where(a > 1.5, 1, 0)', 'max(a)'). Signals are arrays, scalars numbers. Several signals are "
                   "taken at the times of the first one where they all have samples (blocks of a stream once, "
                   "when they have arrived); a comparison of signals gives a digital signal.",
-      inputs=[In("a", signals.ANY, optional=False), In("b"), In("c"), In("d")], outputs=[Out("out", signals.ANY)],
-      params=[Param("expression", "str", "a", required=True), Param("unit", "str", "")], icon="sliders")
+      inputs=[In("a", signals.ANY, "The first value or signal", optional=False),
+              In("b", signals.ANY, "A second one"), In("c", signals.ANY, "A third one"),
+              In("d", signals.ANY, "A fourth one")],
+      outputs=[Out("out", signals.ANY, "The result")],
+      params=[Param("expression", "str", "a", required=True, label="expression",
+                    description="With a, b, c, d and numpy: a * 2 - b, sqrt(a**2 + b**2), where(a > 1.5, 1, 0)"),
+              Param("unit", "str", "", choices=UNITS, label="unit", description="The unit of the result")],
+      icon="sliders", summary=("expression", "unit"), keywords=("formula", "calculate", "expression", "numpy"))
 class MathNode(NodeRuntime):
     async def setup(self) -> None:
         try:

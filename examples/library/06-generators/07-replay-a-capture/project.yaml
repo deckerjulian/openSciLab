@@ -1,5 +1,5 @@
 project: Replay a capture
-description: A capture played back - the UART line D9 of the simulator is captured, gen.replay plays
+description: A capture played back - the UART line D9 of the simulator is captured, generator.replay plays
   it on the pattern generator at D3 (pins picks the channel and renames it), a second capture of D3 records the
   replay, and the UART decoder reads the same text from both.
 devices:

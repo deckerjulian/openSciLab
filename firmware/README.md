@@ -5,7 +5,7 @@ tested and versioned with the application.
 
 | Firmware | Folder | Boards | Build | State |
 | --- | --- | --- | --- | --- |
-| Pico | [`pico/`](pico/) | Raspberry Pi Pico, Pico 2, Pico W, Pico 2 W, RP2040-Zero, Interceptor, LogicAnalyzer board V2 (gusmanb) | Pico SDK 2.1.1, ARM GNU toolchain 14.2, CMake/Ninja | version 8 not yet tried on hardware (the 7.x firmware it extends is in use) |
+| Pico | [`pico/`](pico/) | Raspberry Pi Pico, Pico 2, Pico W, Pico 2 W, RP2040-Zero, Interceptor, LogicAnalyzer board V2 (gusmanb) | Pico SDK 2.1.1, ARM GNU toolchain 14.2, CMake/Ninja | version 8 tested on a Pico 2 (on gusmanb's board V2, inputs) and a Pico W (inputs and outputs) |
 | Arduino | [`arduino/`](arduino/) | Uno, Nano, Mega 2560, Uno R4 Minima, ESP32, ESP32-S3 | PlatformIO | built and host-tested, not yet tested on hardware |
 | Bridge app | [`bridge-android/`](bridge-android/) | Rigol DHO900 (Android) | Gradle, Android SDK, JDK 17 | built, not yet tested on the instrument |
 

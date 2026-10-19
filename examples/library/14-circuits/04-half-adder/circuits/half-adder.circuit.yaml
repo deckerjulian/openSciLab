@@ -1,0 +1,38 @@
+circuit: Half adder
+description: 'Two switches, an XOR and an AND gate: the sum and the carry of two bits.'
+version: 1
+components:
+  PWR1: {type: power, at: [-60, -100], params: {net: VCC, voltage: 5 V}}
+  SW1: {type: switch, at: [-60, -40], rotation: 90, params: {state: '1'}}
+  R1: {type: resistor, at: [-120, 20], rotation: 90, params: {value: 10k}}
+  GND1: {type: ground, at: [-120, 60]}
+  PWR2: {type: power, at: [-60, 20], params: {net: VCC, voltage: 5 V}}
+  SW2: {type: switch, at: [-60, 80], rotation: 90, params: {state: '0'}}
+  R2: {type: resistor, at: [-120, 140], rotation: 90, params: {value: 10k}}
+  GND2: {type: ground, at: [-120, 180]}
+  U1: {type: gate.xor, at: [120, 0]}
+  U2: {type: gate.and, at: [120, 120]}
+  P1: {type: probe.logic, at: [160, 0], params: {name: SUM}}
+  P2: {type: probe.logic, at: [160, 120], params: {name: CARRY}}
+  R3: {type: resistor, at: [200, 30], rotation: 90, params: {value: 100k}}
+  GND3: {type: ground, at: [200, 70]}
+  R4: {type: resistor, at: [240, 150], rotation: 90, params: {value: 100k}}
+  GND4: {type: ground, at: [240, 190]}
+wires:
+  - [[-60, -100], [-60, -70]]
+  - [[-120, 50], [-120, 60]]
+  - [[-60, -10], [-120, -10]]
+  - [[-60, 20], [-60, 50]]
+  - [[-120, 170], [-120, 180]]
+  - [[-60, 110], [-120, 110]]
+  - [[160, 0], [200, 0]]
+  - [[200, 60], [200, 70]]
+  - [[160, 120], [240, 120]]
+  - [[240, 180], [240, 190]]
+labels:
+  - {name: A, at: [-60, -10]}
+  - {name: B, at: [-60, 110]}
+  - {name: A, at: [80, -10]}
+  - {name: B, at: [80, 10]}
+  - {name: A, at: [80, 110]}
+  - {name: B, at: [80, 130]}

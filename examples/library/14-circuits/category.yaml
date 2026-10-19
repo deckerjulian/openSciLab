@@ -1,0 +1,4 @@
+title: Circuits
+description: Circuits drawn and simulated live with ngspice - filters, a transistor, an operational amplifier, logic,
+  an Arduino running its firmware and a hybrid AC/DC lab power supply; each measured by a flow through the circuit's probes (circuit:).
+icon: circuit

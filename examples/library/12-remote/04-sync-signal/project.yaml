@@ -1,7 +1,7 @@
 project: Sync signal
 description: For microsecond alignment the station drives a sync output (in the simulation it is
   wired to D5 of a simulated logic analyzer - with hardware, a wire from a GPIO of the station to a
-  channel of the analyzer). The analyzer streams D5; remote.sync matches the edges and from then on
+  channel of the analyzer). The analyzer streams D5; remote.align matches the edges and from then on
   the station's values are converted on the time axis of that recording.
 devices:
   station: remote-sim:climate

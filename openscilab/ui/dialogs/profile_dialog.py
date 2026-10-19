@@ -94,7 +94,7 @@ class ProfileSettingsDriver(EmulatedAnalyzerDriver):
 
 def describe_settings(settings: Optional[CaptureSession]) -> str:
     if settings is None:
-        return "No capture settings stored."
+        return "No capture setup stored."
     return (
         f"{len(settings.capture_channels)} channels · {to_large_frequency(settings.frequency)} · "
         f"{to_thousands(settings.pre_trigger_samples)} + {to_thousands(settings.post_trigger_samples)} samples · "
@@ -134,7 +134,7 @@ class ProfileEditDialog(QDialog):
 
         form = QFormLayout()
         self.name_edit = QLineEdit(profile.name, self)
-        form.addRow("Name:", self.name_edit)
+        form.addRow("Name", self.name_edit)
         layout.addLayout(form)
 
         notes_group = QGroupBox("Notes", self)
@@ -144,12 +144,12 @@ class ProfileEditDialog(QDialog):
         notes_layout.addWidget(self.notes_edit)
         layout.addWidget(notes_group, 1)
 
-        settings_group = QGroupBox("Capture settings", self)
+        settings_group = QGroupBox("Capture setup", self)
         settings_layout = QVBoxLayout(settings_group)
         self.settings_label = hint("", settings_group)
         settings_layout.addWidget(self.settings_label)
         settings_buttons = QHBoxLayout()
-        self.edit_settings_button = QPushButton("Edit capture settings...", settings_group)
+        self.edit_settings_button = QPushButton("Edit capture setup...", settings_group)
         set_icon(self.edit_settings_button, "sliders")
         self.edit_settings_button.clicked.connect(self.edit_capture_settings)
         settings_buttons.addWidget(self.edit_settings_button)
@@ -220,7 +220,7 @@ class ProfileEditDialog(QDialog):
             accept_text="Apply",
             persist=False,
         )
-        dialog.setWindowTitle(f"Capture settings of {self.name_edit.text().strip() or 'the profile'}")
+        dialog.setWindowTitle(f"Capture setup of {self.name_edit.text().strip() or 'the profile'}")
         if self._settings is not None:
             dialog.apply_session(self._settings)
         if dialog.exec() and dialog.selected_settings is not None:
@@ -250,7 +250,7 @@ class ProfileEditDialog(QDialog):
             self.name_edit.setFocus()
             return
         if self._settings is None and not decoder_names(self._decoders):
-            self.message.show_error("A profile needs capture settings or decoders.")
+            self.message.show_error("A profile needs a capture setup or decoders.")
             return
         self.profile = Profile(
             name=name,

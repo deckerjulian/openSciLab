@@ -614,7 +614,7 @@ class Instrument:
                  status: InstrumentStatus = InstrumentStatus.CONNECTED,
                  trigger_outputs: tuple[str, ...] = (), trigger_inputs: tuple[str, ...] = ()) -> None:
         self.name = name
-        #: kind of device for people ("Pico", "DSLogic", "Simulation: Arduino Uno")
+        #: kind of device for people ("Pico", "DSLogic", "Simulated Arduino Uno")
         self.kind = kind
         #: how it was opened (``pico:/dev/cu.usbmodem1``, ``sim:uno``)
         self.uri = uri

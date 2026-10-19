@@ -12,6 +12,7 @@ from typing import Optional
 
 from PySide6.QtWidgets import QDialog, QFormLayout, QLineEdit, QPlainTextEdit, QWidget
 
+from ..theme import size
 from .common import InlineMessage, button_box, dialog_layout, hint
 
 
@@ -26,15 +27,15 @@ class TemplateDialog(QDialog):
         layout = dialog_layout(self)
         layout.addWidget(hint("A copy of the project - its flows, panels, nodes, waveforms and devices, without "
                               "the captures and results in its data folder - becomes a template: it is listed "
-                              "first under Templates and on the start page, and every project made from it "
-                              "starts as a copy.", self))
+                              "first under Examples → Your templates and on the start page, and every project "
+                              "made from it starts as a copy.", self))
         form = QFormLayout()
         self.title_edit = QLineEdit(title, self)
         self.title_edit.setPlaceholderText("e.g. Sensor test bench")
         form.addRow("Name", self.title_edit)
         self.description_edit = QPlainTextEdit(description, self)
         self.description_edit.setPlaceholderText("What a project made from it is for (shown on its tile)")
-        self.description_edit.setFixedHeight(80)
+        self.description_edit.setFixedHeight(size("note-tall"))
         form.addRow("Description", self.description_edit)
         layout.addLayout(form)
         self.message = InlineMessage(self)

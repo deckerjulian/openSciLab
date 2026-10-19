@@ -11,7 +11,7 @@ with flow("Counter", description="Captures the counter of the simulator and save
     cap = n.device.capture(sim, id="cap", channels=["D0", "D1", "D2", "D3", "D8"], rate="4 MHz",
                            samples=20000, trigger=n.edge("D8"))
     cap.capture >> n.view.scope(id="scope", title="Counter")
-    cap.capture >> n.data.file(id="file", path="counter.lac")
+    cap.capture >> n.data.write(id="file", path="counter.lac")
 
 if __name__ == "__main__":
     print(f.run())

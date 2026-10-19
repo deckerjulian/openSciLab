@@ -1,7 +1,7 @@
 flow: Scope measurements
 description: One capture of CH1-CH4 (50 ms at 1 MHz); every channel goes into the measurements.
 nodes:
-  scope: {type: device.instrument, at: [0, 376]}
+  scope: {type: device.device, at: [0, 376]}
   capture:
     type: device.capture
     channels: [CH1, CH2, CH3, CH4]

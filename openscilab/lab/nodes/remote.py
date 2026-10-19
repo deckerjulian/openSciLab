@@ -8,10 +8,10 @@
 
 Every value of a remote device carries the time it was measured on the device; the connection
 converts it into local time with the measured clock of the device (or a sync signal, see
-``remote.sync``), so values of several devices line up however long the network took.
-``remote.receive`` hands them on in the order of that time: it waits a moment for late values
+``remote.align``), so values of several devices line up however long the network took.
+``remote.input`` hands them on in the order of that time: it waits a moment for late values
 (``playout``, by default what the network needs), so values of two devices arrive in the right
-order. ``remote.set`` sends a value with the time it should take effect, a little ahead: the
+order. ``remote.output`` sends a value with the time it should take effect, a little ahead: the
 device applies it at that moment, not when the message arrives.
 """
 
@@ -62,17 +62,19 @@ class _RemoteNode(NodeRuntime):
         return flow + (time.monotonic() - self.ctx.now())
 
 
-@node("remote.receive", title="Receive",
+@node("remote.input", title="Input",
       description="The values of an input of a remote device, with the time they were measured on the "
                   "device (converted with its measured clock): numbers and truth values one by one, samples "
                   "as blocks of an analog or digital signal. 'playout' waits that long for late values so "
                   "the values of several devices come in the order of their time (auto: what the network "
                   "needs; 0: at once). Ends after 'duration' (0: with the flow).",
-      inputs=[DEVICE_INPUT], outputs=[Out("out", signals.ANY, "every value or block")],
-      params=[Param("channel", "str", required=True, suggest="remote_inputs"),
-              Param("playout", "str", "auto", description="auto, 0 or a time (e.g. 20 ms)"),
-              Param("duration", "quantity", 0, "s")],
-      icon="import")
+      inputs=[DEVICE_INPUT], outputs=[Out("out", signals.ANY, "Every value or block, with its time")],
+      params=[Param("channel", "str", required=True, suggest="remote_inputs", label="input",
+                    description="The input of the remote device"),
+              Param("playout", "str", "auto", description="auto, 0 or a time (e.g. 20 ms)", choices=("auto", "0"),
+                    label="playout", advanced=True),
+              Param("duration", "quantity", 0, "s", label="duration", description="How long (0: with the flow)")],
+      icon="import", summary=("channel",), keywords=("receive", "values", "remote"))
 class ReceiveNode(_RemoteNode):
     async def run(self) -> None:
         remote = self.remote()
@@ -120,16 +122,20 @@ class ReceiveNode(_RemoteNode):
         return signals.Event(name=name, times=[at], data=[item.value])
 
 
-@node("remote.set", title="Set",
+@node("remote.output", title="Output",
       description="Sets an output of a remote device to the value arriving at 'value' (or to the parameter "
                   "'value' once at the start). The value is sent 'lead' ahead with the time it should take "
                   "effect, and the device applies it at that time (auto: what the network needs, 0: as soon "
                   "as it arrives). 'done' tells the time it happened.",
-      inputs=[DEVICE_INPUT, In("value", signals.ANY)],
-      outputs=[Out("done", signals.EVENT, "the time the device applied the value")],
-      params=[Param("channel", "str", required=True, suggest="remote_outputs"), Param("value", "any"),
-              Param("lead", "str", "auto", description="auto, 0 or a time (e.g. 50 ms)")],
-      icon="export")
+      inputs=[DEVICE_INPUT, In("value", signals.ANY, "The value to set")],
+      outputs=[Out("done", signals.EVENT, "The time the device applied the value")],
+      params=[Param("channel", "str", required=True, suggest="remote_outputs", label="output",
+                    description="The output of the remote device"),
+              Param("value", "any", label="value", description="The value set once at the start",
+                    unless_wired="value"),
+              Param("lead", "str", "auto", description="auto, 0 or a time (e.g. 50 ms)", choices=("auto", "0"),
+                    label="lead", advanced=True)],
+      icon="export", summary=("channel", "value"), keywords=("set", "write", "remote"))
 class SetNode(_RemoteNode):
     async def run(self) -> None:
         self.remote()  # (fails early: real time, a remote device)
@@ -163,14 +169,17 @@ class SetNode(_RemoteNode):
         self.ctx.emit("done", signals.Event(name=channel, times=[self.flow_time(done)], data=[value]))
 
 
-@node("remote.call", title="Call",
+@node("remote.command", title="Command",
       description="Calls a command of a remote device with 'args' for every value at 'trigger' (once at the "
                   "start without a wire); 'result' is what it answers.",
-      inputs=[DEVICE_INPUT, In("trigger", signals.ANY)],
-      outputs=[Out("result", signals.ANY), Out("done", signals.EVENT)],
-      params=[Param("command", "str", required=True, suggest="remote_commands"), Param("args", "dict", {}),
-              Param("timeout", "quantity", "10 s", "s")],
-      icon="terminal")
+      inputs=[DEVICE_INPUT, In("trigger", signals.EVENT, "Call it again for every value")],
+      outputs=[Out("result", signals.ANY, "What the device answered"), Out("done", signals.EVENT, "The call is over")],
+      params=[Param("command", "str", required=True, suggest="remote_commands", label="command",
+                    description="The command of the remote device"),
+              Param("args", "dict", {}, label="arguments", description="The arguments of the command"),
+              Param("timeout", "quantity", "10 s", "s", label="timeout", advanced=True,
+                    description="How long it waits for the answer")],
+      icon="terminal", summary=("command", "args"), keywords=("call", "rpc", "remote"))
 class CallNode(_RemoteNode):
     async def run(self) -> None:
         self.remote()
@@ -203,22 +212,25 @@ SYNC_WINDOW = 64
 SYNC_SEARCH = 2.0
 
 
-@node("remote.sync", title="Sync signal",
+@node("remote.align", title="Align clock",
       description="Aligns the clock of a remote device with a sync signal: the device reports the times of "
                   "the signal's edges in its clock (a sync output it drives, a sync input it sees, or an input "
                   "whose blocks record it). 'signal' is the same signal recorded by a channel of another "
-                  "instrument (a capture or stream); 'edges' instead takes the edge times of timing.sync (as "
+                  "device (a capture or stream); 'edges' instead takes the edge times of time.sync (as "
                   "precise as its output). The matched edges give offset and drift with the precision of the "
                   "recording (drift: auto fits it unless the device's sample clock is shared; none: only the "
                   "offset); from then on the device's values are converted with them. 'offset' is the device "
                   "time minus the local time, 'uncertainty' its scatter.",
-      inputs=[DEVICE_INPUT, In("signal", signals.DIGITAL, "the recorded sync signal"),
-              In("edges", signals.EVENT, "edge times of the sync signal (timing.sync)")],
-      outputs=[Out("offset", signals.SCALAR), Out("uncertainty", signals.SCALAR), Out("edges", signals.SCALAR)],
-      params=[Param("sync", "str", required=True, suggest="remote_syncs"),
-              Param("drift", "choice", "auto", choices=("auto", "fit", "none"),
+      inputs=[DEVICE_INPUT, In("signal", signals.DIGITAL, "The sync signal, recorded by another device"),
+              In("edges", signals.EVENT, "The edge times of the sync signal (time.sync)")],
+      outputs=[Out("offset", signals.SCALAR, "The device time minus the local time"),
+               Out("uncertainty", signals.SCALAR, "The scatter of the offset"),
+               Out("matched", signals.SCALAR, "How many edges were matched")],
+      params=[Param("sync", "str", required=True, suggest="remote_syncs", label="sync",
+                    description="The sync input or output of the remote device"),
+              Param("drift", "choice", "auto", choices=("auto", "fit", "none"), label="drift",
                     description="auto: fitted unless the sample clock is shared; none: offset only")],
-      icon="clock")
+      icon="clock", summary=("sync", "drift"), keywords=("synchronize", "clock", "offset"))
 class SyncNode(_RemoteNode):
     async def setup(self) -> None:
         self.remote_edges: list[tuple] = []
@@ -235,7 +247,7 @@ class SyncNode(_RemoteNode):
             raise NodeError(f"{self.node.id}: {remote.device_name} has no sync signal {name!r} "
                             f"(sync signals: {', '.join(remote.syncs()) or 'none'})")
         if not self.ctx.wired("signal") and not self.ctx.wired("edges"):
-            raise NodeError(f"{self.node.id}: wire 'signal' (the recorded sync signal) or 'edges' (timing.sync)")
+            raise NodeError(f"{self.node.id}: wire 'signal' (the recorded sync signal) or 'edges' (time.sync)")
 
         def edges(items: list) -> None:
             with self.lock:
@@ -305,7 +317,7 @@ class SyncNode(_RemoteNode):
         at = self.ctx.now()
         self.ctx.emit("offset", signals.Scalar(name="offset", unit="s", value=offset, at=at))
         self.ctx.emit("uncertainty", signals.Scalar(name="uncertainty", unit="s", value=scatter, at=at))
-        self.ctx.emit("edges", signals.Scalar(name="edges", value=float(len(pairs)), at=at))
+        self.ctx.emit("matched", signals.Scalar(name="matched", value=float(len(pairs)), at=at))
 
     def cleanup(self) -> None:
         if self.stop_listening is not None:

@@ -1,0 +1,13 @@
+project: Loopback test (Pico W)
+description: A test bench for a Pico or Pico W with the openSciLab firmware and three wires, GP2 to
+  GP6, GP3 to GP7 and GP4 to GP8. One pattern drives a clock, a data line and UART frames on GP2-GP4;
+  a capture takes them back at GP6-GP8, a state capture takes GP7 on the clock edges at GP6; then a
+  PWM on GP2 and an SPI transfer whose bytes come back over the wire GP3-GP7 (MISO). Every result
+  is a check of the report. Runs on the simulated Pico (sim:pico, wired the same way); on a real
+  board set the device to pico:<port>.
+devices:
+  pico: sim:pico
+simulation:
+  wiring:
+    pico: [{from: GP2, to: GP6}, {from: GP3, to: GP7}, {from: GP4, to: GP8}]
+open: [flows/loopback.flow.yaml]

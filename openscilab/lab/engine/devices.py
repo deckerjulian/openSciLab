@@ -25,10 +25,12 @@ def simulation_profile_for(address: str) -> str:
 
 
 def open_instrument(address: str, simulate: bool = False, clock=None, fast: bool = False,
-                    seed: int = 1, wiring: Optional[list] = None, signals: Optional[dict] = None) -> Instrument:
+                    seed: int = 1, wiring: Optional[list] = None, signals: Optional[dict] = None,
+                    project: Optional[str] = None) -> Instrument:
     """The instrument at ``address``; with ``simulate`` every device is a simulator (``wiring``:
     more wires of its circuit, e.g. from ``simulation.wiring`` of the project; ``signals``: what
-    a simulator simulates, see :mod:`openscilab.driver.simulated.scenarios`)."""
+    a simulator simulates, see :mod:`openscilab.driver.simulated.scenarios`; ``project``: the folder of
+    the flow's project, for addresses of files in it - ``circuit:circuits/filter.circuit.yaml``)."""
     from ...driver import discovery, kinds, process
 
     name, rest = kinds.split(address)
@@ -43,7 +45,8 @@ def open_instrument(address: str, simulate: bool = False, clock=None, fast: bool
         return open_simulated(simulation_profile_for(address), clock=now, fast=fast, seed=seed, wiring=wiring,
                               signals=signals)
     if kind is not None and kind.instrument is not None:
-        return kinds.call(kind.instrument, rest, clock=now, fast=fast, seed=seed, wiring=wiring, signals=signals)
+        return kinds.call(kind.instrument, rest, clock=now, fast=fast, seed=seed, wiring=wiring, signals=signals,
+                          project=project)
     if process.wanted(address):
         # a device on USB is read in a process of its own: nothing the application does delays it
         return process.open_instrument(address)

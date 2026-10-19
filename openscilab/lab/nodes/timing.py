@@ -6,11 +6,11 @@
 
 """Time nodes: a sync signal, aligning instruments with it, measuring their latency.
 
-``timing.sync`` drives a pin with edges at irregular intervals: every instrument that records it
-(and a remote device whose input records it, ``remote.sync``) can be matched with the others
-without ambiguity. ``timing.align`` aligns an instrument with a reference instrument by that signal:
+``time.sync`` drives a pin with edges at irregular intervals: every instrument that records it
+(and a remote device whose input records it, ``remote.align``) can be matched with the others
+without ambiguity. ``time.align`` aligns an instrument with a reference instrument by that signal:
 offset and drift (only the offset when their sample clocks are shared), applied to the
-instrument's later samples and to what is wired through it. ``timing.calibrate`` measures how late
+instrument's later samples and to what is wired through it. ``time.latency`` measures how late
 the samples of an instrument arrive, with a loopback from one of its outputs to one of its inputs;
 the latency is kept for the instrument and its settings and used by its captures and streams from
 then on (``docs/timing.md``).
@@ -79,19 +79,22 @@ class _TimingNode(NodeRuntime):
             raise NodeError(f"{self.node.id}: {error}") from None
 
 
-@node("timing.sync", title="Sync signal",
+@node("time.sync", title="Sync output",
       description="Drives a pin with a sync signal: edges at irregular intervals (the same for the same 'seed') "
                   "that recordings of it can be matched by without ambiguity. Wire the pin to a channel of every "
-                  "instrument to align (timing.align) and to the sync input of a remote device (remote.sync). "
+                  "device to align (time.align) and to the sync input of a remote device (remote.align). "
                   "'edges' are the times the edges were commanded (as precise as the output). Runs for "
                   "'duration' (0: until 'stop' or the end of the flow).",
-      inputs=[DEVICE_INPUT, In("stop", signals.ANY)],
-      outputs=[Out("edges", signals.EVENT, "the time of every edge and its level")],
-      params=[Param("pin", "str", required=True, suggest="pins:DOUT"),
-              Param("duration", "quantity", "10 s", "s"),
-              Param("min_interval", "quantity", "20 ms", "s"), Param("max_interval", "quantity", "60 ms", "s"),
-              Param("seed", "int", 1)],
-      icon="clock")
+      inputs=[DEVICE_INPUT, In("stop", signals.EVENT, "Stop the signal")],
+      outputs=[Out("edges", signals.EVENT, "The time of every edge and its level")],
+      params=[Param("pin", "str", required=True, suggest="pins:DOUT", label="pin", description="The output pin"),
+              Param("duration", "quantity", "10 s", "s", label="duration", description="How long (0: until 'stop')"),
+              Param("min_interval", "quantity", "20 ms", "s", label="shortest interval", advanced=True,
+                    description="The shortest time between two edges"),
+              Param("max_interval", "quantity", "60 ms", "s", label="longest interval", advanced=True,
+                    description="The longest time between two edges"),
+              Param("seed", "int", 1, label="seed", advanced=True, description="The same seed, the same intervals")],
+      icon="clock", summary=("pin", "duration"), keywords=("synchronize", "timing", "align", "edges"))
 class SyncNode(_TimingNode):
     async def setup(self) -> None:
         self.stopped = False
@@ -131,24 +134,27 @@ class SyncNode(_TimingNode):
             self.stopped = True
 
 
-@node("timing.align", title="Align",
-      description="Aligns an instrument (at 'device') with a reference by a sync signal both recorded: 'signal' "
-                  "is the signal as this instrument recorded it, 'reference' as the reference instrument did "
-                  "(or 'edges' of timing.sync: as precise as its output). The matched edges give offset and "
-                  "drift (drift none: their sample clocks are shared, only the offset); the instrument's later "
+@node("time.align", title="Align",
+      description="Aligns a device (at 'device') with a reference by a sync signal both recorded: 'signal' "
+                  "is the signal as this device recorded it, 'reference' as the reference device did "
+                  "(or 'edges' of time.sync: as precise as its output). The matched edges give offset and "
+                  "drift (drift none: their sample clocks are shared, only the offset); the device's later "
                   "samples are placed with them, and what arrives at 'in' leaves 'out' moved onto the "
-                  "reference's time (a capture of the instrument, its other channels).",
-      inputs=[DEVICE_INPUT, In("signal", signals.DIGITAL, "the sync signal recorded by this instrument"),
-              In("reference", signals.DIGITAL, "the sync signal recorded by the reference"),
-              In("edges", signals.EVENT, "edge times of the sync signal (timing.sync)"),
-              In("in", signals.ANY, "signals of this instrument to move")],
-      outputs=[Out("out", signals.ANY, "'in' on the reference's time"), Out("offset", signals.SCALAR),
-               Out("uncertainty", signals.SCALAR), Out("edges", signals.SCALAR)],
-      params=[Param("drift", "choice", "auto", choices=("auto", "fit", "none"),
-                    description="auto: as the device card says (Timing: sample clock); fit: offset and drift; "
+                  "reference's time (a capture of the device, its other channels).",
+      inputs=[DEVICE_INPUT, In("signal", signals.DIGITAL, "The sync signal recorded by this device"),
+              In("reference", signals.DIGITAL, "The sync signal recorded by the reference"),
+              In("edges", signals.EVENT, "The edge times of the sync signal (time.sync)"),
+              In("in", signals.ANY, "Signals of this device to move")],
+      outputs=[Out("out", signals.ANY, "'in' on the reference's time"),
+               Out("offset", signals.SCALAR, "This device's time minus the reference's"),
+               Out("uncertainty", signals.SCALAR, "The scatter of the offset"),
+               Out("matched", signals.SCALAR, "How many edges were matched")],
+      params=[Param("drift", "choice", "auto", choices=("auto", "fit", "none"), label="drift",
+                    description="auto: as the device says (Timing: sample clock); fit: offset and drift; "
                                 "none: shared sample clock, offset only"),
-              Param("search", "quantity", "1 s", "s", description="how far apart the recordings may be")],
-      icon="align")
+              Param("search", "quantity", "1 s", "s", description="How far apart the recordings may be",
+                    label="search", advanced=True)],
+      icon="align", summary=("drift",), keywords=("synchronize", "offset", "drift", "timing"))
 class AlignNode(_TimingNode):
     async def setup(self) -> None:
         self.recorded: list[tuple[Optional[float], float]] = []   # (sample index, local time as given)
@@ -207,7 +213,7 @@ class AlignNode(_TimingNode):
         if drift == "auto":
             drift = "none" if shares_clock(self.ctx.instrument()) else "fit"
         correction = fit_correction(pairs, fit_drift=drift == "fit",
-                                    reference=reference.name if reference is not None else "timing.sync",
+                                    reference=reference.name if reference is not None else "time.sync",
                                     base_uncertainty=base)
         self.correction = correction
         if self.acquisition is not None:
@@ -215,7 +221,7 @@ class AlignNode(_TimingNode):
         at = self.ctx.now()
         self.ctx.emit("offset", signals.Scalar(name="offset", unit="s", value=correction.offset, at=at))
         self.ctx.emit("uncertainty", signals.Scalar(name="uncertainty", unit="s", value=correction.uncertainty, at=at))
-        self.ctx.emit("edges", signals.Scalar(name="edges", value=float(correction.edges), at=at))
+        self.ctx.emit("matched", signals.Scalar(name="matched", value=float(correction.edges), at=at))
         pending, self.pending = self.pending, []
         for value in pending:
             self.forward(value)
@@ -252,21 +258,30 @@ def _start_of(value: Any) -> Optional[float]:
     return None
 
 
-@node("timing.calibrate", title="Calibrate latency",
-      description="Measures how late the samples of an instrument arrive: an output pin, wired to one of its "
-                  "channels, is switched 'repeats' times while the instrument streams (or captures) that channel. "
+@node("time.latency", title="Latency",
+      description="Measures how late the samples of a device arrive: an output pin, wired to one of its "
+                  "channels, is switched 'repeats' times while the device streams (or captures) that channel. "
                   "No edge is earlier than its command and no sample later than its arrival: half of the shortest "
-                  "loop is the latency. It is kept for the instrument at this rate (and length of a capture) and "
+                  "loop is the latency. It is kept for the device at this rate (and length of a capture) and "
                   "used by its captures and streams from then on. Real time only.",
-      inputs=[DEVICE_INPUT], outputs=[Out("latency", signals.SCALAR), Out("uncertainty", signals.SCALAR)],
-      params=[Param("pin", "str", required=True, suggest="pins:DOUT"),
-              Param("channel", "str", required=True, suggest="channels"),
-              Param("rate", "quantity", "100 kHz", "Hz"),
-              Param("mode", "choice", "stream", choices=("stream", "capture")),
-              Param("samples", "int", 100_000, description="length of a capture (mode capture)"),
-              Param("repeats", "int", 10), Param("interval", "quantity", "30 ms", "s"),
-              Param("store", "bool", True, description="keep the latency for the instrument")],
-      icon="clock")
+      inputs=[DEVICE_INPUT], outputs=[Out("latency", signals.SCALAR, "How late the samples arrive"),
+                                      Out("uncertainty", signals.SCALAR, "How exact the latency is")],
+      params=[Param("pin", "str", required=True, suggest="pins:DOUT", label="output pin",
+                    description="The pin that is switched"),
+              Param("channel", "str", required=True, suggest="channels", label="channel",
+                    description="The channel the pin is wired to"),
+              Param("rate", "quantity", "100 kHz", "Hz", label="rate", description="Samples per second"),
+              Param("mode", "choice", "stream", choices=("stream", "capture"), label="mode",
+                    description="Measure while streaming or with captures"),
+              Param("samples", "int", 100_000, description="The length of a capture (mode capture)",
+                    only_if={"mode": ("capture",)}, label="samples", minimum=1),
+              Param("repeats", "int", 10, label="repeats", description="How many times the pin is switched",
+                    minimum=1, advanced=True),
+              Param("interval", "quantity", "30 ms", "s", label="interval", advanced=True,
+                    description="The time between two switches"),
+              Param("store", "bool", True, description="Keep the latency for the device", label="keep it",
+                    advanced=True)],
+      icon="clock", summary=("pin", "channel", "rate"), keywords=("delay", "calibrate", "usb", "timing"))
 class CalibrateNode(_TimingNode):
     async def run(self) -> None:
         if self.ctx.fast:
@@ -277,7 +292,7 @@ class CalibrateNode(_TimingNode):
         if gpio is None or capture is None:
             raise NodeError(f"{self.node.id}: {instrument.name} needs GPIO and capture channels")
         pin = str(self.p("pin") or "")
-        (_label, number), = channel_numbers(instrument, [self.p("channel")])
+        (_label, number), = channel_numbers(instrument, [self.p("channel")], self.ctx.log)
         rate = self.q("rate") or 100_000.0
         repeats, interval = int(self.p("repeats", 10)), self.q("interval") or 0.03
         mode = str(self.p("mode", "stream"))

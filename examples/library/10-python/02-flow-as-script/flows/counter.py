@@ -12,8 +12,8 @@ with flow("Counter", description="Captures the counter of the simulator and save
     capture = n.device.capture(la, id="capture", channels=["D0", "D1", "D2", "D3", "D8"], rate="4 MHz",
                                samples=20000, trigger=n.edge("D8"))
     capture.capture >> n.view.scope(id="scope", title="Counter")
-    capture.capture >> n.data.file(id="file", path="counter.lac")
-    capture.D8 >> n.measure.frequency(id="clock") >> n.report.check(id="check", name="Clock", expected=1e6,
+    capture.capture >> n.data.write(id="file", path="counter.lac")
+    capture.D8 >> n.measure.frequency(id="clock") >> n.report.check(id="check", title="Clock", expected=1e6,
                                                                     tolerance=1e3, unit="Hz")
 
 if __name__ == "__main__":

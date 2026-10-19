@@ -1,0 +1,20 @@
+circuit: RC low pass
+description: A sine of 1 kHz through a low pass of 1 kΩ and 159 nF (its corner at 1 kHz).
+version: 1
+components:
+  V1: {type: source.sine, at: [0, 0], params: {amplitude: 2.5 V, offset: 2.5 V, frequency: 1 kHz}}
+  R1: {type: resistor, at: [100, -60], params: {value: 1k}}
+  C1: {type: capacitor, at: [200, 0], rotation: 90, params: {value: 159n}}
+  GND1: {type: ground, at: [0, 80]}
+  GND2: {type: ground, at: [200, 80]}
+  P1: {type: probe.v, at: [0, -60], params: {name: IN}}
+  P2: {type: probe.v, at: [200, -60], params: {name: OUT}}
+wires:
+  - [[0, -30], [0, -60], [70, -60]]
+  - [[130, -60], [200, -60], [200, -20]]
+  - [[0, 30], [0, 80]]
+  - [[200, 20], [200, 80]]
+labels: []
+analyses:
+  ac: {start: 10 Hz, stop: 100 kHz, points: '50'}
+  tran: {stop: 5 ms, step: 10 us}

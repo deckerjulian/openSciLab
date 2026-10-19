@@ -60,8 +60,16 @@ def test_the_node_palette_shows_beside_a_flow_that_is_edited(shell):
 def test_the_docks_start_at_their_widths(shell, qtbot):
     from openscilab.ui.shell.main_window import DOCK_WIDTHS, NODES_WIDTH
 
-    # (not with the room of the hidden node palette as well)
-    qtbot.waitUntil(lambda: (shell.sidebar_dock.width(), shell.inspector_dock.width()) == DOCK_WIDTHS)
+    # the sidebar starts folded away and opens at its width (not with the room of the hidden node
+    # palette as well, nor as wide as a layout left it)
+    assert not shell.sidebar_dock.isVisible()
+    qtbot.waitUntil(lambda: shell.inspector_dock.width() == DOCK_WIDTHS[1])
+    shell.toggle_sidebar()
+    qtbot.waitUntil(lambda: shell.sidebar_dock.width() == DOCK_WIDTHS[0])
+    shell.resizeDocks([shell.sidebar_dock], [shell.width() // 2], Qt.Horizontal)  # dragged far too wide
+    shell.toggle_sidebar()
+    shell.toggle_sidebar()
+    qtbot.waitUntil(lambda: shell.sidebar_dock.width() == DOCK_WIDTHS[0])
     shell.new_flow()
     qtbot.waitUntil(lambda: shell.nodes_dock.width() == NODES_WIDTH)
     assert shell.sidebar_dock.width() == DOCK_WIDTHS[0]
@@ -72,10 +80,11 @@ def test_the_docks_start_at_their_widths(shell, qtbot):
 
 def test_the_activity_bar_is_arranged(shell):
     bar = shell.activity_bar
-    assert bar.keys() == ["project", "devices", "search"]
+    assert bar.keys() == ["project", "devices", "circuits"]  # (Circuits: a section of openSciLab's own plugin)
     assert [key for key, _action, bottom in bar.ordered() if bottom] == ["start", "settings"]
-    bar.move("search", -1)
-    assert [key for key, _a, bottom in bar.ordered() if not bottom] == ["project", "search", "devices"]
+    bar.move("devices", -1)
+    assert [key for key, _a, bottom in bar.ordered() if not bottom] == ["devices", "project", "circuits"]
+    bar.move("devices", 1)
     bar.set_shown("devices", False)
     assert not bar.shown("devices") and bar.section_action("devices") not in bar.actions()
     bar.set_show_labels(True)
@@ -83,9 +92,9 @@ def test_the_activity_bar_is_arranged(shell):
 
     again = ActivityBar()  # (kept)
     assert again.config["hidden"] == ["devices"] and again.config["labels"] is True
-    for key in ("project", "search"):
+    for key in ("project", "devices", "circuits"):
         bar.set_shown(key, False)
-    assert bar.shown("search") or bar.shown("project")  # one section stays
+    assert bar.shown("devices") or bar.shown("project") or bar.shown("circuits")  # one section stays
     menu = bar.context_menu("project")
     assert "Move up" in [action.text() for action in menu.actions()]
     bar.reset()
@@ -142,7 +151,7 @@ def _mouse(kind, widget, position, buttons):
     return QMouseEvent(kind, QPointF(position), widget.mapToGlobal(QPointF(position)), button, buttons, Qt.NoModifier)
 
 
-def test_a_tab_dragged_off_its_bar_or_double_clicked_gets_a_window_of_its_own(shell):
+def test_a_tab_dragged_off_its_bar_gets_a_window_of_its_own_a_double_click_does_not(shell):
     first, second = shell.new_flow(), shell.new_flow()
     group = shell.area.group_of(first)
     bar = group.tabBar()
@@ -155,11 +164,10 @@ def test_a_tab_dragged_off_its_bar_or_double_clicked_gets_a_window_of_its_own(sh
     bar.mouseMoveEvent(_mouse(QEvent.MouseMove, bar, start + QPoint(0, 120), Qt.LeftButton))
     settle()
     assert shell.area.is_detached(second) and group.indexOf(second) < 0
-    # double-clicked
+    # double-clicked: it stays (the tab's menu has "Open in a new window")
     point = bar.tabRect(group.indexOf(first)).center()
     bar.mouseDoubleClickEvent(_mouse(QEvent.MouseButtonDblClick, bar, point, Qt.LeftButton))
     settle()
-    assert shell.area.is_detached(first)
-    shell.area.attach(first)
+    assert not shell.area.is_detached(first)
     shell.area.attach(second)
     assert not shell.area.is_detached(first) and not shell.area.is_detached(second)

@@ -221,7 +221,7 @@ names = st.from_regex(r"[a-z][a-z0-9_]{0,8}", fullmatch=True)
 
 
 @QUICK
-@given(st.dictionaries(names, st.sampled_from(["control.timer", "dsp.math", "view.number", "structure.comment"]),
+@given(st.dictionaries(names, st.sampled_from(["control.timer", "signal.math", "view.number", "structure.comment"]),
                        min_size=1, max_size=5), st.text(max_size=30))
 def test_a_flow_is_written_and_read_back_the_same(nodes, description):
     flow = Flow(name="Round trip", description=description)

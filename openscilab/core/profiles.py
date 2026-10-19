@@ -38,7 +38,7 @@ import shutil
 from dataclasses import dataclass, field
 from typing import Any, Callable, Optional, Sequence
 
-from ..driver.models import CaptureSession, TriggerType
+from ..driver.models import CaptureSession, ConditionKind, TriggerType
 from . import settings
 from .capture_io import session_from_dict, session_to_dict
 from .files import atomic_open
@@ -322,31 +322,141 @@ def remove_retired_profiles(folder: str) -> list[str]:
 
 
 def profile_problem(profile: Profile, driver: Any) -> str:
-    """Why ``profile`` does not fit the device of ``driver`` ("" when it fits): it captures channels
-    the device does not have."""
+    """Why ``profile`` does not fit the device of ``driver`` ("" when it fits): it captures more
+    channels than the device has.
+
+    Only the *number* of channels matters, not which: a profile whose channels sit on high channel
+    numbers (made for another device) is fitted by renumbering them onto the device's channels (see
+    :func:`fit_session`), as long as the device has enough of them.
+    """
     session = profile.capture_settings
     if session is None or driver is None:
         return ""
     count = int(getattr(driver, "channel_count", 0) or 0)
-    needed = max((channel.channel_number for channel in session.capture_channels), default=-1) + 1
+    needed = len(_referenced_digital(session))  # the captured channels and the clock, if it is its own
     if needed > count:
         return f"needs {needed} channels, the device has {count}"
     analog = int(getattr(driver, "analog_channel_count", 0) or 0)
-    analog_needed = max((channel.channel_number for channel in session.analog_channels), default=-1) + 1
+    analog_needed = len(session.analog_channels)
     if analog_needed > analog:
         return f"needs {analog_needed} analog channels, the device has {analog}"
     return ""
 
 
+def _remap_bits(mask: int, mapping: dict[int, int]) -> int:
+    """A bit mask ``bit n = channel n`` with every channel moved through ``mapping`` (a bit of a
+    channel that is not in the mapping is dropped)."""
+    result, bit = 0, 0
+    while mask >> bit:
+        if mask >> bit & 1 and mapping.get(bit) is not None:
+            result |= 1 << mapping[bit]
+        bit += 1
+    return result
+
+
+def _referenced_digital(session: CaptureSession) -> list[int]:
+    """The digital channels ``session`` needs, in order: the captured ones first, then the state-mode
+    clock when it is a channel of its own (it is sampled but not among the captured data). Each
+    appears once. The trigger channel is not here: a trigger on a channel that is not captured is
+    dropped, not given a channel of its own."""
+    order: list[int] = []
+    for channel in session.capture_channels:
+        if channel.channel_number not in order:
+            order.append(channel.channel_number)
+    if session.clock_channel is not None and session.clock_channel not in order:
+        order.append(session.clock_channel)
+    return order
+
+
+def _renumber(session: CaptureSession, digital: dict[int, int], analog: dict[int, int]) -> None:
+    """Move the channel numbers of ``session`` onto their new ones (in place): the captured channels,
+    the analog channels, the buses, the clock and the trigger sequence. The trigger channel is left
+    to the caller. ``session.trigger_pattern``/``trigger_mask`` are bits relative to the trigger
+    channel, not absolute channel numbers, so they are not touched here."""
+    for channel in session.capture_channels:
+        channel.channel_number = digital[channel.channel_number]
+    for channel in session.analog_channels:
+        channel.channel_number = analog[channel.channel_number]
+    if session.clock_channel is not None:
+        session.clock_channel = digital.get(session.clock_channel)
+    if session.trigger_analog_channel is not None:
+        session.trigger_analog_channel = analog.get(session.trigger_analog_channel)
+    for bus in session.buses:
+        bus.channels = [digital[number] for number in bus.channels if number in digital]
+    if session.trigger_sequence is not None:
+        for stage in session.trigger_sequence.stages:
+            condition = stage.condition
+            condition.channel = digital.get(condition.channel, condition.channel)
+            if condition.kind == ConditionKind.PATTERN:  # these bits are absolute channel numbers
+                condition.mask = _remap_bits(condition.mask, digital)
+                condition.value = _remap_bits(condition.value, digital)
+
+
+def _compaction(session: CaptureSession, count: int, analog_count: int) -> tuple[dict[int, int], dict[int, int], bool]:
+    """How the channels of ``session`` fit onto a device of ``count`` digital and ``analog_count``
+    analog channels: the digital and analog ``{old number: new number}`` and whether anything moved.
+
+    The channels keep their order and take the device's channels ``0, 1, 2, ...``; channels that do
+    not fit at all (more than the device has) are left out of the mapping.
+    """
+    digital = {number: index for index, number in enumerate(_referenced_digital(session)) if index < count}
+    analog = {channel.channel_number: index for index, channel in enumerate(session.analog_channels)
+              if index < analog_count}
+    moved = any(old != new for old, new in (*digital.items(), *analog.items())) \
+        or len(digital) < len(_referenced_digital(session)) or len(analog) < len(session.analog_channels)
+    return digital, analog, moved
+
+
+def _fit_trigger(fitted: CaptureSession, original: CaptureSession, digital: dict[int, int],
+                 changes: list[str]) -> None:
+    """Move the trigger onto the renumbered channels, or turn it off when it cannot follow.
+
+    An edge trigger moves to its channel's new number, or is dropped when the channel is gone. A
+    pattern trigger (``FAST``/``COMPLEX``) matches ``trigger_bit_count`` channels from
+    ``trigger_channel`` upwards, with the pattern bits relative to that channel; it can follow only
+    when those channels land on a consecutive block, so a window that compaction breaks apart is
+    dropped rather than silently pointed at the wrong channels."""
+    kind = fitted.trigger_type
+    if kind in (TriggerType.EDGE, TriggerType.EDGE_OUT):
+        if original.trigger_channel in digital:
+            fitted.trigger_channel = digital[original.trigger_channel]
+            return
+    elif kind in (TriggerType.FAST, TriggerType.COMPLEX):
+        base = original.trigger_channel
+        width = max(int(original.trigger_bit_count or 0), 1)
+        new_base = digital.get(base)
+        if new_base is not None and all(digital.get(base + offset) == new_base + offset
+                                        for offset in range(width)):
+            fitted.trigger_channel = new_base
+            return
+    else:  # IMMEDIATE, SIMULATION, BLAST carry no channel; a SEQUENCE moved with _renumber
+        return
+    fitted.trigger_type, fitted.trigger_channel = TriggerType.IMMEDIATE, 0
+    changes.append("no trigger")
+
+
 def fit_session(session: CaptureSession, driver: Any) -> tuple[CaptureSession, list[str]]:
-    """A copy of ``session`` the device of ``driver`` can capture: the rate and the length within its
-    limits (a trigger on a channel it does not have: none). Returns the copy and what was changed."""
+    """A copy of ``session`` the device of ``driver`` can capture: its channels renumbered onto the
+    device's channels (so a profile made for another device runs here, its probes re-plugged to
+    match), the rate and the length within the device's limits, a trigger on a channel that is gone
+    turned off. Returns the copy and what was changed."""
     fitted = session.clone_settings()
     changes: list[str] = []
     if driver is None:
         return fitted, changes
     count = int(getattr(driver, "channel_count", 0) or 0)
-    fitted.capture_channels = [channel for channel in fitted.capture_channels if channel.channel_number < count]
+    analog_count = int(getattr(driver, "analog_channel_count", 0) or 0)
+    digital, analog, moved = _compaction(fitted, count, analog_count)
+    if moved:
+        kept_capture = [channel for channel in fitted.capture_channels if channel.channel_number in digital]
+        kept_analog = [channel for channel in fitted.analog_channels if channel.channel_number in analog]
+        dropped = (len(fitted.capture_channels) - len(kept_capture)) + (len(fitted.analog_channels) - len(kept_analog))
+        fitted.capture_channels, fitted.analog_channels = kept_capture, kept_analog
+        _renumber(fitted, digital, analog)
+        changes.append(f"channels on 0-{len(digital) - 1}" if digital else "no channels")
+        if dropped:
+            changes.append(f"{dropped} channel{'s' if dropped != 1 else ''} dropped")
+        _fit_trigger(fitted, session, digital, changes)
     channels = fitted.channel_numbers or [0]
     mode = getattr(fitted, "acquisition_mode", None)
     try:
@@ -375,10 +485,26 @@ def fit_session(session: CaptureSession, driver: Any) -> tuple[CaptureSession, l
         if pre + post != total:
             changes.append(f"length {total:,} -> {pre + post:,} samples")
         fitted.pre_trigger_samples, fitted.post_trigger_samples = pre, post
-    if fitted.trigger_type != TriggerType.IMMEDIATE and fitted.trigger_channel >= count:
+    if fitted.trigger_type in (TriggerType.EDGE, TriggerType.EDGE_OUT) and fitted.trigger_channel >= count:
         fitted.trigger_type = TriggerType.IMMEDIATE
         changes.append("no trigger")
     return fitted, changes
+
+
+def fit_profile(profile: Profile, driver: Any) -> tuple[Optional[CaptureSession], Any, list[str]]:
+    """``profile`` fitted to the device of ``driver``: the capture settings of :func:`fit_session`
+    and the decoder configuration with its capture channels moved onto the same new channel numbers,
+    so the decoders still read the channels they did. Returns the session (``None`` when the profile
+    has none), the decoder configuration and what was changed."""
+    session = profile.capture_settings
+    if session is None:
+        return None, profile.decoder_configuration, []
+    fitted, changes = fit_session(session, driver)
+    old = [channel.channel_number for channel in session.capture_channels]
+    new = [channel.channel_number for channel in fitted.capture_channels]
+    mapping = {old[index]: new[index] for index in range(len(new))}  # kept channels, in their order
+    decoders = map_decoder_channels(profile.decoder_configuration, mapping.get)
+    return fitted, decoders, changes
 
 
 def units_text(frequency: float) -> str:

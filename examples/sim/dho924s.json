@@ -1,6 +1,6 @@
 {
   "name": "dho924s",
-  "title": "Simulation: DHO924S",
+  "title": "Simulated DHO924S",
   "description": "Oscilloscope with 4 analog channels (12 bit) and 16 logic channels; large captures arrive progressively over the network. CH1: 1 kHz sine with noise, CH2: 10 kHz square, CH3: 500 Hz triangle, CH4: 100 Hz ramp; D0-D15 as sim:free. The generator output GI (25 MHz) is connected to CH1 while it runs, its sync output to D15.",
   "digital": [
     "D0",

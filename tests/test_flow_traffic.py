@@ -33,8 +33,8 @@ def wait_for(condition, timeout: float = 10.0) -> bool:
 def fast_flow(count: int = 20_000) -> Flow:
     flow = Flow("fast")
     flow.add_node("control.timer", "timer", interval="1 ms", count=count)
-    flow.add_node("dsp.math", "double", expression="a * 2")
-    flow.add_node("view.strip_chart", "chart", window="1 s")
+    flow.add_node("signal.math", "double", expression="a * 2")
+    flow.add_node("view.chart", "chart", window="1 s")
     flow.connect("timer.index", "double.a")
     flow.connect("double.out", "chart.in")
     return flow

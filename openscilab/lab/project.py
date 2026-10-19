@@ -31,6 +31,28 @@ from .yaml_io import safe_load as yaml_safe_load
 
 PROJECT_FILE = "project.yaml"
 FOLDERS = ("flows", "panels", "nodes", "waveforms", "data", "tests")
+#: folders of the kinds of documents plugins add (``ui/sections.register_document_type``): name -> module
+_EXTRA_FOLDERS: dict[str, str] = {}
+
+
+def register_folder(name: str, module: str = "") -> None:
+    """A folder every project has besides :data:`FOLDERS` (the documents of a plugin, ``circuits``)."""
+    if not name or os.sep in name or "/" in name or name.startswith("."):
+        raise ValueError(f"{name!r} is no name of a folder")
+    if name not in FOLDERS:
+        _EXTRA_FOLDERS.setdefault(name, module)
+
+
+def unregister_folders(module: str) -> None:
+    """Forget the folders ``module`` registered (tests, ``plugins.reset``)."""
+    for name, owner in list(_EXTRA_FOLDERS.items()):
+        if owner == module:
+            del _EXTRA_FOLDERS[name]
+
+
+def folders() -> tuple[str, ...]:
+    """The folders of a project: openSciLab's own, then those of plugins."""
+    return FOLDERS + tuple(_EXTRA_FOLDERS)
 
 
 class Project:
@@ -117,7 +139,7 @@ class Project:
     def create(root: str, name: str = "", devices: Optional[dict[str, str]] = None) -> "Project":
         project = Project(root, name, devices)
         os.makedirs(project.root, exist_ok=True)
-        for folder in FOLDERS:
+        for folder in folders():
             os.makedirs(project.folder(folder), exist_ok=True)
         project.save()
         return project

@@ -1,0 +1,6 @@
+project: Transistor switch
+description: 'Run it and turn the potentiometer (drag it up and down): the transistor switches the LED on and off;
+  the flow checks that the transistor is on with the knob at 80 %.'
+open:
+- circuits/switch.circuit.yaml
+- flows/check.flow.yaml

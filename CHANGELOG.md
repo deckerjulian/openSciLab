@@ -10,8 +10,239 @@ again from 0.1.
 
 ## [Unreleased]
 
+### Circuits: draw a circuit and simulate it live
+
+A new section of the window, *Circuits* (Ctrl+Shift+C), and the document *Circuit* (`*.circuit.yaml`,
+*File → New → Circuit*): schematics of analog, digital and RF circuits, simulated with ngspice
+([docs/circuits.md](docs/circuits.md)).
+
+- **Live simulation**: *Run* simulates the circuit without end, in real or virtual time; probes show
+  their voltage, current or logic level on the schematic, LEDs light with their current, switches,
+  push buttons and potentiometers are operated while it runs; a changed value goes in at once, a
+  changed circuit starts again where its time was. *Speed*, a slider in the tool bar of the circuit,
+  runs it slower or faster than the clock (0.001× to 100×), taken at once while it runs. ngspice runs in a process of its own: circuits run
+  side by side and nothing else in openSciLab slows them down.
+- **Analyses**: operating point, DC sweep, AC sweep (magnitude and phase on a logarithmic axis),
+  transient, noise and S-parameters (with a Smith chart and Touchstone export), under *Results*.
+- **A catalog of about 23 000 components**: openSciLab's own (passive parts, sources, diodes, LEDs,
+  transistors, MOSFETs, op-amps, comparator, regulator, 555, switches, logic gates, probes,
+  microcontrollers, RF), KiCad's symbol libraries (simulated as KiCad does, with standard models where
+  a part has none, and op-amps, regulators, the 555, switches and 74xx/4000 gates further) and every
+  model of SPICE libraries of makers; searched at once, with a preview of each part.
+- **Microcontrollers**: an Arduino Uno, Nano or Mega 2560 (or an ATmega of KiCad's libraries) runs a
+  `.hex` or `.elf` firmware, emulated cycle by cycle (simavr) in lockstep with ngspice; a serial
+  monitor below the schematic.
+- **Oscilloscopes as probes**: four channels with time and volts per division, offset, trigger (channel,
+  level, edge, auto or normal), their picture on the symbol and on a screen below the schematic, with
+  peak to peak, mean and frequency.
+- **The circuit as a device**: `circuit:<file>` gives the probes as analog and logic channels to the
+  data view, flows and panels; a flow opens a circuit by its file.
+- **The tools in the vendor folder**: ngspice, the AVR emulator and KiCad's symbols are found or
+  installed into `openscilab/vendor/<platform>/` (the applications bring ngspice and the emulator;
+  `tools/build_vendor.py` builds them; *Settings → Circuits*), so openSciLab needs nothing installed.
+- **Power electronics**: a voltage-controlled switch, a bridge rectifier, a triangle source, a sine
+  reference (its RMS from a control voltage), a variable transformer (a variac set in volts), terminals
+  (named output sockets, measured like probes), a 900 V power op-amp (PA94), high-voltage transistors
+  and a fast diode; knobs turn through the range their part names; op-amp models no longer fail while
+  their supplies are not up yet; the settings
+  *Start* (*power on*: every capacitor empty, as when switched on) and *Tolerance* (ngspice's
+  `reltol`).
+- **Fast live**: ngspice reads only the probes and the currents of LEDs at every step (the other nets 30
+  times a second) and computes no other currents - circuits run up to twice as fast; numbers on the
+  schematic change four times a second, the oscilloscope's readouts are painted and no longer lay out
+  the window anew; traces are drawn as lines (a fast square wave took a hundred times longer as a
+  path, the Arduino example slowed down with its potentiometer turned low).
+- **See where the current flows**: while a circuit runs, a glowing stream flows along the wires and
+  through the components like a liquid, with a soft glow, its waves in the direction of the current,
+  wider and faster where more flows (round corners without a jump); the pins of a potentiometer, a
+  transistor or a microcontroller show the current into or out of each of them, and wires and pins
+  take the colour of their voltage - grey at 0 V, green positive, red negative, a gradient across a
+  two-pin component (*Current* in the tool bar, on by default); a wire's tool tip says how much flows. The currents are measured by ngspice (an ammeter in front
+  of each pin of a subcircuit) or follow from Kirchhoff's law. Drawing a running schematic got cheaper
+  on the way: components keep their outline and their picture, the streams are one layer above them, the
+  oscilloscope draws its traces without a step per point.
+- An engine process that had run a microcontroller crashed when it ran the next circuit with values from
+  outside (a device input): ngspice keeps calling the step callback once it had one.
+- An engine process that had run a microcontroller crashed when it ran the next circuit with values from
+  outside (a device input): ngspice keeps calling the step callback once it had one.
+- **Pins of connected devices in a circuit** (hardware in the loop): a *device input* is a pin a
+  connected device reads - its level or voltage drives the net while the circuit runs; a *device
+  output* is a pin it drives - high or low, or the voltage of an analog output, following the net. The
+  inspector offers the connected devices and their free pins; problems are shown at the component; the
+  outputs are made safe when the circuit stops.
+- **The Probe button offers every probe**: voltage, current and logic probes, the oscilloscope, a
+  terminal and the pins of connected devices (Shift+P still places a voltage probe).
+- **Comments and groups**: components, wires and labels carry comments shown beside them; groups
+  (Ctrl+G) put parts of the circuit in a dashed frame with a name, a comment and, if wanted, a light
+  background colour, are selected at their frame, move their members when dragged and are taken apart
+  with Ctrl+Shift+G.
+- **Potentiometers turn whichever way they lie**: the wiper follows the pointer along the
+  potentiometer (dragging a lying one sideways did nothing; dragging any of them failed for a while).
+- **Moving keeps connections**: the wires grow along while parts are dragged, wires between moved parts
+  move with them, and a pin that touched a wire's middle, another pin or a label gets a new piece of
+  wire.
+- **Typing searches**: any letter typed on the canvas searches the catalog; the tools moved to Shift+W,
+  Shift+L, Shift+G, Shift+P (and stay in the tool bar and the menu); R and X act on a selection.
+- **After a review of the plugin** (2026-10-17), fixed: two probes of one name on different nets were
+  one node in the netlist; a supply symbol without parameters took the net "Supply"; a noise analysis
+  named the net as shown, not as SPICE knows it; KiCad parts with their own model parameters, inferred
+  regulators (LM2940-5.0 was 40 V) and the 555, model libraries with continuation lines after comments
+  and nested subcircuits, level-1 MOSFET models; both ends of a wire follow when a component between two
+  moved ones is straightened; groups forgot nothing when a wire collapsed (a new wire took its place in
+  the group); references may not be called like wires (`w2`); paste keeps comments and groups; Ctrl+G on
+  a group keeps its name; edits that change nothing push no undo step; a dead or aborted ngspice run
+  says so instead of staying "running"; a probe added while running gets its course; the engine's pipe
+  and its pooled processes are locked and cleaned up; analyses that hang are stopped; the device's
+  voltage range follows the sources, not their frequencies; oscilloscope channels of the device are
+  against their GND; after a restart the microcontrollers went on (they froze for as long as they had
+  run) and take their new wiring, Reset starts the firmware as switched on, serial input and Reset no
+  longer call simavr from another thread; the emulator reports PORT register writes (an output written
+  to the level the net already had, a pull-up switched off, were lost); KiCad's Arduino modules supply
+  +5V; malformed firmware files are reported; the serial monitor keeps lines whole and names Serial1-3;
+  the inspector no longer went blank after Delete or undo and keeps what is typed before a save or
+  close; rename problems stand under the field; dragging a group frame moves its wires; knobs ignore
+  sideways scrolling and follow the wheel's size; the oscilloscope is cleared when the run stops and
+  does not overwrite what is typed; the catalog does not download KiCad's symbols with KiCad turned
+  off and says when the index failed; malformed circuit files and failed exports are reported, not
+  raised; installing one tool no longer rewrites another's loaded library (a staged install), downloads
+  are tried again and the source archives are checked against pinned SHA-256; the AVR emulator is
+  installed on demand and its shim ships with the package; the Windows vendor build looks in the right
+  MSYS2; the packaged apps bundle only their platform's vendor folder and their smoke test loads
+  ngspice and the emulator.
+- Examples: *Circuits* (an RC low pass, a transistor switch, an inverting amplifier, a half adder, an
+  Arduino blinking an LED as fast as its potentiometer says, held on by a switch, watched by an
+  oscilloscope, and a hybrid AC/DC lab power supply drawn with wires only, in framed blocks: DC, AC
+  or both up to 230 V set with the potentiometers `RV_DC` and `RV_AC`, switching regulators for the
+  rails 10 V beyond the peak, a linear power amplifier for an exact, clean output at `OUT`/`COM`). Probes show their name with
+  the value (`C 105 mV`). In virtual time a capture of a circuit keeps to the flow's time (a timer's
+  second passed at once, the capture took the circuit's first moments). A part whose pins are all on one net is said
+  to be shorted (the transistor switch had its LED shorted that way and its potentiometer upside down).
+
+### Plugins add sections of their own
+
+A plugin can add an entry of the activity bar with a section of the sidebar, kinds of documents
+(their files, *File → New*, the Project section, the session) and icons (`openscilab/ui/sections.py`,
+[docs/drivers.md](docs/drivers.md#sections-and-documents-of-a-plugin), the example
+`examples/plugins/notes_section.py`); *Help → Plugins* lists them. *Circuits* is built this way.
+
+### One typeface, a new mark
+
+- **Inter Tight** everywhere - menus, documents, flow nodes, schematics, the console and the editors
+  (numbers in columns with digits of one width) - bundled with openSciLab (`openscilab/ui/fonts`, SIL
+  Open Font License), so every platform shows the same letters.
+- **A new logo**: three channels of a logic analyser in white, teal and blue on a graphite squircle;
+  the header shows the mark alone, larger.
+
+### One application: the interface overhauled
+
+The parts grew one after the other; now they follow one set of rules ([docs/design.md](docs/design.md):
+a glossary, one place per task, one way to run, problems next to their cause, everything from the
+theme). Checked by `tests/test_terminology.py`, `tests/test_theme_tokens.py` and
+`tests/test_node_schema.py`.
+
+- **One way to run**: *Run*, *Pause* and *Stop* in the header – and the new *Run* menu, F5, F6,
+  Shift+F5, F10 – run what the active document runs: a flow or a panel, a capture in a data view
+  or with a device (*Capture*), a waveform (*Play*). Flows, panels and waveforms have no run buttons
+  of their own any more; *Real time | Virtual time* sits beside *Run*, *Use simulators for every
+  device* is in the *Run* menu.
+- **The shell**: menus *File* (was *Project*), *Edit*, *View*, *Run*, *Devices*, *Examples* (was
+  *Templates*), *Help*; one *New* button whose menu is *File → New* in the same order; the sidebar's
+  *Search* is the command palette (Ctrl+K); a click opens an entry in every list of the sidebar;
+  the sidebar is as it was left; no untitled flow at the start; the status bar shows problems with
+  icons and the devices (a click shows them); a double-click on a tab no longer opens a window.
+- **The data view is a document like the others**: no menu bar, status bar or docks of its own; its
+  analysis (decoders, measure, search, markers, the capture) is in the inspector, the listing below
+  the traces (Ctrl+2), what goes on now in the bar below them, its notes in the shell's status bar.
+  A decoder is added at once (the channels found by name), its options are edited below the list
+  instead of in a second dialog.
+- **Devices**: a document with *Data view*, *Use in a flow* and *Stream to disk* in its header (*Run*
+  captures); *Overview* (was *Details*) lists the device's functions with what each does; the pin
+  table names the modes (*Input (pull-up)*), shows only the actions of a pin's mode and numbers the
+  capture channels as the data view does (CH1); profiles are only in the data view.
+- **Nodes, renamed after one scheme** (no compatibility: `python tools/rename_nodes.py <folder>`
+  converts flows, panels, Python and Markdown): `device.device`, `gpio.output` / `input` /
+  `analog_output`, `generator.*` (was `gen.*`; `tx_uart` → `uart`, `output` → `file`), `decoder.*`
+  (was `decode.*`), `signal.*` (was `dsp.*`), `data.write` / `read` / `bundle` / `unbundle`,
+  `view.chart`, `report.chart`, `convert.events` / `bit` / `analog` / `number`, `time.sync` /
+  `align` / `latency`, `remote.input` / `output` / `command` / `align`. `control.counter` became
+  `measure.count` (with `reset`), `control.limit` became `control.range`. Checks send `result`
+  (Bool) and `passed` / `failed` (events); `freq` → `frequency`, `op` → `operator`, the title of a
+  check is `title`. Every port and parameter has a description and a label; an `Event` input
+  (trigger, arm, start, stop, reset) takes any value. The node reference of docs/lab.md is written
+  from the registry (`tools/gen_node_docs.py`).
+- **The flow editor**: a node shows its group by colour and icon, its title, its effective settings
+  (defaults too) and ports whose shape tells their kind; the inspector has *Settings*, a folded
+  *Advanced* part and *Node*, says what is wrong under the field, and edits the steps of a sequence
+  and the states of a state machine as tables; the palette keeps which groups are open, finds nodes
+  by keywords and descriptions; the quick search shows icon, title and group; broken wires are drawn
+  dashed with the reason; the arrow keys move the selection; undo names what it undoes (*Add
+  Timer*); the view nodes of a running flow are tiles of one document (*Views · flow*), not a tab
+  each.
+- **Panels**: the options of a widget are fields (minimum, maximum, unit …) instead of YAML text;
+  operating a panel whose flow does not run says so, with *Run* beside it.
+- **Theme**: one source of colours (`theme.token`), node groups and signal types told apart by hue,
+  one palette for every chart, the display colours of the data view as tokens; sizes and icons by
+  name; simulators are *Simulated …* everywhere.
+
+### Application
+
+- Bus rows of a long capture: a value that began exactly at the edge of a pixel column could be
+  drawn one column off (the quick way of looking up a whole capture rounded the column edges
+  differently from the runs); now both round the same.
+- **The sidebar starts folded away the first time**: the activity bar (or Ctrl+B) opens it at its
+  width (250 px), and again at that width when it takes more than a third of the window; after that
+  it is as it was left.
+- **Patterns from blocks**: *Edit pattern…* in the inspector of `generator.pattern` builds the tracks
+  from a block per pin - a clock, a square wave, a constant level, a bit of a counter, bytes, UART
+  text or SDL text - with the pins of the device to choose from and a preview. *SDL text* shows and
+  edits what the node stores; a block is its SDL behind a comment that names it (`// clock
+  period=2 start=low`), so the pattern opens as blocks again, and SDL changed by hand stays text.
+- **The inspector offers what the flow knows and locks what does not count**: a channel of the
+  states wired into *State bit*, the clocks of a device's state mode, the initial state of a state
+  machine, the pulled inputs of a Python node, the outputs of the generator's kind, the annotation
+  rows of a decoder - as a choice instead of free text (a value that is not among them stays,
+  marked). A parameter that a wire sets or that belongs to another setting is locked with the
+  reason in its tooltip: a check's tolerance without an expected value, the value of a comparison
+  with 'b' wired, the duration of a capture with samples, the clock edge without a clock, the
+  cutoff of a moving average, the flush of a log that is not CSV, among others.
+- **Inputs chosen from the flow**: the traces of a strip chart, the inputs of a Python node, the
+  columns of a table and the fields of a bundle pick outputs of the flow (▾): a tick adds an input
+  named after the output and wires it, unticking removes both. An unbundle offers the fields of the
+  bundle wired in.
+- **Editors of their own** in the inspector: the trigger of a capture (none, an edge or a pattern of
+  a captured channel), the channels a replay maps to pins (keys from the capture wired in, pins of
+  the device), colours (a colour dialog), units and `auto` values (a list to pick from, any other
+  may be typed); the pins of SPI and I²C sending say their order. The size of a comment or group
+  is no longer in the inspector (its frame sets it).
+- *Check* says what its limits are: *minimum (≥)*, *maximum (≤)*, *± tolerance*, *display unit* and
+  *title* (stored as before as `low`, `high`, `tolerance`, `unit`, `name`).
+- Text of several lines in a flow file (Python code, the SDL of a pattern) is written as a block
+  (`|`), also inside a mapping, instead of a quoted line with `\n`.
+- **Example *Loopback with state mode (Arduino Mega)*** (*Digital I/O*): one pattern drives an analog
+  signal (A0, read back at A1 by the ADC), a digital signal (D34 to D35) and a clock (D3 to D2); the
+  monitor logs A1 and D35, a state capture takes D35 on each rising edge of D2. It runs on the new
+  simulated Mega (`sim:mega`, wired the same way) and passed on a real Mega 2560 with these three
+  wires (16 rising edges in 64 states, A1 from 0 V to 5 V).
+- **Example *Loopback test (Pico W)*** (*Digital I/O*): a test bench for a Pico with three wires,
+  GP2–GP6, GP3–GP7 and GP4–GP8. One pattern drives a clock, a data line and UART frames, a capture
+  takes them back, a state capture takes GP7 on the clock edges at GP6; then a PWM on GP2 and an
+  SPI transfer whose bytes come back over the wire GP3–GP7 (MISO); seven checks in the report.
+  Runs on `sim:pico` (wired in its project) and passed on a real Pico W.
+- `measure.count` counts the edges of states without time stamps (a state capture of a Pico): it
+  stopped with "the time base is unknown".
+
 ### Devices
 
+- **The monitor of a Pico with its analog inputs**: the pin table of the device document starts the
+  monitor with the pins of the ADC (GP26–GP28), which the Pico refused ("no analog input 'GP26'
+  (A0, A1, …)"); the monitor and the analog inputs of a Pico take A0–A2 and their pins alike.
+- The simulators read MISO of an SPI transfer while MOSI drives it: wired to MOSI it gave zeros
+  instead of the bytes sent.
+- **The monitor of a flow on a real Arduino**: `device.monitor` asks the device at its rate, which
+  only the simulators answered ("the monitor of ... reports only while it runs"); the Arduino now
+  answers with the levels and analog inputs of that moment (READ, ADC_READ).
+- `sim:mega`: a simulated Arduino Mega 2560 with all 70 pins, its 68 channels in the order of the
+  real board, wired D34 → D35, A0 → A1 and D3 → D2.
 - **Arduino Mega 2560: all 70 pins.** D0–D53 and A0–A15 are pins of the device card, of the flows
   and of the logic analyzer (68 channels; D0/D1 carry the USB serial line), A0–A15 are its 16
   analog inputs. Before, the pin masks of the Arduino protocol held 32 pins, so the Mega offered
@@ -25,7 +256,9 @@ again from 0.1.
 - **An Arduino Mega that did not answer**: opening its port restarts it, and a request during the
   first second keeps its bootloader (STK500v2) from starting the firmware until the next restart,
   so the Mega was never found ("no openSciLab Arduino firmware answers"). A board that does not
-  answer the first request is restarted once (DTR) and asked again after 1.5 s of silence.
+  answer the first request is restarted once (DTR) and asked again after 1.5 s of silence; a Mega
+  known by its USB identifiers is not asked before its bootloader is over (2.3 s to open instead of
+  3 s).
 - *Update firmware* writes an image of the Arduino Mega 2560 (`openSciLab_megaatmega2560.hex`) for
   its chip and bootloader (avrdude `-p atmega2560 -c wiring`); before, every AVR image went to an
   ATmega328P, which the Mega refused.
@@ -49,6 +282,11 @@ again from 0.1.
   of `gen_runs`. openSciLab works with protocol 2 only: a board with the Arduino firmware of
   0.1.0b2 asks for the firmware that comes with the application. The pin numbers of the Uno and
   Nano changed with it (A0 is 16), the simulated Arduino profiles say `gen_bytes`.
+- **Pico, RP2040 boards** (found on a Pico W): streams ended at once with an overflow, without a
+  sample - the interrupt flags left by the previous use of the DMA channels counted a pass over
+  the buffer right at the start; they are cleared before the stream starts. The self-test reported
+  every free channel `STUCK_HIGH` (and the device information counted them driven): the pull-down
+  was read before it had discharged the pin; it now waits as on the RP2350.
 
 ## [0.1.0b2] - 2026-10-11
 

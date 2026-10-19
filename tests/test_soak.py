@@ -117,7 +117,7 @@ def test_a_flow_streams_for_the_time():
 flow: Soak
 settings: {{duration: {seconds:.0f} s}}
 nodes:
-  pico: {{type: device.instrument, address: "sim:pico"}}
+  pico: {{type: device.device, address: "sim:pico"}}
   stream: {{type: device.stream, channels: [0, 1, 2, 3], rate: 200 kHz, duration: 2 s, until_stopped: true}}
   line: {{type: convert.channel, channel: 0}}
   frequency: {{type: measure.frequency}}

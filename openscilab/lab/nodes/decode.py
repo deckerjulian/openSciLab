@@ -4,7 +4,7 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""Decoder nodes: ``decode.<id>`` for every sigrok decoder found (``uart``, ``i2c``, ``spi``, ...).
+"""Decoder nodes: ``decoder.<id>`` for every sigrok decoder found (``uart``, ``i2c``, ``spi``, ...).
 
 A decoder node takes a capture and sends its annotations: ``events`` (an event per annotation,
 data ``{row, value, values, start, end}``), ``table`` (the same as rows) and ``text`` (the values of
@@ -122,32 +122,42 @@ class DecodeNode(NodeRuntime):
 
 
 def _option_param(option) -> ParamSpec:
+    label = (option.caption or option.id).strip().rstrip(".")
+    label = label[:1].lower() + label[1:] if label[1:2].islower() else label
     if option.values:
-        return Param(option.id, "choice", option.default, choices=option.values, description=option.caption)
+        return Param(option.id, "choice", option.default, choices=option.values, description=option.caption,
+                     label=label)
     kind = {OptionType.INTEGER: "int", OptionType.DOUBLE: "float", OptionType.BOOLEAN: "bool"}.get(
         option.option_type, "str")
-    return Param(option.id, kind, option.default, description=option.caption)
+    return Param(option.id, kind, option.default, description=option.caption, label=label)
 
 
 def spec_for(info: DecoderInfo) -> NodeSpec:
     implementation = type(f"Decode_{info.id}", (DecodeNode,), {"decoder_info": info})
     channels = ", ".join(f"{channel.id}{'' if channel.required else '?'}" for channel in info.channels)
-    params = [Param("channels", "dict", description=f"decoder channel: capture channel ({channels or 'stacked'})",
-                    suggest="upstream_channels", keys=[channel.id for channel in info.channels])]
+    params = [Param("channels", "dict", description=f"Which channel of the capture is which line of the protocol "
+                    f"({channels or 'stacked on another decoder'})", suggest="upstream_channels",
+                    keys=[channel.id for channel in info.channels], label="channels")]
     params += [_option_param(option) for option in info.options]
-    params += [Param("rows", "list", description="only these annotation rows"),
-               Param("text_row", "str", description="row joined into 'text' (default: the first data row with "
-                                                     "annotations)")]
+    rows = [str(row[1]) for row in info.annotation_rows]
+    params += [Param("rows", "list", description="Only these annotation rows (all when empty)", choices=rows,
+                     label="annotation rows", advanced=True),
+               Param("text_row", "choice" if rows else "str", choices=rows, label="text from row", advanced=True,
+                     description="The row joined into 'text' (default: the first data row with annotations)")]
     return NodeSpec(
-        type=f"decode.{info.id}",
+        type=f"decoder.{info.id}",
         implementation=implementation,
         title=info.name,
         description=f"{info.longname}: {info.desc}".strip(": "),
-        inputs=[In("in", signals.CAPTURE, optional=False)],
-        outputs=[Out("events", signals.EVENT), Out("table", signals.TABLE), Out("text", signals.ANY)],
+        inputs=[In("in", signals.CAPTURE, "The capture to decode", optional=False)],
+        outputs=[Out("events", signals.EVENT, "Every annotation with its time"),
+                 Out("table", signals.TABLE, "The annotations as rows: time, row, text"),
+                 Out("text", signals.ANY, "The text of the data row, joined (e.g. the characters of a UART)")],
         params=params,
         icon="bus",
         source=info.path,
+        summary=("channels",),
+        keywords=("decode", "protocol", info.id, *(tag.lower() for tag in getattr(info, "tags", ()) or ())),
     )
 
 

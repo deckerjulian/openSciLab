@@ -6,7 +6,11 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""Colour palette of the analyzer (port of ``Classes/AnalyzerColors.cs``)."""
+"""Colours of the waveform display of the data view (port of ``Classes/AnalyzerColors.cs``).
+
+The values live in :mod:`openscilab.ui.theme` (``display.*``); this module gives them the names
+the painters of the display use.
+"""
 
 from __future__ import annotations
 
@@ -14,27 +18,30 @@ from PySide6.QtGui import QColor
 
 from ..core import regions
 from ..driver.models import AnalyzerChannel
+from .theme import DISPLAY_CHANNELS, contrast, qcolor
 
 #: Waveform background: two close tones, so the rows stay apart without stripes
-BG_CHANNEL_COLORS = (QColor(28, 28, 31), QColor(31, 31, 35))
+BG_CHANNEL_COLORS = (qcolor("display.background"), qcolor("display.background.alternate"))
 #: Line between two channel rows
-ROW_SEPARATOR_COLOR = QColor(44, 44, 49)
+ROW_SEPARATOR_COLOR = qcolor("display.row.separator")
 #: Vertical time grid of the waveform, at the labelled ticks of the ruler and between them
-GRID_MAJOR_COLOR = QColor(58, 58, 64)
-GRID_MINOR_COLOR = QColor(40, 40, 45)
-USER_LINE_COLOR = QColor(90, 209, 230)
-TRIGGER_LINE_COLOR = QColor(240, 165, 60)
-BURST_LINE_COLOR = QColor(225, 225, 232)
-SAMPLE_LINE_COLOR = QColor(52, 52, 58)
-TEXT_COLOR = QColor(255, 255, 255)
-SELECTION_COLOR = QColor(90, 140, 220, 70)
+GRID_MAJOR_COLOR = qcolor("display.grid.major")
+GRID_MINOR_COLOR = qcolor("display.grid.minor")
+USER_LINE_COLOR = qcolor("display.line.user")
+TRIGGER_LINE_COLOR = qcolor("display.line.trigger")
+BURST_LINE_COLOR = qcolor("display.line.burst")
+SAMPLE_LINE_COLOR = qcolor("display.sample.line")
+TEXT_COLOR = qcolor("display.text")
+SELECTION_COLOR = qcolor("display.selection")
 #: the edges of the selection over the tracks
-SELECTION_EDGE = QColor(120, 170, 255, 160)
+SELECTION_EDGE = qcolor("display.selection.edge")
 #: Measurement cursors A and B, named markers (bookmarks) and the matches of a search
-CURSOR_COLORS = {"A": QColor(98, 196, 255), "B": QColor(255, 128, 196)}
-BOOKMARK_COLOR = QColor(140, 214, 120)
-SEARCH_HIT_COLOR = QColor(255, 214, 90, 150)
-SEARCH_CURRENT_COLOR = QColor(255, 214, 90)
+CURSOR_COLORS = {"A": qcolor("display.cursor.a"), "B": qcolor("display.cursor.b")}
+BOOKMARK_COLOR = qcolor("display.bookmark")
+SEARCH_HIT_COLOR = qcolor("display.search.hit")
+SEARCH_CURRENT_COLOR = qcolor("display.search.current")
+#: a level 0 drawn as text (listing)
+LOW_LEVEL_COLOR = qcolor("display.level.low")
 # (a region holds its colour as numbers; see core/regions.py)
 DEFAULT_REGION_COLOR = QColor(*regions.DEFAULT_REGION_COLOR)
 
@@ -44,15 +51,9 @@ def region_color(region) -> QColor:
     return QColor(*region.region_color)
 
 
-#: Channel colours of a new capture: 16 distinct hues of similar brightness, softer than pure
-#: RGB, which read well on the dark background and next to each other (channel n: entry n % 16).
-#: Captures keep the colours stored in their files.
-_PALETTE_HEX = (
-    "#F2A33A", "#56B6F7", "#6CCB85", "#EF6F78", "#AD8AF0", "#48CCC0", "#F0CF58", "#E685CB",
-    "#8AAEFF", "#A2CF62", "#FF9466", "#5FC4E6", "#D8A472", "#B3A5F2", "#76D3A6", "#E3DB78",
-)
-
-PALETTE: tuple[QColor, ...] = tuple(QColor(value) for value in _PALETTE_HEX)
+#: Channel colours of a new capture (``theme.DISPLAY_CHANNELS``); captures keep the colours stored
+#: in their files.
+PALETTE: tuple[QColor, ...] = tuple(QColor(value) for value in DISPLAY_CHANNELS)
 
 
 def get_color(index: int) -> QColor:
@@ -81,5 +82,4 @@ def color_to_uint(color: QColor) -> int:
 
 def find_contrast(color: QColor) -> QColor:
     """Black or white, whichever reads better on ``color``."""
-    yiq = (color.red() * 299 + color.green() * 587 + color.blue() * 114) // 1000
-    return QColor(0, 0, 0) if yiq >= 128 else QColor(255, 255, 255)
+    return contrast(color)

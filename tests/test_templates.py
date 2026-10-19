@@ -142,7 +142,7 @@ def test_a_project_is_kept_as_a_template_of_the_user(tmp_path):
     template = examples.save_template(root, "Sensor  bench", "For the sensors\nof the lab", [flow, "/elsewhere/x"])
     assert template.key == "my-templates/sensor-bench" and template.user and template.name == "sensor-bench"
     first = examples.catalog()[0]
-    assert first.key == examples.USER_CATEGORY and first.title == "My templates"
+    assert first.key == examples.USER_CATEGORY and first.title == "Your templates"
     assert [example.title for example in first.examples] == ["Sensor bench"]
     assert examples.catalog()[1].key == "00-start"
     saved = Project.open(template.path)
@@ -178,9 +178,9 @@ def test_the_shell_saves_a_project_as_a_template_and_lists_it_first(shell, monke
     key = shell.save_as_template()
     assert key == "my-templates/my-bench" and not document.dirty
     menus = [action.menu().title() for action in shell.examples_menu.actions() if action.menu()]
-    assert menus[:2] == ["My templates", "Start a project"]
+    assert menus[:2] == ["Your templates", "Start a project"]
     page = shell.show_start_page()
-    assert page.sections[0].category.title == "My templates" and key in page.tiles
+    assert page.sections[0].category.title == "Your templates" and key in page.tiles
     assert [action.text() for action in page.tiles[key].context_menu().actions()][-1] == "Delete template..."
     assert len(page.tiles["00-start/01-empty-lab"].context_menu().actions()) == 1  # (the library's stay)
 
@@ -189,4 +189,4 @@ def test_the_shell_saves_a_project_as_a_template_and_lists_it_first(shell, monke
 
     page.tiles[key].context_menu().actions()[-1].trigger()  # Delete template...
     assert key not in page.tiles and page.sections[0].category.title == "Start a project"
-    assert "My templates" not in [action.menu().title() for action in shell.examples_menu.actions() if action.menu()]
+    assert "Your templates" not in [action.menu().title() for action in shell.examples_menu.actions() if action.menu()]

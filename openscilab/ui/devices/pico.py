@@ -67,7 +67,7 @@ class PicoBackend(DeviceBackend):
                 self.id,
                 "autodetect",
                 None,
-                "Autodetect" + (f" ({len(detected)} analyzers)" if len(detected) > 1 else ""),
+                "Autodetect" + (f" ({len(detected)} Picos)" if len(detected) > 1 else ""),
             )
         ]
         for port, device in detected.items():
@@ -127,7 +127,7 @@ class PicoBackend(DeviceBackend):
             messages.warning(
                 parent,
                 "Connect",
-                "No analyzer was found.",
+                "No Pico was found.",
                 "Check the USB cable. A board without the openSciLab Pico firmware can be "
                 "installed with Devices > Connected hardware.",
             )
@@ -141,8 +141,8 @@ class PicoBackend(DeviceBackend):
 
         choice = messages.choose(
             parent,
-            "Several analyzers found",
-            f"{len(devices)} analyzers are connected. How do you want to use them?",
+            "Several Picos found",
+            f"{len(devices)} Picos are connected. How do you want to use them?",
             ["Combine into a multi device set", f"Use only {devices[0].port_name}"],
             "A multi device set captures on all boards at once; the first board is the master "
             "and triggers the others.",

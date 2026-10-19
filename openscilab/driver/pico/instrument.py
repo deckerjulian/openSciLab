@@ -83,6 +83,18 @@ def mask_of(pins) -> int:
     return sum(1 << gpio_number(pin) for pin in pins)
 
 
+def analog_index(driver: "PicoDriver", name: str) -> int:
+    """The ADC input of ``A1`` or of its pin ``GP27`` (the pin table names the GPIOs, flows the inputs)."""
+    names = driver.analog_channel_names()
+    if name in names:
+        return names.index(name)
+    if name.upper().startswith("GP"):
+        for pin in driver.read_pins():
+            if pin.name == name and pin.analog_channel is not None and pin.analog_channel < len(names):
+                return pin.analog_channel
+    raise InstrumentError(f"no analog input {name!r} (inputs: {', '.join(names)} or their pins)")
+
+
 class _PicoFacet:
     def __init__(self, driver: "PicoDriver") -> None:
         self.driver = driver
@@ -204,6 +216,8 @@ class PicoMonitor(_PicoFacet, MonitorFacet):
         _PicoFacet.__init__(self, driver)
         self.watched: list[str] = []
         self.analog: tuple[str, ...] = ()
+        #: the ADC input of every name of ``analog`` (the report has one value per input, in their order)
+        self._analog_indexes: dict[str, int] = {}
         self._running = False
         driver.line_handlers["STATE:"] = self._report
 
@@ -214,12 +228,12 @@ class PicoMonitor(_PicoFacet, MonitorFacet):
     def start(self, rate: float, pins: list[str], analog: tuple[str, ...] = ()) -> None:
         if rate <= 0:
             raise InstrumentError("the monitor needs a rate above 0")
+        indexes = {name: analog_index(self.driver, name) for name in analog}
         adc_mask = 0
-        for name in analog:
-            if not (name.upper().startswith("A") and name[1:].isdigit()):
-                raise InstrumentError(f"no analog input {name!r} (A0, A1, …)")
-            adc_mask |= 1 << int(name[1:])
+        for index in indexes.values():
+            adc_mask |= 1 << index
         self.watched, self.analog = list(pins), tuple(analog)
+        self._analog_indexes = indexes
         self._command(protocol.CMD_MONITOR, protocol.pack_monitor(rate, mask_of(pins), adc_mask))
         self._running = True
 
@@ -235,8 +249,9 @@ class PicoMonitor(_PicoFacet, MonitorFacet):
     def parse(self, line: str) -> MonitorState:
         parts = line[len("STATE:"):].split(",")
         levels = int(parts[1], 16)
-        analog_order = sorted(self.analog, key=lambda name: int(name[1:]))
-        values = {name: int(raw) * ADC_VOLTS for name, raw in zip(analog_order, parts[2:])}
+        by_index = dict(zip(sorted(set(self._analog_indexes.values())), parts[2:]))
+        values = {name: int(by_index[index]) * ADC_VOLTS for name, index in self._analog_indexes.items()
+                  if index in by_index}
         return MonitorState(int(parts[0]) / 1e6, {pin: (levels >> gpio_number(pin)) & 1 for pin in self.watched},
                             values)
 
@@ -261,15 +276,14 @@ class PicoAnalogIn(_PicoFacet, AnalogInFacet):
     """Command 19: single ADC readings of A0… (``ANALOG=<n>``)."""
 
     def read(self, pins: list[str]) -> dict[str, float]:
-        names = self.driver.analog_channel_names()
+        indexes = {name: analog_index(self.driver, name) for name in pins}
         mask = 0
-        for name in pins:
-            if name not in names:
-                raise InstrumentError(f"no analog input {name!r} (inputs: {', '.join(names)})")
-            mask |= 1 << names.index(name)
+        for index in indexes.values():
+            mask |= 1 << index
         values = self._expect(self._command(protocol.CMD_ADC_READ, struct.pack("<B", mask)), "ADC:").split(",")
-        ordered = sorted(pins, key=names.index)
-        return {name: int(raw) * ADC_VOLTS for name, raw in zip(ordered, values)}
+        # one value per input, in their order; a name and its pin (A0, GP26) share one
+        by_index = dict(zip(sorted(set(indexes.values())), values))
+        return {name: int(by_index[index]) * ADC_VOLTS for name, index in indexes.items()}
 
 
 # ----------------------------------------------------------------- generator

@@ -36,7 +36,7 @@ def test_the_details_tab_holds_what_the_device_information_showed(shell):
     card = card_of(shell)
     texts = [action.text() for action in card.device_actions]
     assert "Device information..." not in texts and not hasattr(card, "action_info")
-    assert texts[0] == "Capture settings..." and "Restart device..." in texts and "Copy the details" in texts
+    assert texts[0] == "Capture setup..." and "Restart device..." in texts and "Copy the details" in texts
     # the capture limits of the device, by the number of channels
     assert not card.limits_table.isHidden() and card.limits_table.rowCount() == 3
     assert card.limits_table.item(0, 0).text() == "8 channels" and card.limits_table.item(0, 4).text() == "131,072"
@@ -52,14 +52,16 @@ def test_the_details_tab_holds_what_the_device_information_showed(shell):
     assert not card.action_bootloader.isVisible() and not card.action_network.isVisible()
 
 
-def test_profiles_load_from_the_device_card(shell):
+def test_profiles_load_where_captures_are_set_up(shell):
     card = card_of(shell)
-    assert card.profiles_button.isVisibleTo(card) and card.profiles_button.isEnabled()
-    card._fill_profiles()
-    entries = [action.text() for action in card.profiles_menu.actions() if action.text()]
-    assert "&Save current settings as profile..." in entries and "Standard profiles" in entries
+    assert not hasattr(card, "profiles_button")  # (one place for profiles: the data view)
+    view = shell.show_data(card.instrument)
+    controls = view.capture_controls
+    controls._fill_profiles()
+    entries = [action.text() for action in controls.profiles_menu.actions() if action.text()]
+    assert "&Save the current setup as profile..." in entries and "Standard profiles" in entries
     assert "Open the profiles folder" in entries
-    standard = next(action.menu() for action in card.profiles_menu.actions() if action.text() == "Standard profiles")
+    standard = next(action.menu() for action in controls.profiles_menu.actions() if action.text() == "Standard profiles")
     usable = next(action for action in standard.actions() if action.isEnabled())
     before = card.capture_label.text()
     assert before.startswith("Next capture: ")
@@ -81,7 +83,7 @@ def test_a_device_that_can_restart_is_restarted_from_its_card(shell, monkeypatch
     monkeypatch.setattr(messages, "confirm", lambda *args, **kwargs: asked.append(args[2]) or False)
     assert not card.restart_device() and gpio.mode("GP16") == MODE_OUTPUT  # cancelled
     monkeypatch.setattr(messages, "confirm", lambda *args, **kwargs: True)
-    assert card.restart_device() and "Restart Simulation: Pico?" in asked[0]
+    assert card.restart_device() and "Restart Simulated Pico?" in asked[0]
     assert gpio.mode("GP16") == MODE_INPUT  # as after power-up
     assert "restarted" in card.banner.label.text()
     # a device that does not report RESTART has no such button (the Pico firmware has no command yet)
@@ -167,7 +169,7 @@ def test_all_devices_disconnect_at_once_after_a_warning(shell, monkeypatch):
     assert len(shell.hub) == 2  # cancelled
     title, text, action, details = asked[0]
     assert title == "Disconnect all devices" and text == "Disconnect all 2 devices?" and action == "Disconnect all"
-    assert "Simulation: Pico: it drives outputs" in details and "Simulation: Arduino Uno" in details
+    assert "Simulated Pico: it drives outputs" in details and "Simulated Arduino Uno" in details
     monkeypatch.setattr(messages, "confirm", lambda *args, **kwargs: True)
     shell._fill_device_menus()
     assert shell.action_disconnect_all.isEnabled()
@@ -190,7 +192,7 @@ def test_a_view_of_a_flows_data_does_not_capture(shell):
     flow = shell.new_flow()
     data = shell.show_run_data(flow, "run", "Flow - run data", session)
     shown = [item.key for item in data.main_toolbar._entries if not item.stretch]
-    assert data.viewer and shown == ["search", "measure", "listing", "panels", "save"]
+    assert data.viewer and shown == ["decoders", "measure", "search", "listing"]
     assert not data.runnable and not data.capture() and not data.action_repeat.isVisible()
     # a scope node's view as well
     from openscilab.core.signals import Capture

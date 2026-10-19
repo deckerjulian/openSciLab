@@ -51,7 +51,7 @@ class DecoderOptionsDialog(QDialog):
         parent: Optional[QWidget] = None,
     ) -> None:
         super().__init__(parent)
-        self.setWindowTitle(f"{info.longname} settings")
+        self.setWindowTitle(f"{info.longname} options")
         self.resize(480, 580)
 
         self.info = info
@@ -165,7 +165,7 @@ class DecoderOptionsDialog(QDialog):
                 edit.setText("" if value is None else str(value))
                 widget = edit
 
-            form.addRow(f"{option.caption}:", widget)
+            form.addRow(option.caption, widget)
             self._option_widgets[option.id] = widget
 
         return group

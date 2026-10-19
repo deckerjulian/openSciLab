@@ -271,7 +271,7 @@ def test_a_flow_streams_from_a_device_process_and_places_its_samples(pico):
     flow = yaml_io.loads("""
 flow: Stream
 nodes:
-  pico: {type: device.instrument, address: "sim:pico"}
+  pico: {type: device.device, address: "sim:pico"}
   rec: {type: device.stream, channels: [GP12], rate: 200 kHz, duration: 0.4 s}
 edges:
   - pico.device -> rec.device

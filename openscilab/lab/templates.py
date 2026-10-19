@@ -26,7 +26,9 @@ def copy_project(source: str, target: str) -> str:
     if os.path.exists(target) and os.listdir(target):
         raise FileExistsError(f"{target} is not empty")
     shutil.copytree(source, target, dirs_exist_ok=True, ignore=shutil.ignore_patterns("__pycache__", "*.pyc", ".DS_Store"))
-    for folder in ("flows", "panels", "nodes", "waveforms", "data", "tests"):
+    from .project import folders
+
+    for folder in folders():
         os.makedirs(os.path.join(target, folder), exist_ok=True)
     keep = os.path.join(target, "data", ".gitkeep")
     if os.path.exists(keep):

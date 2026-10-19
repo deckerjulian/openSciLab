@@ -1,0 +1,6 @@
+project: Inverting amplifier
+description: 'An inverting amplifier with an operational amplifier (TL072 model) on ±12 V: ten times the input,
+  upside down; the AC sweep shows its bandwidth.'
+open:
+- circuits/amplifier.circuit.yaml
+- flows/measure.flow.yaml

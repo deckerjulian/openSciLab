@@ -7,11 +7,22 @@
 """What every document of the shell offers.
 
 A document is a widget in a tab of the document area (a flow, a panel, captures in a data
-view, a device card, ...). The shell asks it for its title, file, unsaved state, menus, actions
-(for the command palette), toolbar, views and the inspector content. :class:`Document` is a mixin
-with defaults; widgets inherit from their Qt base class first, e.g.
-``class FlowDocument(QWidget, Document)``, and declare their own ``document_changed`` signal
-(``DocumentWidget`` does that for plain widgets).
+view, a device, ...). The shell asks it for its title, file, unsaved state, menus, actions
+(for the command palette), tool bar, views and the inspector content, and drives what it runs
+(:ref:`the run protocol <run>`). :class:`Document` is a mixin with defaults; widgets inherit from
+their Qt base class first, e.g. ``class FlowDocument(DocumentWidget)``.
+
+**Signals** (``DocumentWidget`` declares them): ``document_changed`` (title, path, dirty state or
+selection changed), ``message(str)`` (a short note for the status bar of the shell – the shell
+has the only status bar) and ``run_state_changed(str)``.
+
+.. _run:
+
+**The run protocol** (docs/design.md, rule 3): the header's *Run*, *Pause* and *Stop* – and the
+*Run* menu, F5, Shift+F5, F10 – act on the active document when it is :attr:`Document.runnable`.
+It names what runs (:attr:`run_label`: *Run*, *Capture*, *Play*), says how far it is
+(:attr:`run_state`: ``idle``, ``running``, ``paused``, ``finished``, ``stopped``, ``error``) and
+whether it runs in real or virtual time (:attr:`time_modes`, :meth:`virtual_time`).
 """
 
 from __future__ import annotations
@@ -19,7 +30,7 @@ from __future__ import annotations
 import os
 from typing import Optional
 
-from PySide6.QtCore import Signal
+from PySide6.QtCore import QObject, Signal
 from PySide6.QtGui import QAction
 from PySide6.QtWidgets import QMenu, QToolBar, QWidget
 
@@ -86,6 +97,56 @@ class Document:
         """The ``QUndoStack`` of the document, if it has one (Edit → Undo/Redo)."""
         return None
 
+    # ---------------------------------------------------------------- run
+    #: the document runs something the header's Run, Pause and Stop drive
+    runnable = False
+    #: the label of *Run* for this document: what it does ("Run", "Capture", "Play")
+    run_label = "Run"
+    #: the tool tip of *Run*
+    run_tooltip = ""
+    #: a run can pause (and continue)
+    can_pause = False
+    #: a paused run can go on by one step (F10)
+    can_step = False
+    #: whether *Run* may be pressed now (e.g. a device to capture with is chosen)
+    can_start_run = True
+    #: the document runs in real time or virtual time (flows and panels with simulators)
+    time_modes = False
+    #: the document can use simulators for every device it uses
+    simulates_devices = False
+
+    @property
+    def run_state(self) -> str:
+        """``idle``, ``running``, ``paused``, ``finished``, ``stopped`` or ``error``."""
+        return "idle"
+
+    def start_run(self) -> bool:
+        """Run (or continue a paused run); ``True`` when it runs."""
+        return False
+
+    def pause_run(self) -> None:
+        """Pause the run."""
+
+    def step_run(self) -> None:
+        """One step of a paused run."""
+
+    def stop_run(self) -> None:
+        """Stop the run."""
+
+    def virtual_time(self) -> bool:
+        """Whether the next run goes in virtual time (:attr:`time_modes`)."""
+        return False
+
+    def set_virtual_time(self, virtual: bool) -> None:
+        """Run in virtual time (``True``) or in real time."""
+
+    def simulated(self) -> bool:
+        """Whether the next run uses simulators for every device (:attr:`simulates_devices`)."""
+        return False
+
+    def set_simulated(self, simulated: bool) -> None:
+        """Use simulators for every device (``True``) or the devices themselves."""
+
     # -------------------------------------------------------------- files
     def can_save(self) -> bool:
         return False
@@ -99,6 +160,26 @@ class Document:
 
     def shutdown(self) -> None:
         """Release devices and threads; called once before the document is closed for good."""
+
+
+class Switch(QObject):
+    """A setting that is on or off, without a widget of its own: the shell shows it where it belongs
+    (the time of a run beside *Run* in the header, the *Run* menu) for the active document."""
+
+    toggled = Signal(bool)
+
+    def __init__(self, checked: bool = False, parent: Optional[QObject] = None) -> None:
+        super().__init__(parent)
+        self._checked = bool(checked)
+
+    def isChecked(self) -> bool:  # noqa: N802 - the name of QAbstractButton, which it stands in for
+        return self._checked
+
+    def setChecked(self, checked: bool) -> None:  # noqa: N802
+        checked = bool(checked)
+        if checked != self._checked:
+            self._checked = checked
+            self.toggled.emit(checked)
 
 
 _untitled: dict[str, int] = {}
@@ -116,3 +197,7 @@ class DocumentWidget(QWidget, Document):
 
     #: Title, path, dirty state or selection changed: the shell updates tab, menus and inspector.
     document_changed = Signal()
+    #: a short note for the status bar of the shell (saved, exported, ...)
+    message = Signal(str)
+    #: the state of the run changed (see :attr:`Document.run_state`)
+    run_state_changed = Signal(str)

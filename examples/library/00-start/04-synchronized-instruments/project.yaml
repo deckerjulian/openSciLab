@@ -1,7 +1,7 @@
 project: Synchronized instruments
 description: Two instruments on one time axis - a logic analyzer and a measuring box whose samples arrive
   late and uneven over USB and whose clock drifts. The logic analyzer drives a sync signal on GP16; a
-  wire takes it to one of its own channels (GP17) and to a line of the box (P0.7); timing.align matches
+  wire takes it to one of its own channels (GP17) and to a line of the box (P0.7); time.align matches
   the edges and puts the box's samples on the logic analyzer's time to microseconds. Both are simulated;
   with hardware run a wire from the sync pin to a channel of every instrument.
 icon: align

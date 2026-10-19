@@ -164,7 +164,8 @@ def test_the_bars_of_the_application_fit_a_small_window(shell):
     settle()
     bar = flow.toolbar()
     keys = inside(bar)
-    assert "run" in keys and "view-graph" in keys and "stop" in keys
+    # (Run and Stop are the header's: the flow's bar has its views and its tools)
+    assert "view-graph" in keys and "add" in keys and "run" not in keys
     assert {item.key for item in bar.overflowed()} >= {"zoom-in", "zoom-out"}
     data_view = shell.new_data_view()
     settle()

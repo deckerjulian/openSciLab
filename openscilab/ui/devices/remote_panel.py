@@ -41,7 +41,7 @@ METHODS = {"network": "measured over the network", "signal": "sync signal", "non
 
 def _seconds(value: float) -> str:
     if math.isnan(value) or math.isinf(value):
-        return "-"
+        return "–"
     return units.format_quantity(value, "s", 3)
 
 
@@ -75,7 +75,7 @@ class RemotePanel(QScrollArea):
         clock_form = QFormLayout(clock)
         self.clock_labels: dict[str, QLabel] = {}
         for key in ("Method", "Accuracy", "Round trip", "Jitter", "Drift", "Measurements"):
-            label = QLabel("-", clock)
+            label = QLabel("–", clock)
             label.setTextInteractionFlags(Qt.TextSelectableByMouse)
             self.clock_labels[key] = label
             clock_form.addRow(key, label)
@@ -87,7 +87,7 @@ class RemotePanel(QScrollArea):
         self.input_form = QFormLayout(inputs)
         self.input_labels: dict[str, QLabel] = {}
         for name, item in remote.inputs().items():
-            label = QLabel("-", inputs)
+            label = QLabel("–", inputs)
             label.setToolTip(item.get("description") or item["kind"])
             self.input_labels[name] = label
             self.input_form.addRow(f"{name} ({item['kind']})", label)
@@ -110,7 +110,7 @@ class RemotePanel(QScrollArea):
             self.output_editors[name] = editor
             output_form.addRow(name + (f" [{item['unit']}]" if item.get("unit") else ""), editor)
         if not remote.outputs():
-            output_form.addRow(QLabel("none", outputs))
+            output_form.addRow(QLabel("–", outputs))
         layout.addWidget(outputs)
 
         commands = QGroupBox("Commands", content)
@@ -126,7 +126,7 @@ class RemotePanel(QScrollArea):
             command_layout.addLayout(row)
             self.command_buttons[name] = button
         if not remote.commands():
-            command_layout.addWidget(QLabel("none", commands))
+            command_layout.addWidget(QLabel("–", commands))
         self.answer_label = QLabel("", commands)
         self.answer_label.setWordWrap(True)
         command_layout.addWidget(self.answer_label)
@@ -157,8 +157,8 @@ class RemotePanel(QScrollArea):
         for name, label in self.input_labels.items():
             latest = remote.latest(name)
             if latest is None:
-                label.setText("- (sent only while a flow listens)" if remote.inputs()[name]["kind"] in ("analog", "digital")
-                              else "-")
+                label.setText("– (sent only while a flow listens)" if remote.inputs()[name]["kind"] in ("analog", "digital")
+                              else "–")
                 continue
             if latest.samples is not None:
                 text = f"{len(latest.samples)} samples @ {units.format_quantity(latest.rate, 'Hz')}"
@@ -177,7 +177,7 @@ class RemotePanel(QScrollArea):
         its clock follows a time scale, whether its sample clock is shared."""
         from ...driver.remote.simulated import parse
 
-        box = QGroupBox("Simulation: timing", parent)
+        box = QGroupBox("Simulated timing", parent)
         box.setToolTip("Network, clock and sample clock of the simulated device - try how well openSciLab finds "
                        "the time of its values")
         form = QFormLayout(box)
@@ -204,7 +204,7 @@ class RemotePanel(QScrollArea):
             self.sim_clock_box.addItem(title, key)
         form.addRow("Clock", self.sim_clock_box)
         demo_name, _instance, options = parse(self.address)
-        self.sim_shared_box = QCheckBox("Sample clock shared with openSciLab's instruments (no drift of its "
+        self.sim_shared_box = QCheckBox("Sample clock shared with openSciLab's devices (no drift of its "
                                         "samples, only an offset)", box)
         self.sim_shared_box.setVisible(demo_name == "daq")
         form.addRow(self.sim_shared_box)

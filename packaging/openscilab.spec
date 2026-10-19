@@ -77,6 +77,29 @@ templates += Tree(os.path.join(ROOT, "examples", "profiles"), prefix=os.path.joi
 # the example library - the projects to start from (openscilab/lab/examples.py: examples/library/)
 templates += Tree(os.path.join(ROOT, "examples", "library"), prefix=os.path.join("examples", "library"),
                   excludes=["__pycache__", "*.pyc", ".DS_Store"])
+# Circuits: openSciLab's own components and SPICE models (next to circuits/library.py)
+templates += Tree(os.path.join(ROOT, "openscilab", "circuits", "library"),
+                  prefix=os.path.join("openscilab", "circuits", "library"))
+templates += Tree(os.path.join(ROOT, "openscilab", "circuits", "models"),
+                  prefix=os.path.join("openscilab", "circuits", "models"))
+templates += Tree(os.path.join(ROOT, "openscilab", "circuits", "mcu", "shim"),
+                  prefix=os.path.join("openscilab", "circuits", "mcu", "shim"))
+# the typeface of the application (Inter Tight, SIL Open Font License; ui/theme.py load_fonts)
+templates += Tree(os.path.join(ROOT, "openscilab", "ui", "fonts"), prefix=os.path.join("openscilab", "ui", "fonts"))
+# the tools of others this platform's vendor folder holds (ngspice, the AVR emulator, KiCad's symbols:
+# tools/build_vendor.py, core/vendor.py) - the application stays standalone
+_vendor = os.path.join(ROOT, "openscilab", "vendor")
+try:
+    from openscilab.core.vendor import platform_tag as _platform_tag
+
+    _platforms = [_platform_tag()]
+except Exception:  # noqa: BLE001 - every folder then
+    _platforms = sorted(os.listdir(_vendor)) if os.path.isdir(_vendor) else []
+for _platform in _platforms:
+    if os.path.isdir(os.path.join(_vendor, _platform)):
+        # (KiCad's symbols are installed on request, never bundled: THIRD_PARTY_NOTICES.md)
+        templates += Tree(os.path.join(_vendor, _platform), prefix=os.path.join("openscilab", "vendor", _platform),
+                          excludes=["*.a", "*.la", "include", "kicad-symbols", "*.old-*"])
 firmware_images = [
     (os.path.join("firmware", "uf2", os.path.basename(path)), path, "DATA")
     for path in sorted(glob.glob(os.path.join(ROOT, "firmware", "uf2", "*.uf2")))

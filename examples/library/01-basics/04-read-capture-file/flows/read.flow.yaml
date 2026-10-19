@@ -1,7 +1,7 @@
 flow: Read a capture file
-description: data.file_read reads data/demo.lac; convert.channel picks one channel of it.
+description: data.read reads data/demo.lac; convert.channel picks one channel of it.
 nodes:
-  file: {type: data.file_read, path: demo.lac, at: [0, 64]}
+  file: {type: data.read, path: demo.lac, at: [0, 64]}
   scope: {type: view.scope, title: demo.lac, at: [272, 128]}
   channel: {type: convert.channel, channel: CLK, at: [272, 0]}
   frequency: {type: measure.frequency, at: [544, 0]}

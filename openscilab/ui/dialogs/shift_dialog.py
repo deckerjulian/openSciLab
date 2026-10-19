@@ -100,7 +100,7 @@ class ShiftChannelsDialog(QDialog):
         self.amount_box.setRange(1, max(max_shift, 1))
         self.amount_box.setValue(1)
         self.amount_box.setGroupSeparatorShown(True)
-        form.addRow("Samples:", self.amount_box)
+        form.addRow("Samples", self.amount_box)
 
         direction_row = QHBoxLayout()
         self.left_radio = QRadioButton("Left (earlier)", options_group)
@@ -112,7 +112,7 @@ class ShiftChannelsDialog(QDialog):
         buttons_direction = QButtonGroup(options_group)
         buttons_direction.addButton(self.left_radio)
         buttons_direction.addButton(self.right_radio)
-        form.addRow("Direction:", direction_row)
+        form.addRow("Direction", direction_row)
 
         mode_row = QHBoxLayout()
         self.low_radio = QRadioButton("Low", options_group)
@@ -125,7 +125,7 @@ class ShiftChannelsDialog(QDialog):
             mode_row.addWidget(radio)
             buttons_mode.addButton(radio)
         mode_row.addStretch(1)
-        form.addRow("Fill with:", mode_row)
+        form.addRow("Fill with", mode_row)
         layout.addWidget(options_group)
 
         self.message = InlineMessage(self)

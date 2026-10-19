@@ -12,11 +12,11 @@ one at the device's rate; the acquisition knows where sample ``k`` lies on the l
 
 * **simulated** - a simulator knows its time (unless it emulates USB, ``usb`` in its profile);
 * **signal** - aligned with a sync signal that a reference instrument recorded too
-  (``timing.align``): offset and drift against the reference, with the precision of the recordings;
+  (``time.align``): offset and drift against the reference, with the precision of the recordings;
 * **timescale** - the device stamps its samples in a shared time scale (PTP, GPS) and this
   computer's clock follows it too (preference ``timing.host_clock``);
 * **latency** - the arrival envelope of the blocks less a latency measured before (loopback,
-  ``timing.calibrate``), kept per instrument and settings in ``timing.json``;
+  ``time.latency``), kept per instrument and settings in ``timing.json``;
 * **bounds** - between the command that started it and the envelope of the arrivals;
 * **arrival** - only the envelope (an upper bound).
 

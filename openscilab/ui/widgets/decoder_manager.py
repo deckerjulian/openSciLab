@@ -43,7 +43,7 @@ from ..dialogs.common import hint
 from ..dialogs.decoder_browser import DecoderBrowserDialog
 from ..dialogs.decoder_options import DecoderOptionsDialog
 from ..icons import set_icon
-from ..theme import set_role
+from ..theme import set_role, size
 from ..view_model import CaptureViewModel
 
 
@@ -146,21 +146,30 @@ class DecoderManager(QWidget):
         self.stack_button.setToolTip("Stack: add a decoder that decodes the output of the selected one")
         self.stack_button.clicked.connect(self.stack_decoder)
         self.edit_button = QPushButton(self)
-        self.edit_button.setToolTip("Settings: channels and options of the selected decoder")
+        self.edit_button.setToolTip("Channels and options of the selected decoder")
         self.edit_button.clicked.connect(self.edit_selected)
         self.remove_button = QPushButton(self)
         self.remove_button.setToolTip("Remove the selected decoder")
         self.remove_button.clicked.connect(self.remove_selected)
         for button, name, label in (
             (self.stack_button, "layers", "Stack decoder"),
-            (self.edit_button, "sliders", "Decoder settings"),
+            (self.edit_button, "sliders", "Decoder options"),
             (self.remove_button, "trash", "Remove decoder"),
         ):
             button.setAccessibleName(label)
-            button.setFixedWidth(34)
+            button.setFixedWidth(size("icon-button"))
             set_icon(button, name)
             buttons.addWidget(button)
         layout.addLayout(buttons)
+
+        # the channels and options of a decoder: edited here, below the list (not in a dialog)
+        self.options_holder = QWidget(self)
+        self.options_layout = QVBoxLayout(self.options_holder)
+        self.options_layout.setContentsMargins(0, 4, 0, 0)
+        self.options_holder.setVisible(False)
+        layout.addWidget(self.options_holder)
+        #: the editor shown below the list: (instance, editor)
+        self._editing: Optional[tuple] = None
 
         run_row = QHBoxLayout()
         self.auto_decode = QCheckBox("Decode automatically", self)
@@ -278,15 +287,22 @@ class DecoderManager(QWidget):
             parent=parent,
         )
         self._auto_assign_channels(info, instance)
-
-        dialog = DecoderOptionsDialog(info, instance, self.model.channels, self)
-        if not dialog.exec():
-            return None
-
+        # added at once with the channels found by name; what is missing shows below the list
         self.provider.add_instance(instance)
         self.refresh()
-        self.decode_if_automatic()
+        self._select(instance)
+        missing = [channel for channel in info.required_channels if channel.index not in instance.channel_map]
+        if missing:
+            self.edit_selected()
+        else:
+            self.decode_if_automatic()
         return instance
+
+    def _select(self, instance: DecoderInstance) -> None:
+        for row in range(self.list.count()):
+            if self.list.item(row).data(Qt.UserRole) is instance:
+                self.list.setCurrentRow(row)
+                return
 
     def _auto_assign_channels(self, info, instance: DecoderInstance) -> None:
         """Pre-assign capture channels whose name matches the decoder channel."""
@@ -320,21 +336,43 @@ class DecoderManager(QWidget):
         return None if item is None else item.data(Qt.UserRole)
 
     def edit_selected(self) -> None:
+        """The channels and options of the selected decoder, below the list."""
         instance = self.selected_instance()
         if instance is None:
             return
         info = self.provider.info_for(instance)
         if info is None:
             return
-        dialog = DecoderOptionsDialog(info, instance, self.model.channels, self)
-        if dialog.exec():
-            self.refresh()
-            self.decode_if_automatic()
+        self.close_editor()
+        editor = DecoderOptionsDialog(info, instance, self.model.channels, self.options_holder)
+        editor.setWindowFlags(Qt.Widget)  # a part of the panel, not a window of its own
+        editor.accepted.connect(lambda: self._edited(instance))
+        editor.rejected.connect(self.close_editor)
+        self.options_layout.addWidget(editor)
+        self.options_holder.setVisible(True)
+        editor.show()
+        self._editing = (instance, editor)
+
+    def _edited(self, instance: DecoderInstance) -> None:
+        self.close_editor()
+        self.refresh()
+        self._select(instance)
+        self.decode_if_automatic()
+
+    def close_editor(self) -> None:
+        if self._editing is not None:
+            _instance, editor = self._editing
+            self._editing = None
+            editor.hide()
+            editor.deleteLater()
+        self.options_holder.setVisible(False)
 
     def remove_selected(self) -> None:
         instance = self.selected_instance()
         if instance is None:
             return
+        if self._editing is not None and self._editing[0] is instance:
+            self.close_editor()
         self.provider.remove_instance(instance)
         self.refresh()
         self.decode_if_automatic()

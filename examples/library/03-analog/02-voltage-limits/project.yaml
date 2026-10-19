@@ -1,5 +1,5 @@
 project: Voltage limits
-description: Watches A0 against a window of 2.5 V to 3.5 V - control.limit tells for every reading
+description: Watches A0 against a window of 2.5 V to 3.5 V - control.range tells for every reading
   whether it is inside; the LED shows it, the log lists the readings outside.
 devices:
   uno: sim:uno

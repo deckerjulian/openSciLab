@@ -67,8 +67,11 @@ def _column_ports(params: dict):
       description="Collects values into a table. With 'columns', each column has an input and a row is "
                   "complete when every column got a value (values wait in the order they came, so a "
                   "column may run ahead); otherwise every value on 'in' adds rows.",
-      inputs=[In("in", signals.ANY, multiple=True)], outputs=[Out("table", signals.TABLE)],
-      params=[Param("columns", "list")], ports=_column_ports, icon="list")
+      inputs=[In("in", signals.ANY, "Values that add rows (without columns)", multiple=True)],
+      outputs=[Out("table", signals.TABLE, "The table, after every new row")],
+      params=[Param("columns", "list", description="A column per input: names, or outputs of the flow to wire (▾)",
+                    suggest="flow_outputs", editor="inputs", label="columns")], ports=_column_ports, icon="list",
+      summary=("columns",), keywords=("collect", "rows", "columns", "results"))
 class TableNode(NodeRuntime):
     async def setup(self) -> None:
         self.table = signals.Table(name=self.node.id)
@@ -157,13 +160,18 @@ def numbered(path: str, index: int) -> str:
     return f"{root}-{index:03d}{extension}"
 
 
-@node("data.file", title="File",
+@node("data.write", title="Write file",
       description="Writes what arrives: captures as .lac/.sr/.csv/.vcd (by the extension), tables, bundles "
                   "and events as CSV, every value replacing the file; other values (numbers, text) are lines "
                   "of the file, one per value of the run. 'numbered' writes name-001, name-002, ... instead, "
                   "after the numbers already there.",
-      inputs=[In("in", signals.ANY)], outputs=[Out("written", signals.EVENT)],
-      params=[Param("path", "path", required=True), Param("numbered", "bool", False)], icon="save")
+      inputs=[In("in", signals.ANY, "What to write")],
+      outputs=[Out("written", signals.EVENT, "A file was written (its path)")],
+      params=[Param("path", "path", required=True, label="file",
+                    description="Where it goes; the extension says how (.lac, .sr, .csv, .vcd, .txt)"),
+              Param("numbered", "bool", False, label="numbered",
+                    description="A new file each time: name-001, name-002, …")],
+      icon="save", summary=("path", "numbered"), keywords=("save", "export", "csv", "lac", "vcd"))
 class FileNode(NodeRuntime):
     async def setup(self) -> None:
         path = self.ctx.path(str(self.p("path")))
@@ -218,14 +226,17 @@ def _number(text: Any) -> Any:
             return text
 
 
-@node("data.file_read", title="Read file",
+@node("data.read", title="Read file",
       description="Reads a capture (.lac, .sr) or a table (.csv) when the flow starts, or on every value "
-                  "at 'read'.",
-      inputs=[In("read", signals.ANY)], outputs=[Out("capture", signals.CAPTURE), Out("table", signals.TABLE)],
-      params=[Param("path", "path", required=True)], icon="folder")
+                  "at 'trigger'.",
+      inputs=[In("trigger", signals.EVENT, "Read again for every value")],
+      outputs=[Out("capture", signals.CAPTURE, "The capture of a .lac or .sr file"),
+               Out("table", signals.TABLE, "The table of a .csv file")],
+      params=[Param("path", "path", required=True, label="file", description="A capture (.lac, .sr) or a table (.csv)")],
+      icon="folder", summary=("path",), keywords=("open", "load", "import", "csv", "lac"))
 class FileReadNode(NodeRuntime):
     async def run(self) -> None:
-        if not self.ctx.wired("read"):
+        if not self.ctx.wired("trigger"):
             await self.read()
 
     async def on_input(self, port: str, value: Any) -> None:
@@ -241,17 +252,20 @@ class FileReadNode(NodeRuntime):
 
 @node("data.buffer", title="Buffer",
       description="Keeps the latest values: the last 'length' seconds of a signal (blocks are joined) or "
-                  "the last 'count' other values. Sends the buffer on every value, or only on 'read'.",
-      inputs=[In("in", signals.ANY, optional=False, multiple=True), In("read", signals.ANY)],
-      outputs=[Out("out", signals.ANY)],
-      params=[Param("length", "quantity", "1 s", "s"), Param("count", "int", 100)], icon="layers")
+                  "the last 'count' other values. Sends the buffer on every value, or only on 'trigger'.",
+      inputs=[In("in", signals.ANY, "What to keep", optional=False, multiple=True),
+              In("trigger", signals.EVENT, "Send the buffer (with a wire: only then)")],
+      outputs=[Out("out", signals.ANY, "The buffer: a signal of 'length' seconds, or a table of values")],
+      params=[Param("length", "quantity", "1 s", "s", label="length", description="How much of a signal it keeps"),
+              Param("count", "int", 100, label="count", description="How many other values it keeps", minimum=1)],
+      icon="layers", summary=("length", "count"), keywords=("history", "window", "last", "ring"))
 class BufferNode(NodeRuntime):
     async def setup(self) -> None:
         self.signal = None
         self.values: deque = deque(maxlen=max(int(self.p("count", 100)), 1))
 
     async def on_input(self, port: str, value: Any) -> None:
-        if port == "read":
+        if port == "trigger":
             self.ctx.emit("out", self.current())
             return
         if isinstance(value, (signals.Digital, signals.Analog)) and value.time.is_uniform:
@@ -272,7 +286,7 @@ class BufferNode(NodeRuntime):
             self.join_capture(value)
         else:
             self.values.append((self.ctx.now(), value))  # (stamped when it came)
-        if not self.ctx.wired("read"):
+        if not self.ctx.wired("trigger"):
             self.ctx.emit("out", self.current())
 
     def join_capture(self, block: signals.Capture) -> None:
@@ -310,8 +324,13 @@ class BufferNode(NodeRuntime):
                   "as lines time, source, value (a table with several columns: a line per column), written "
                   "at once and appended to the file of earlier runs. A .lac or .sr path: the samples of "
                   "streams and signals (digital and analog), in a capture on disk saved when the flow ends.",
-      inputs=[In("in", signals.ANY, optional=False, multiple=True)], outputs=[Out("written", signals.EVENT)],
-      params=[Param("path", "path", "log.csv", required=True), Param("flush", "int", 50)], icon="save")
+      inputs=[In("in", signals.ANY, "What to record (several wires: all of it)", optional=False, multiple=True)],
+      outputs=[Out("written", signals.EVENT, "Lines were written (the path)")],
+      params=[Param("path", "path", "log.csv", required=True, label="file",
+                    description="A .csv file for values, a .lac or .sr file for signals"),
+              Param("flush", "int", 50, description="Lines written at once (.csv)", only_if={"path": "*.csv"},
+                    label="lines at once", advanced=True, minimum=1)],
+      icon="save", summary=("path",), keywords=("record", "long term", "log", "csv"))
 class LoggerNode(NodeRuntime):
     async def setup(self) -> None:
         self.path = self.ctx.path(str(self.p("path")))

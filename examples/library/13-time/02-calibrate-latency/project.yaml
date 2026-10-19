@@ -1,6 +1,6 @@
 project: Calibrate latency
 description: How late do the samples of a USB instrument arrive? GP16 of the Pico is wired to GP17;
-  timing.calibrate switches GP16 while the Pico streams GP17. No edge comes before its command and no
+  time.latency switches GP16 while the Pico streams GP17. No edge comes before its command and no
   sample after its arrival - half of the shortest loop is the latency, kept for the Pico at this rate.
   The stream that follows is placed with it (device card - Timing).
 devices:

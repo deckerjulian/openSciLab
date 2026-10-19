@@ -605,15 +605,17 @@ def open_serial(port: str, baud: Optional[int] = None) -> ArduinoDriver:
     chip found on boards of either rate is tried at both)."""
     from .. import ports
 
+    details = next((item for item in ports.detect_arduinos() if item.port_name == port), None)
     if baud is not None:
         bauds: tuple[int, ...] = (baud,)
     else:
-        details = next((item for item in ports.detect_arduinos() if item.port_name == port), None)
         bauds = details.bauds if details is not None else (ports.ARDUINO_AVR_BAUD,)
     first: Optional[DeviceConnectionError] = None
     for rate in bauds:
         try:
             link = SerialLink(port, rate)
+            if details is not None and details.slow_boot:
+                link.wait_for_boot()  # a request now would keep the Mega in its bootloader
         except LinkError as error:
             raise DeviceConnectionError(str(error)) from error
         try:

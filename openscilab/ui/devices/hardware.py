@@ -110,7 +110,7 @@ def scan(hub: Optional[Hub], versions: dict[str, Optional[str]],
         entries.append(HardwareEntry(
             method=method if method is not None and method.key != "uf2" else None,
             key=f"open:{instrument.name}", kind=ANALYZER if driver.supports_bootloader else DEVICE,
-            title=instrument.name, connection=instrument.uri or "-", firmware=firmware.describe_firmware(version)
+            title=instrument.name, connection=instrument.uri or "–", firmware=firmware.describe_firmware(version)
             if driver.supports_bootloader else (version or ""), state=state,
             board=identity.board if identity else None, port=port, instrument=instrument, image=image,
             chip=identity.board.chip if identity and identity.board else None))

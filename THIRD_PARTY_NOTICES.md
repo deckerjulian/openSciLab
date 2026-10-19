@@ -59,9 +59,27 @@ The decoders are shipped as source files, including in the packaged applications
 | PyAV (the oscilloscope's screen as H.264) | BSD-3-Clause | <https://github.com/PyAV-Org/PyAV> |
 | FFmpeg (shared libraries bundled with PyAV, built with GPL components such as x264) | GNU General Public License v2 or later (GPL-compatible with this project) | <https://ffmpeg.org> |
 | PyInstaller bootloader | GPL-2.0-or-later with the PyInstaller bootloader exception | <https://pyinstaller.org> |
+| Inter Tight (the typeface, `openscilab/ui/fonts`: static weights made from the variable font with fontTools) | SIL Open Font License 1.1 (`openscilab/ui/fonts/OFL.txt`); Copyright 2022 The Inter Project Authors | <https://github.com/rsms/inter-tight>, <https://fonts.google.com/specimen/Inter+Tight> |
 
 Qt and PySide6 are included as separate shared libraries, so they can be replaced by other
 versions as the LGPL requires. Their source code is available from the Qt project.
+
+## Circuits: simulators and libraries (the vendor folder, `openscilab/vendor/<platform>/`)
+
+The applications bring these tools in their vendor folder; a source installation builds them with
+`tools/build_vendor.py` or installs them when they are needed (`openscilab/core/vendor.py`).
+
+| Component | License | Project |
+| --- | --- | --- |
+| ngspice (shared library `libngspice` and its XSPICE code models, without the GPL `table` code model; built with CIDER and the KLU sparse solver) | Modified BSD (BSD-3-Clause); XSPICE public domain; CIDER BSD-style (UC Berkeley); KLU: GNU Lesser General Public License v2.1 | <https://ngspice.sourceforge.io> |
+| simavr (simulator core and AVR cores, statically linked into `libopenscilab_avr` with openSciLab's shim `openscilab/circuits/mcu/shim`) | GNU General Public License v3 or later | <https://github.com/buserror/simavr> |
+| MinGW-w64 runtime libraries (Windows vendor archive: `libgcc_s_seh-1.dll`, `libstdc++-6.dll`, `libwinpthread-1.dll`, `libgomp-1.dll` and what else `libngspice-0.dll` of MSYS2 links; the archive carries their notices) | GCC Runtime Library Exception (GPL-3.0 with exception); winpthreads MIT/BSD | <https://www.mingw-w64.org>, <https://www.msys2.org> |
+| avr-libc register headers (only read when `libopenscilab_avr` is built) | Modified BSD | <https://github.com/avrdudes/avr-libc> |
+| KiCad symbol libraries (installed on request into the vendor folder or read from a KiCad installation; not in the applications) | CC-BY-SA 4.0 with an exception for the use in designs | <https://gitlab.com/kicad/libraries/kicad-symbols> |
+
+openSciLab's own SPICE models (`openscilab/circuits/models/standard.lib`) were written for it from
+published data sheet values and are licensed like openSciLab (GPL-3.0-or-later); models of makers
+that a user adds keep their own terms.
 
 ## Firmware components (included in the firmware images)
 

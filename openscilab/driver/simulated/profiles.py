@@ -42,7 +42,7 @@ def _counter_sources() -> dict:
 BUILTIN = {
     "free": {
         "name": "free",
-        "title": "Simulation: free",
+        "title": "Simulated 16 channel device",
         "description": "16 digital channels with test signals: a counter on D0-D7 (1 MHz, its clock "
                        "on D8), UART on D9, SPI on D10-D12, I²C on D13-D14, 1 kHz on D15. A pattern "
                        "generator drives D0-D7 while it runs (looped back to the inputs); trigger "
@@ -223,7 +223,7 @@ def multi_profile(profile: dict, boards: int) -> dict:
 
 
 def _with_defaults(profile: dict) -> dict:
-    profile.setdefault("title", f"Simulation: {profile['name']}")
+    profile.setdefault("title", f"Simulated {profile['name']}")
     profile.setdefault("digital", [])
     profile.setdefault("analog", [])
     profile.setdefault("max_rate", 1_000_000)

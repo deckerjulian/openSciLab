@@ -1,6 +1,6 @@
 {
   "name": "uno_r4",
-  "title": "Simulation: Uno R4",
+  "title": "Simulated Uno R4",
   "description": "Arduino Uno R4 with the openSciLab firmware: D0-D13 as inputs and outputs (USB is native, D0/D1 are free), PWM on D3, D5, D6, D9, D10, D11, A0-A5 analog (14 bit, 5 V), a 12 bit DAC on A0. Wired: the DAC (A0) to A1, D7 to D3, PWM of D9 through an RC low pass (10 kΩ, 10 µF) to A2, a push button with bounce on D2.",
   "firmware": "arduino",
   "provisional": "Values of the openSciLab Arduino firmware (phase 2) until measured (step 2a).",

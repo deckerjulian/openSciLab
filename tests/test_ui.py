@@ -283,16 +283,19 @@ def test_window_geometry_is_restored(application):
         second.force_close()
 
 
-def test_the_analyzer_dock_layout_is_restored(make_dataview):
+def test_the_listing_of_a_data_view_is_kept(make_dataview):
     first = make_dataview()
-    first.listing_dock.setVisible(True)
+    first.listing_tool_button.setChecked(True)  # (Ctrl+2: the listing below the traces)
+    assert not first.listing_panel.isHidden() and first.action_listing.isChecked()
     first._save_window_state()
 
     second = make_dataview()
-    assert not second.listing_dock.isHidden()
+    assert not second.listing_panel.isHidden()
+    # its analysis is the inspector of the shell, its notes the shell's status bar
+    assert second.inspector_widget() is second.side_tabs
 
 
-def test_the_help_menu_links_to_both_wikis(shell, monkeypatch):
+def test_the_help_menu_links_to_the_wiki(shell, monkeypatch):
     from openscilab.ui.shell import main_window as main_window_module
 
     opened = []
@@ -300,9 +303,6 @@ def test_the_help_menu_links_to_both_wikis(shell, monkeypatch):
 
     actions = {action.text().replace("&", ""): action for action in shell.help_menu.actions()}
     actions["Online documentation"].trigger()
-    actions["Online documentation of the original software (gusmanb)"].trigger()
-
-    assert opened == [
-        "https://github.com/deckerjulian/openSciLab/wiki",
-        "https://github.com/gusmanb/logicanalyzer/wiki",
-    ]
+    # (the software it is based on is named and linked in About)
+    assert "Online documentation of the original software (gusmanb)" not in actions
+    assert opened == ["https://github.com/deckerjulian/openSciLab/wiki"]

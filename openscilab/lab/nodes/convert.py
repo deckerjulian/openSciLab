@@ -35,9 +35,12 @@ class _Convert(NodeRuntime):
         self.ctx.emit("out", conversion.function(value, **self.options()))
 
 
-@node("convert.to_analog", title="Digital to analog", description="Logic levels as voltages.",
-      inputs=[In("in", signals.DIGITAL, optional=False)], outputs=[Out("out", signals.ANALOG)],
-      params=[Param("low", "quantity", 0.0, "V"), Param("high", "quantity", 3.3, "V")], icon="wave")
+@node("convert.analog", title="Analog", description="Logic levels as voltages: 0 becomes 'low', 1 becomes 'high'.",
+      inputs=[In("in", signals.DIGITAL, "A digital signal", optional=False)],
+      outputs=[Out("out", signals.ANALOG, "The levels as voltages")],
+      params=[Param("low", "quantity", 0.0, "V", label="0 is", description="The voltage of level 0"),
+              Param("high", "quantity", 3.3, "V", label="1 is", description="The voltage of level 1")],
+      icon="wave", summary=("low", "high"), keywords=("digital to analog", "volts", "levels"))
 class ToAnalog(_Convert):
     source, target = signals.DIGITAL, signals.ANALOG
 
@@ -45,9 +48,12 @@ class ToAnalog(_Convert):
         return {"low": self.q("low"), "high": self.q("high")}
 
 
-@node("convert.edges", title="Edges", description="The edges of a digital signal as events.",
-      inputs=[In("in", signals.DIGITAL, optional=False)], outputs=[Out("out", signals.EVENT)],
-      params=[Param("kind", "choice", "both", choices=("both", "rising", "falling"))], icon="wave")
+@node("convert.events", title="Events", description="The edges of a digital signal as events.",
+      inputs=[In("in", signals.DIGITAL, "A digital signal", optional=False)],
+      outputs=[Out("out", signals.EVENT, "An event for every edge (its new level as the value)")],
+      params=[Param("kind", "choice", "both", choices=("both", "rising", "falling"), label="edges",
+                    description="Which edges become events")],
+      icon="wave", summary=("kind",), keywords=("edges", "transitions"))
 class Edges(_Convert):
     source, target = signals.DIGITAL, signals.EVENT
 
@@ -77,17 +83,21 @@ class Edges(_Convert):
         self.ctx.emit("out", found)
 
 
-@node("convert.to_scalar", title="Bool to number", description="1 for true, 0 for false.",
-      inputs=[In("in", signals.BOOL, optional=False)], outputs=[Out("out", signals.SCALAR)])
+@node("convert.number", title="Number", description="1 for true, 0 for false.",
+      inputs=[In("in", signals.BOOL, "A truth value", optional=False)],
+      outputs=[Out("out", signals.SCALAR, "1 or 0")], icon="arrow-right", keywords=("bool", "true", "false"))
 class ToScalar(_Convert):
     source, target = signals.BOOL, signals.SCALAR
 
 
-@node("convert.state_bit", title="State bit",
+@node("convert.bit", title="Bit",
       description="One channel of the states (values taken on the edges of a clock) as a digital signal, "
                   "one sample per state.",
-      inputs=[In("in", signals.STATES, optional=False)], outputs=[Out("out", signals.DIGITAL)],
-      params=[Param("bit", "any", 0, description="the channel's name (D3), or its number (0: the first)")])
+      inputs=[In("in", signals.STATES, "The states of a capture in state mode", optional=False)],
+      outputs=[Out("out", signals.DIGITAL, "The channel, one sample per state")],
+      params=[Param("bit", "any", 0, description="The channel's name (D3), or its number (0: the first)",
+                    label="channel", suggest="upstream_channels")],
+      icon="channels", summary=("bit",), keywords=("state", "channel", "bit"))
 class StateBit(_Convert):
     source, target = signals.STATES, signals.DIGITAL
 
@@ -115,9 +125,13 @@ class StateBit(_Convert):
 @node("convert.channel", title="Channel",
       description="One channel of a capture: 'channel' by its name, else the first one of 'kind' (any, digital, "
                   "analog).",
-      inputs=[In("in", signals.CAPTURE, optional=False)], outputs=[Out("out", signals.ANY)],
-      params=[Param("channel", "str", "", suggest="upstream_channels"),
-              Param("kind", "choice", "any", choices=("any", "digital", "analog"))], icon="channels")
+      inputs=[In("in", signals.CAPTURE, "A capture", optional=False)],
+      outputs=[Out("out", signals.ANY, "The channel: a digital or analog signal")],
+      params=[Param("channel", "str", "", suggest="upstream_channels", label="channel",
+                    description="The channel by its name (empty: the first of 'kind')"),
+              Param("kind", "choice", "any", choices=("any", "digital", "analog"), label="kind",
+                    description="Without a name: the first channel of this kind")],
+      icon="channels", summary=("channel",), keywords=("extract", "pick", "select"))
 class Channel(NodeRuntime):
     async def on_input(self, port: str, value: Any) -> None:
         if not isinstance(value, signals.Capture):

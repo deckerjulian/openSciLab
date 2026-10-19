@@ -42,7 +42,7 @@ def test_the_empty_area_says_what_to_do(shell):
 def test_the_start_page_connects_a_simulator(shell):
     page = shell.show_start_page()
     titles = [action.text() for action in page.simulator_menu.actions()]
-    assert "Simulation: Arduino Uno" in titles
+    assert "Simulated Arduino Uno" in titles
     page.simulator_requested.emit("uno")
     card = shell.active_document()
     assert isinstance(card, DeviceDocument) and card.instrument.uri == "sim:uno"
@@ -118,7 +118,8 @@ def test_the_header_captures_in_the_data_view(shell):
     instrument = open_simulated("free")
     shell.hub.add(instrument)
     card = shell.open_device_card(instrument)
-    assert not shell.run_button.isEnabled()  # capturing happens in the data view, not on the card
+    # the header captures on the device's document too; the capture shows in the data view
+    assert shell.run_button.text() == "Capture" and shell.run_button.isEnabled()
     view = shell.show_data(instrument)
     state = view.capture_controls.state_label
     assert shell.run_button.text() == "Capture" and shell.run_button.isEnabled()
@@ -145,7 +146,7 @@ def test_the_settings_dialog_uses_settings_and_enter_moves_on(shell):
 
     instrument = open_simulated("free")
     dialog = CaptureDialog(instrument.capture.driver, shell, allow_apply=True)
-    assert dialog.apply_button.text() == "Use settings" and dialog.profiles_button.isHidden()
+    assert dialog.apply_button.text() == "Keep setup" and dialog.profiles_button.isHidden()
     names = [edit for edit in dialog.findChildren(QLineEdit, "channel-name") if edit.isEnabled()]
     assert len(names) >= 2
     names[0].setFocus()
@@ -189,7 +190,8 @@ def test_a_run_without_its_device_offers_the_simulators(shell):
 # ------------------------------------------------------------- projects
 def test_the_project_menu_offers_projects(shell, tmp_path):
     texts = [action.text() for action in shell.project_menu.actions()]
-    assert "New pro&ject..." in texts and "Open pro&ject..." in texts
+    assert "Open pro&ject..." in texts
+    assert "Pro&ject from an example..." in [action.text() for action in shell.new_menu.actions()]
     assert shell.action_new_flow.shortcut() == QKeySequence(QKeySequence.New)  # Ctrl+N: a new flow
     document = shell.open_example("00-start/01-empty-lab", str(tmp_path / "lab"))
     assert document is not None
@@ -247,7 +249,8 @@ def test_card_and_panel_commands_are_in_the_palette(shell):
     shell.open_device_card(instrument)
     titles = [command.title for command in shell.commands()]
     assert any(title.endswith("› Capture in a data view") for title in titles)
-    shell.new_panel()
+    shell.new_flow()
+    shell.new_panel()  # (for the one open flow)
     titles = [command.title for command in shell.commands()]
     assert any(title.endswith("› Operate") for title in titles)
 

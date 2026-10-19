@@ -1,7 +1,7 @@
 flow: Bit rate
 description: Measures the bit rate of the UART on D9 with the project's own node example.bit_rate.
 nodes:
-  sim: {type: device.instrument}
+  sim: {type: device.device}
   cap: {type: device.capture, channels: [D9], rate: 4 MHz, duration: 2 ms}
   rate: {type: example.bit_rate}
   show: {type: view.number, title: Bit rate}

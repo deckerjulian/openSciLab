@@ -98,7 +98,7 @@ from ...driver.base import (
 )
 from ...driver.models import AnalogChannel, AnalyzerChannel, CaptureSession, ConditionKind, EdgeKind, TriggerType
 from .. import messages
-from ..theme import BORDER, ERROR, set_role
+from ..theme import BORDER, ERROR, set_role, size
 from ..icons import icon, set_icon
 from .common import InlineMessage, button_box, dialog_layout, hint
 
@@ -202,7 +202,7 @@ class ChannelSelector(QWidget):
         row.addWidget(self.enable_box, 1)
 
         self.color_button = QToolButton(self)
-        self.color_button.setFixedSize(14, 14)
+        self.color_button.setFixedSize(size("swatch"), size("swatch"))
         self.color_button.setCursor(Qt.PointingHandCursor)
         self.color_button.setToolTip("Channel colour")
         self.color_button.clicked.connect(self._pick_color)
@@ -298,15 +298,15 @@ class CaptureDialog(QDialog):
         #: settings are being restored: keep their values instead of the defaults of the controls
         self._loading_session = False
 
-        self.setWindowTitle("Capture settings")
+        self.setWindowTitle("Capture setup")
         self.resize(900, 620)
 
         layout = dialog_layout(self)
         # pages: what to sample, which channels, when to start; a list of them on the left
         body = QHBoxLayout()
         self.page_list = QListWidget(self)
-        self.page_list.setFixedWidth(150)
-        self.page_list.setAccessibleName("Pages of the capture settings")
+        self.page_list.setFixedWidth(size("page-list"))
+        self.page_list.setAccessibleName("Pages of the capture setup")
         self.pages = QStackedWidget(self)
         # built in this order: the trigger reads the sampling and channel controls
         parameters = self._build_parameters()
@@ -341,8 +341,8 @@ class CaptureDialog(QDialog):
         layout.addWidget(self.validation_label)
 
         if accept_text is None:
-            accept_text = "Start capture" if driver.is_hardware else "Continue"
-        buttons = button_box(self, accept_text, icon="record" if accept_text == "Start capture" else "arrow-right")
+            accept_text = "Capture"
+        buttons = button_box(self, accept_text, icon="record" if accept_text == "Capture" else "arrow-right")
         self.profiles_button = buttons.addButton("Profiles", QDialogButtonBox.ResetRole)
         self.profiles_button.setToolTip("Save, export, import or apply capture profiles")
         set_icon(self.profiles_button, "bookmark")
@@ -351,16 +351,16 @@ class CaptureDialog(QDialog):
         self.profiles_button.setMenu(self.profiles_menu)
         self.apply_button = None
         if allow_apply:
-            # Keep the settings (channel names, rate, trigger) for the device without capturing now
-            self.apply_button = buttons.addButton("Use settings", QDialogButtonBox.ApplyRole)
-            self.apply_button.setToolTip("Keep these settings for the device's next capture (names, rate, "
+            # Keep the setup (channel names, rate, trigger) for the device without capturing now
+            self.apply_button = buttons.addButton("Keep setup", QDialogButtonBox.ApplyRole)
+            self.apply_button.setToolTip("Keep this setup for the device's next capture (names, rate, "
                                          "trigger) and close, without capturing now")
-            # the device card has the profiles; one menu for them is enough
+            # the document of the device has the profiles; one menu for them is enough
             self.profiles_button.setVisible(False)
             set_icon(self.apply_button, "check")
             self.apply_button.clicked.connect(self._apply_only)
         self.reset_button = buttons.addButton("Reset", QDialogButtonBox.ResetRole)
-        self.reset_button.setToolTip("Restore the default settings")
+        self.reset_button.setToolTip("Restore the default setup")
         set_icon(self.reset_button, "reset")
         buttons.accepted.connect(self._accept)
         buttons.rejected.connect(self.reject)
@@ -397,7 +397,7 @@ class CaptureDialog(QDialog):
         grid.setHorizontalSpacing(10)
         grid.setVerticalSpacing(6)
 
-        grid.addWidget(QLabel("Frequency:", group), 0, 0)
+        grid.addWidget(QLabel("Rate", group), 0, 0)
         self.frequency_box = QSpinBox(group)
         self.frequency_box.setGroupSeparatorShown(True)
         self.frequency_box.setSuffix(" Hz")
@@ -412,7 +412,7 @@ class CaptureDialog(QDialog):
         self.jitter_label.setAlignment(Qt.AlignCenter)
         grid.addWidget(self.jitter_label, 0, 2, Qt.AlignLeft)
 
-        grid.addWidget(QLabel("Pre-trigger samples:", group), 0, 4)
+        grid.addWidget(QLabel("Pre-trigger samples", group), 0, 4)
         self.pre_samples_box = QSpinBox(group)
         self.pre_samples_box.setGroupSeparatorShown(True)
         self.pre_samples_box.setRange(0, 1_000_000)
@@ -420,7 +420,7 @@ class CaptureDialog(QDialog):
         self.pre_samples_box.setMinimumWidth(120)
         grid.addWidget(self.pre_samples_box, 0, 5)
 
-        self.post_label = QLabel("Post-trigger samples:", group)
+        self.post_label = QLabel("Post-trigger samples", group)
         grid.addWidget(self.post_label, 1, 4)
         self.post_samples_box = LargeSpinBox(group)
         self.post_samples_box.setGroupSeparatorShown(True)
@@ -454,7 +454,7 @@ class CaptureDialog(QDialog):
         else:
             self.rate_box.setVisible(False)
 
-        self.acquisition_label = QLabel("Acquisition:", group)
+        self.acquisition_label = QLabel("Mode", group)
         grid.addWidget(self.acquisition_label, 2, 0)
         self.acquisition_box = QComboBox(group)
         for mode in self.driver.acquisition_modes():
@@ -479,7 +479,7 @@ class CaptureDialog(QDialog):
         grid.addWidget(self.continuous_box, 2, 2)
         self.continuous_box.setVisible(False)
 
-        self.disk_box = QCheckBox("Record to disk", group)
+        self.disk_box = QCheckBox("Stream to disk", group)
         self.disk_box.setToolTip(
             "Keep the stream in memory-mapped files on the disk instead of in memory:\n"
             "much longer captures, limited by the free disk space. Decoders then run on request."
@@ -488,7 +488,7 @@ class CaptureDialog(QDialog):
         grid.addWidget(self.disk_box, 2, 3)
         self.disk_box.setVisible(False)
 
-        self.threshold_label = QLabel("Threshold:", group)
+        self.threshold_label = QLabel("Threshold", group)
         grid.addWidget(self.threshold_label, 2, 4)
         self.threshold_box = QDoubleSpinBox(group)
         self.threshold_box.setRange(0.0, 5.0)
@@ -503,7 +503,7 @@ class CaptureDialog(QDialog):
         self.threshold_box.setVisible(has_threshold)
 
         # State mode: the samples are taken on the edges of an input instead of the internal clock
-        self.clock_box = QCheckBox("External clock:", group)
+        self.clock_box = QCheckBox("External clock", group)
         self.clock_box.setToolTip(
             "State mode: take a sample on every edge of a clock input instead of at the sample rate"
         )
@@ -740,7 +740,7 @@ class CaptureDialog(QDialog):
         edge_layout.setContentsMargins(22, 0, 0, 4)
         edge_layout.setHorizontalSpacing(10)
 
-        edge_layout.addWidget(QLabel("Channel:", self.edge_panel), 0, 0)
+        edge_layout.addWidget(QLabel("Channel", self.edge_panel), 0, 0)
         self.trigger_channel_box = QComboBox(self.edge_panel)
         self._fill_trigger_channels()
         edge_layout.addWidget(self.trigger_channel_box, 0, 1)
@@ -750,7 +750,7 @@ class CaptureDialog(QDialog):
         edge_layout.addWidget(self.negative_trigger_box, 0, 2)
 
         # an analog channel triggers where it crosses a level
-        self.trigger_level_label = QLabel("Level:", self.edge_panel)
+        self.trigger_level_label = QLabel("Level", self.edge_panel)
         edge_layout.addWidget(self.trigger_level_label, 2, 0)
         self.trigger_level_box = QDoubleSpinBox(self.edge_panel)
         self.trigger_level_box.setRange(-1000.0, 1000.0)
@@ -763,12 +763,12 @@ class CaptureDialog(QDialog):
 
         self.blast_box = QCheckBox("Blast mode", self.edge_panel)
         self.blast_box.setToolTip(
-            "Capture at the maximum sampling rate of the device, without pre-trigger samples"
+            "Capture at the maximum rate of the device, without pre-trigger samples"
         )
         self.blast_box.toggled.connect(self._set_blast_mode)
         edge_layout.addWidget(self.blast_box, 0, 3)
 
-        self.burst_box = QCheckBox("Burst mode:", self.edge_panel)
+        self.burst_box = QCheckBox("Burst mode", self.edge_panel)
         self.burst_box.setToolTip("Re-arm the trigger and capture several bursts in a row")
         self.burst_box.toggled.connect(self._update_burst_mode)
         edge_layout.addWidget(self.burst_box, 1, 0)
@@ -799,7 +799,7 @@ class CaptureDialog(QDialog):
         pattern_layout = QGridLayout(self.pattern_panel)
         pattern_layout.setContentsMargins(22, 0, 0, 0)
         pattern_layout.setHorizontalSpacing(10)
-        pattern_layout.addWidget(QLabel("First channel:", self.pattern_panel), 0, 0)
+        pattern_layout.addWidget(QLabel("First channel", self.pattern_panel), 0, 0)
         self.pattern_base_box = QSpinBox(self.pattern_panel)
         self.pattern_base_box.setRange(1, max(self.driver.channel_count, 1))
         if self.driver.is_hardware:
@@ -808,7 +808,7 @@ class CaptureDialog(QDialog):
             )
         pattern_layout.addWidget(self.pattern_base_box, 0, 1)
 
-        pattern_layout.addWidget(QLabel("Pattern:", self.pattern_panel), 0, 2)
+        pattern_layout.addWidget(QLabel("Pattern", self.pattern_panel), 0, 2)
         self.pattern_edit = QLineEdit(self.pattern_panel)
         self.pattern_edit.setMaxLength(16)
         self.pattern_edit.setPlaceholderText("e.g. 1011")
@@ -1029,7 +1029,7 @@ class CaptureDialog(QDialog):
                 and self.acquisition_mode() == ACQUISITION_STREAM
             )
             continuous = self.continuous()
-            self.post_label.setText("Keep last samples:" if continuous else "Post-trigger samples:")
+            self.post_label.setText("Keep last samples" if continuous else "Post-trigger samples")
             if continuous:
                 self.post_samples_box.setToolTip(
                     "The stream runs until stopped; this many of the latest samples are kept\n"
@@ -1090,7 +1090,7 @@ class CaptureDialog(QDialog):
         self.jitter_label.setText(f"Jitter {percentage:.3f}%")
         role = "chip-ok" if percentage < 1 else ("chip-medium" if percentage < 10 else "chip-high")
         set_role(self.jitter_label, role)
-        self.jitter_label.setToolTip(f"Actual sampling frequency: {actual:,.0f} Hz")
+        self.jitter_label.setToolTip(f"Actual rate: {actual:,.0f} Hz")
         self._update_summary()
 
     def _apply_stream_trigger(self) -> None:
@@ -1225,8 +1225,8 @@ class CaptureDialog(QDialog):
 
         for text, handler in (
             ("Save as profile...", self.save_as_profile),
-            ("Export settings to file...", self.export_to_file),
-            ("Import settings from file...", self.import_from_file),
+            ("Export setup to file...", self.export_to_file),
+            ("Import setup from file...", self.import_from_file),
         ):
             action = menu.addAction(text)
             action.triggered.connect(handler)
@@ -1240,7 +1240,7 @@ class CaptureDialog(QDialog):
         if session is None:
             return
 
-        name, ok = QInputDialog.getText(self, "Save profile", "Profile name:")
+        name, ok = QInputDialog.getText(self, "Save profile", "Profile name")
         name = name.strip()
         if not ok or not name:
             return
@@ -1266,7 +1266,7 @@ class CaptureDialog(QDialog):
             return
 
         path, _ = QFileDialog.getSaveFileName(
-            self, "Export capture settings", "capture-settings.json", PROFILE_FILE_FILTER
+            self, "Export capture setup", "capture-settings.json", PROFILE_FILE_FILTER
         )
         if not path:
             return
@@ -1278,13 +1278,13 @@ class CaptureDialog(QDialog):
         try:
             write_profiles_file(path, [profile])
         except OSError as error:
-            self.validation_label.show_error(f"The settings could not be exported: {error}")
+            self.validation_label.show_error(f"The setup could not be exported: {error}")
             return
         self.validation_label.show_success(f"Exported to {os.path.basename(path)}.")
 
     def import_from_file(self) -> None:
         path, _ = QFileDialog.getOpenFileName(
-            self, "Import capture settings", "", PROFILE_FILE_FILTER
+            self, "Import capture setup", "", PROFILE_FILE_FILTER
         )
         if not path:
             return
@@ -1292,17 +1292,17 @@ class CaptureDialog(QDialog):
         try:
             imported = [p for p in read_profiles_file(path) if p.capture_settings is not None]
         except (OSError, ValueError) as error:
-            self.validation_label.show_error(f"The settings could not be imported: {error}")
+            self.validation_label.show_error(f"The setup could not be imported: {error}")
             return
         if not imported:
-            self.validation_label.show_error("The file does not contain capture settings.")
+            self.validation_label.show_error("The file does not contain a capture setup.")
             return
 
         profile = imported[0]
         if len(imported) > 1:
             names = [candidate.name for candidate in imported]
             name, ok = QInputDialog.getItem(
-                self, "Import capture settings", "Profile:", names, 0, False
+                self, "Import capture setup", "Profile", names, 0, False
             )
             if not ok:
                 return
@@ -1557,7 +1557,7 @@ class CaptureDialog(QDialog):
         session.software_trigger = self.software_trigger()
         if session.software_trigger and session.acquisition_mode != ACQUISITION_STREAM:
             self._reject_settings(
-                "A trigger evaluated by the application needs the stream acquisition.", self.acquisition_box
+                "A trigger evaluated by the application needs the stream mode.", self.acquisition_box
             )
             return None
         if self.clock_box.isVisible() and self.clock_box.isChecked():

@@ -50,7 +50,7 @@ def test_the_free_profile_is_built_in():
     assert len(profile["digital"]) == 16
     instrument = open_simulated("free")
     assert instrument.status == InstrumentStatus.SIMULATED and instrument.uri == "sim:free"
-    assert instrument.kind == "Simulation: free"
+    assert instrument.kind == "Simulated 16 channel device"
     assert instrument.capture.channel_count == 16
     with pytest.raises(ValueError):
         load_profile("nothing")

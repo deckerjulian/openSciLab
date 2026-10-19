@@ -186,7 +186,7 @@ from openscilab.lab import flow, nodes as n
 with flow("Counter") as f:
     sim = f.device("sim", "sim:free")
     cap = n.device.capture(sim, channels=["D0", "D8"], rate="4 MHz", samples=20000, trigger=n.edge("D8"))
-    cap.capture >> n.data.file(path="counter.lac")
+    cap.capture >> n.data.write(path="counter.lac")
 
 result = f.run(fast=True)
 print(result.state, result.time)

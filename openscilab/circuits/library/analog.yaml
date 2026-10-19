@@ -1,0 +1,99 @@
+# openSciLab's own components: amplifiers, regulators, the 555
+- type: opamp
+  title: Operational amplifier
+  category: Analog
+  prefix: U
+  keywords: opamp operational amplifier LM358 TL072 NE5532 LM741 MCP6002
+  description: An operational amplifier with supply pins (a macro model by its part number, a generic one else).
+  symbol:
+    shapes:
+      - {line: [-30, -40, -30, 40, 40, 0, -30, -40], fill: background}
+      - {text: "+", at: [-22, -20], size: 10}
+      - {text: "−", at: [-22, 20], size: 10}
+    pins:
+      - {number: "1", name: "+", at: [-50, -20], angle: 0, length: 20}
+      - {number: "2", name: "-", at: [-50, 20], angle: 0, length: 20}
+      - {number: "3", name: "~", at: [60, 0], angle: 180, length: 20}
+      - {number: "4", name: V+, at: [0, -50], angle: 90, length: 27}
+      - {number: "5", name: V-, at: [0, 50], angle: 270, length: 27}
+    reference: {at: [12, -30], align: left}
+    value: {at: [12, 30], align: left}
+    pin_names: false
+  params:
+    - {name: value, label: Part, default: OPAMP, kind: model, description: "The part (LM358, TL072, NE5532, LM741, MCP6002 ...); OPAMP is a generic one with 1 MHz."}
+  spice: "{ref:X} {pin.1} {pin.2} {pin.4} {pin.5} {pin.3} {value}"
+
+- type: comparator
+  title: Comparator
+  category: Analog
+  prefix: U
+  keywords: comparator LM393 LM339 open collector
+  description: A comparator with an open-collector output (needs a pull-up, as an LM393).
+  symbol:
+    shapes:
+      - {line: [-30, -40, -30, 40, 40, 0, -30, -40], fill: background}
+      - {text: "+", at: [-22, -20], size: 10}
+      - {text: "−", at: [-22, 20], size: 10}
+      - {line: [4, -4, 10, -4, 10, 4, 16, 4]}
+    pins:
+      - {number: "1", name: "+", at: [-50, -20], angle: 0, length: 20}
+      - {number: "2", name: "-", at: [-50, 20], angle: 0, length: 20}
+      - {number: "3", name: "~", at: [60, 0], angle: 180, length: 20}
+      - {number: "4", name: V+, at: [0, -50], angle: 90, length: 27}
+      - {number: "5", name: V-, at: [0, 50], angle: 270, length: 27}
+    reference: {at: [12, -30], align: left}
+    value: {at: [12, 30], align: left}
+    pin_names: false
+  params:
+    - {name: value, label: Part, default: COMPARATOR_OC, kind: model, description: The model.}
+  spice: "{ref:X} {pin.1} {pin.2} {pin.4} {pin.5} {pin.3} {value}"
+
+- type: regulator
+  title: Voltage regulator
+  category: Analog
+  prefix: U
+  keywords: regulator ldo 7805 7833 LM1117 AMS1117 linear
+  description: A linear regulator (pins IN, GND, OUT) with its dropout.
+  symbol:
+    shapes:
+      - {rect: [-30, -16, 30, 16], fill: background}
+      - {text: "IN", at: [-18, -4], size: 7}
+      - {text: "OUT", at: [16, -4], size: 7}
+      - {text: "GND", at: [0, 8], size: 7}
+    pins:
+      - {number: "1", name: IN, at: [-50, 0], angle: 0, length: 20}
+      - {number: "2", name: GND, at: [0, 40], angle: 270, length: 24}
+      - {number: "3", name: OUT, at: [50, 0], angle: 180, length: 20}
+    reference: {at: [0, -24]}
+    value: {at: [0, -36]}
+    pin_names: false
+  params:
+    - {name: voltage, label: Output, unit: V, default: 5 V, description: The voltage it regulates to.}
+    - {name: dropout, label: Dropout, unit: V, default: 2 V, min: 0, description: How far below the input the output falls at the least.}
+  show: [voltage]
+  spice: "{ref:X} {pin.1} {pin.2} {pin.3} REG_LINEAR vout={voltage} dropout={dropout}"
+  models: [REG_LINEAR]
+
+- type: timer555
+  title: 555 timer
+  category: Analog
+  prefix: U
+  keywords: 555 NE555 timer astable monostable oscillator
+  description: The 555 timer (bipolar, a behavioural model).
+  symbol:
+    shapes:
+      - {rect: [-40, -50, 40, 50], fill: background}
+    pins:
+      - {number: "1", name: GND, at: [0, 70], angle: 270, length: 20}
+      - {number: "2", name: TR, at: [-60, 20], angle: 0, length: 20}
+      - {number: "3", name: Q, at: [60, -20], angle: 180, length: 20}
+      - {number: "4", name: R, at: [-60, -40], angle: 0, length: 20}
+      - {number: "5", name: CV, at: [-60, 40], angle: 0, length: 20}
+      - {number: "6", name: THR, at: [60, 20], angle: 180, length: 20}
+      - {number: "7", name: DIS, at: [60, 40], angle: 180, length: 20}
+      - {number: "8", name: VCC, at: [0, -70], angle: 90, length: 20}
+    reference: {at: [0, -58]}
+    value: {at: [0, 58]}
+  params:
+    - {name: value, label: Part, default: NE555, kind: model, description: The model.}
+  spice: "{ref:X} {pin.8} {pin.1} {pin.2} {pin.6} {pin.7} {pin.5} {pin.4} {pin.3} {value}"

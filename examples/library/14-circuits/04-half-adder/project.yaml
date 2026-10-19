@@ -1,0 +1,6 @@
+project: Half adder
+description: 'Logic gates (XSPICE) between analog switches: run it and click the switches - SUM and CARRY follow.
+  The flow checks the sum of 1 + 0.'
+open:
+- circuits/half-adder.circuit.yaml
+- flows/check.flow.yaml

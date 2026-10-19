@@ -123,7 +123,7 @@ def test_the_data_menu_edits_the_selection(make_dataview):
     assert view.model.sample_count == 900
     view.sample_marker.selection = None
     delete.trigger()  # nothing selected: says how
-    assert "Select samples first" in view.statusBar().currentMessage()
+    assert "Select samples first" in view.last_message
     paste.trigger()
     assert view.model.sample_count == 1000
 

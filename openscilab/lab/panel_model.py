@@ -532,11 +532,11 @@ _CONTROLS = {
     "control.sweep": ("trigger", "button", lambda params: {}),
     "gpio.pwm": ("duty", "slider", lambda params: {"min": 0, "max": 1, "step": 0.05,
                                                    "value": params.get("duty", 0.5)}),
-    "gpio.write": ("value", "switch", lambda params: {"value": bool(params.get("level", 1))}),
-    "gpio.dac": ("volts", "slider", lambda params: {"min": 0, "max": 5, "step": 0.1, "unit": "V"}),
+    "gpio.output": ("value", "switch", lambda params: {"value": bool(params.get("level", 1))}),
+    "gpio.analog_output": ("value", "slider", lambda params: {"min": 0, "max": 5, "step": 0.1, "unit": "V"}),
 }
 #: view nodes show what is wired to them; the widget that shows the same
-_VIEWS = {"view.scope": "scope", "view.strip_chart": "chart", "view.number": "number", "view.led": "led"}
+_VIEWS = {"view.scope": "scope", "view.chart": "chart", "view.number": "number", "view.led": "led"}
 #: at most this many widgets in a suggested panel (more are added by hand)
 SUGGESTED_WIDGETS = 12
 
@@ -585,7 +585,7 @@ def suggest(flow: Flow, registry=None, width: int = PANEL_SIZE[0]) -> list[Panel
             bind = f"{node_id}.{port.name}"
             if port.type == signals.BOOL:
                 add(small, "led", bind, f"{node_id} {port.name}" if port.name not in ("pass", "result") else node_id)
-            elif port.type in (signals.SCALAR, signals.ANY) and group in ("measure", "control", "dsp") \
+            elif port.type in (signals.SCALAR, signals.ANY) and group in ("measure", "control", "signal") \
                     and node.type != "control.sweep":
                 add(small, "number", bind, node_id if port.name in ("out", "value") else f"{node_id} {port.name}",
                     {"unit": str(node.params.get("unit"))} if node.params.get("unit") else None)

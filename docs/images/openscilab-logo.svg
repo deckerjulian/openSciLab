@@ -1,22 +1,17 @@
 <svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1024 1024'>
   <defs>
     <linearGradient id='background' x1='0' y1='0' x2='0' y2='1'>
-      <stop offset='0' stop-color='#3a3a41'/>
-      <stop offset='1' stop-color='#1b1b1f'/>
+      <stop offset='0' stop-color='#30343d'/>
+      <stop offset='1' stop-color='#121419'/>
     </linearGradient>
-    <linearGradient id='liquid' x1='0' y1='0' x2='0' y2='1'>
-      <stop offset='0' stop-color='#4b8ae6' stop-opacity='0.35'/>
-      <stop offset='1' stop-color='#4b8ae6' stop-opacity='0.12'/>
+    <linearGradient id='sheen' x1='0' y1='0' x2='0' y2='1'>
+      <stop offset='0' stop-color='#ffffff' stop-opacity='0.14'/>
+      <stop offset='0.5' stop-color='#ffffff' stop-opacity='0'/>
     </linearGradient>
   </defs>
-  <rect x='64' y='64' width='896' height='896' rx='200' fill='url(#background)'/>
-  <rect x='64' y='64' width='896' height='896' rx='200' fill='none' stroke='#55555e' stroke-width='8'/>
-  <path d='M326 640 L262 778 Q246 846 318 846 H706 Q778 846 762 778 L698 640 Z' fill='url(#liquid)'/>
-  <path d='M300 660 H372 V572 H456 V660 H540 V572 H624 V660 H724' fill='none' stroke='#7fd18b'
-        stroke-width='40' stroke-linecap='round' stroke-linejoin='round'/>
-  <path d='M392 196 H632 M432 196 V408 L246 790 Q226 854 300 854 H724 Q798 854 778 790 L592 408 V196'
-        fill='none' stroke='#e8ecf2' stroke-width='44' stroke-linecap='round' stroke-linejoin='round'/>
-  <circle cx='520' cy='480' r='26' fill='#e8b04b'/>
-  <circle cx='568' cy='392' r='17' fill='#e8b04b'/>
-  <circle cx='498' cy='318' r='12' fill='#e8b04b'/>
+  <path d='M924 512 L924 650 L923 694 L921 726 L918 752 L915 774 L911 793 L906 809 L901 824 L895 838 L888 850 L880 861 L871 871 L861 880 L850 888 L838 895 L824 901 L809 906 L793 911 L774 915 L752 918 L726 921 L694 923 L650 924 L512 924 L374 924 L330 923 L298 921 L272 918 L250 915 L231 911 L215 906 L200 901 L186 895 L174 888 L163 880 L153 871 L144 861 L136 850 L129 838 L123 824 L118 809 L113 793 L109 774 L106 752 L103 726 L101 694 L100 650 L100 512 L100 374 L101 330 L103 298 L106 272 L109 250 L113 231 L118 215 L123 200 L129 186 L136 174 L144 163 L153 153 L163 144 L174 136 L186 129 L200 123 L215 118 L231 113 L250 109 L272 106 L298 103 L330 101 L374 100 L512 100 L650 100 L694 101 L726 103 L752 106 L774 109 L793 113 L809 118 L824 123 L838 129 L850 136 L861 144 L871 153 L880 163 L888 174 L895 186 L901 200 L906 215 L911 231 L915 250 L918 272 L921 298 L923 330 L924 374 Z' fill='url(#background)'/>
+  <path d='M924 512 L924 650 L923 694 L921 726 L918 752 L915 774 L911 793 L906 809 L901 824 L895 838 L888 850 L880 861 L871 871 L861 880 L850 888 L838 895 L824 901 L809 906 L793 911 L774 915 L752 918 L726 921 L694 923 L650 924 L512 924 L374 924 L330 923 L298 921 L272 918 L250 915 L231 911 L215 906 L200 901 L186 895 L174 888 L163 880 L153 871 L144 861 L136 850 L129 838 L123 824 L118 809 L113 793 L109 774 L106 752 L103 726 L101 694 L100 650 L100 512 L100 374 L101 330 L103 298 L106 272 L109 250 L113 231 L118 215 L123 200 L129 186 L136 174 L144 163 L153 153 L163 144 L174 136 L186 129 L200 123 L215 118 L231 113 L250 109 L272 106 L298 103 L330 101 L374 100 L512 100 L650 100 L694 101 L726 103 L752 106 L774 109 L793 113 L809 118 L824 123 L838 129 L850 136 L861 144 L871 153 L880 163 L888 174 L895 186 L901 200 L906 215 L911 231 L915 250 L918 272 L921 298 L923 330 L924 374 Z' fill='url(#sheen)' stroke='#ffffff' stroke-opacity='0.12' stroke-width='4'/>
+  <path d='M240 356 H352 V284 H520 V356 H784' fill='none' stroke='#ffffff' stroke-width='48' stroke-linecap='round' stroke-linejoin='round'/>
+  <path d='M240 548 H440 V476 H608 V548 H784' fill='none' stroke='#5ff0d6' stroke-width='48' stroke-linecap='round' stroke-linejoin='round'/>
+  <path d='M240 740 H304 V668 H392 V740 H640 V668 H784' fill='none' stroke='#4f95ff' stroke-width='48' stroke-linecap='round' stroke-linejoin='round'/>
 </svg>

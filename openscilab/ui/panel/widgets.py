@@ -178,10 +178,7 @@ class NumberItem(PanelItem):
     def build(self) -> None:
         self.value_label = QLabel("–", self)
         self.value_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        font = self.value_label.font()
-        font.setPointSizeF(font.pointSizeF() * 2.2)
-        font.setBold(True)
-        self.value_label.setFont(font)
+        set_role(self.value_label, "value")
         self.layout_.addWidget(self.value_label)
 
     def show_value(self, value: Any) -> None:
@@ -201,7 +198,7 @@ class Led(QWidget):
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
         self.on = False
-        self.color = QColor("#7fd18b")
+        self.color = qcolor("led.on")
         self.setMinimumSize(28, 28)
 
     def paintEvent(self, event) -> None:  # noqa: N802 - Qt naming

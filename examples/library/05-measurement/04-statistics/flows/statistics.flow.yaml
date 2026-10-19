@@ -1,7 +1,7 @@
 flow: Statistics
 description: control.timer arms ten captures; data.table collects the frequencies with their index.
 nodes:
-  la: {type: device.instrument, at: [0, 168]}
+  la: {type: device.device, at: [0, 168]}
   timer: {type: control.timer, interval: 100 ms, count: 10, at: [0, 256]}
   capture: {type: device.capture, channels: [D15], rate: 1 MHz, duration: 20 ms, at: [272, 168]}
   frequency: {type: measure.frequency, at: [544, 232]}
@@ -9,14 +9,14 @@ nodes:
   view: {type: view.table, title: Frequencies, at: [1080, 432]}
   check:
     type: report.check
-    name: Frequency
     expected: 1000
     tolerance: 2
     unit: Hz
+    title: Frequency
     at: [808, 128]
   report_table: {type: report.table, title: Frequency of every capture, at: [1080, 320]}
   diagram:
-    type: report.image
+    type: report.chart
     title: Frequency over the captures
     x: capture
     y: frequency

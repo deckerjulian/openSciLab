@@ -1,7 +1,7 @@
 flow: Subflow
-description: 'The subflow has an input ''signal'' and the outputs ''duty'' and ''ok''; inside, measure.duty and control.limit do the work.'
+description: 'The subflow has an input ''signal'' and the outputs ''duty'' and ''ok''; inside, measure.duty and control.range do the work.'
 nodes:
-  la: {type: device.instrument, at: [0, 96]}
+  la: {type: device.device, at: [0, 96]}
   capture: {type: device.capture, channels: [D8, D15], rate: 20 MHz, duration: 3 ms, at: [272, 96]}
   clock: {type: subflow.duty_check, at: [544, 96]}
   slow: {type: subflow.duty_check, at: [544, 240]}
@@ -22,9 +22,9 @@ subflows:
       signal: duty.in
     outputs:
       duty: duty.out
-      ok: limit.ok
+      ok: limit.result
     nodes:
       duty: {type: measure.duty}
-      limit: {type: control.limit, low: 0.45, high: 0.55}
+      limit: {type: control.range, low: 0.45, high: 0.55}
     edges:
       - duty.out -> limit.in

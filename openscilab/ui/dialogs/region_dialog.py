@@ -24,7 +24,7 @@ from PySide6.QtWidgets import (
 
 from ..colors import DEFAULT_REGION_COLOR
 from ...core.regions import SampleRegion
-from ..theme import BORDER
+from ..theme import BLACK, BORDER, WHITE
 from .common import button_box, dialog_layout, hint
 
 
@@ -44,15 +44,15 @@ class RegionDialog(QDialog):
 
         self.name_edit = QLineEdit(region.region_name, self)
         self.name_edit.setPlaceholderText("e.g. Reset sequence")
-        form.addRow("Name:", self.name_edit)
+        form.addRow("Name", self.name_edit)
 
         self.color_button = QPushButton(self)
         self.color_button.setToolTip("Choose the colour and transparency of the region")
         self.color_button.clicked.connect(self._pick_color)
-        form.addRow("Colour:", self.color_button)
+        form.addRow("Colour", self.color_button)
 
         form.addRow(
-            "Samples:",
+            "Samples",
             hint(f"{region.start:,} – {region.end:,} ({region.sample_count:,} samples)", self),
         )
         layout.addLayout(form)
@@ -74,7 +74,7 @@ class RegionDialog(QDialog):
 
     def _update_color_button(self) -> None:
         self.color_button.setText(self._color.name(QColor.HexArgb))
-        text = "#000000" if self._color.lightness() > 140 and self._color.alpha() > 120 else "#ffffff"
+        text = BLACK if self._color.lightness() > 140 and self._color.alpha() > 120 else WHITE
         self.color_button.setStyleSheet(
             f"background-color: rgba({self._color.red()},{self._color.green()},"
             f"{self._color.blue()},{self._color.alpha()}); color: {text}; border: 1px solid {BORDER};"

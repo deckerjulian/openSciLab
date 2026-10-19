@@ -1,0 +1,243 @@
+circuit: Hybrid AC/DC lab power supply
+description: 'A lab supply for DC, AC or both, up to 230 V: RV_DC sets the DC voltage, RV_AC the AC voltage (RMS); two switching regulators keep the rails VPOS and VNEG 10 V beyond the peak the output needs, a linear power amplifier (PA94) makes the output exact and clean. Taken off at OUT and COM.'
+version: 1
+settings: {step: 100 us, tolerance: '0.01', start: power on}
+components:
+  V1: {type: source.sine, at: [0, 480], params: {amplitude: 325 V, frequency: 50 Hz}}
+  GND1: {type: ground, at: [0, 540]}
+  R1: {type: resistor, at: [60, 0], params: {value: '22'}}
+  T1: {type: transformer, at: [150, 30], params: {primary: 10 H, ratio: '1.15', coupling: '0.999'}}
+  GND2: {type: ground, at: [120, 90]}
+  BR1: {type: rectifier.bridge, at: [300, 30], params: {value: 1N4007}}
+  C1: {type: capacitor, at: [210, 30], rotation: 90, params: {value: 100n}}
+  R2: {type: resistor, at: [210, 80], rotation: 270, params: {value: '470'}}
+  R30: {type: resistor, at: [390, 130], params: {value: 10Meg}}
+  GND3: {type: ground, at: [420, 150]}
+  GND4: {type: ground, at: [300, 90]}
+  C2: {type: capacitor.polarized, at: [400, 0], rotation: 270, params: {value: 220u}}
+  R3: {type: resistor, at: [450, 0], rotation: 270, params: {value: 220k}}
+  S1: {type: switch.voltage, at: [590, -40], params: {threshold: 6 V, hysteresis: 0.5 V, ron: '0.5', roff: 10Meg}, comment: 'a MOSFET with its gate driver, simplified'}
+  GND5: {type: ground, at: [400, 40]}
+  GND6: {type: ground, at: [450, 50]}
+  GND7: {type: ground, at: [600, 20]}
+  D1: {type: diode, at: [660, 0], rotation: 90, params: {value: UF4007}}
+  C3: {type: capacitor, at: [710, -10], rotation: 90, params: {value: 10n}}
+  R4: {type: resistor, at: [710, 40], rotation: 270, params: {value: 2.2k}}
+  L1: {type: inductor, at: [790, -40], params: {value: 47m}}
+  GND8: {type: ground, at: [660, 50]}
+  GND9: {type: ground, at: [710, 90]}
+  P1: {type: probe.v, at: [690, -40], params: {name: SW}}
+  C4: {type: capacitor.polarized, at: [860, 0], rotation: 270, params: {value: 470u}}
+  R5: {type: resistor, at: [910, 0], rotation: 270, params: {value: 22k}}
+  GND10: {type: ground, at: [860, 40]}
+  GND11: {type: ground, at: [910, 50]}
+  P2: {type: probe.v, at: [880, -40], params: {name: VPOS}}
+  R6: {type: resistor, at: [60, 1060], params: {value: '22'}}
+  T2: {type: transformer, at: [150, 1090], params: {primary: 10 H, ratio: '1.15', coupling: '0.999'}}
+  GND12: {type: ground, at: [120, 1150]}
+  BR2: {type: rectifier.bridge, at: [300, 1090], rotation: 180, params: {value: 1N4007}}
+  C5: {type: capacitor, at: [210, 1090], rotation: 90, params: {value: 100n}}
+  R7: {type: resistor, at: [210, 1140], rotation: 270, params: {value: '470'}}
+  R31: {type: resistor, at: [390, 1190], params: {value: 10Meg}}
+  GND13: {type: ground, at: [420, 1210]}
+  GND14: {type: ground, at: [300, 1150]}
+  C6: {type: capacitor.polarized, at: [400, 1060], rotation: 90, params: {value: 220u}}
+  R8: {type: resistor, at: [450, 1060], rotation: 270, params: {value: 220k}}
+  S2: {type: switch.voltage, at: [590, 1020], rotation: 180, mirror: true, params: {threshold: 6 V, hysteresis: 0.5 V, ron: '0.5', roff: 10Meg}}
+  GND15: {type: ground, at: [400, 1100]}
+  GND16: {type: ground, at: [450, 1110]}
+  GND17: {type: ground, at: [640, 1000]}
+  D2: {type: diode, at: [660, 1060], rotation: 270, params: {value: UF4007}}
+  C7: {type: capacitor, at: [710, 1050], rotation: 90, params: {value: 10n}}
+  R9: {type: resistor, at: [710, 1100], rotation: 270, params: {value: 2.2k}}
+  L2: {type: inductor, at: [790, 1020], params: {value: 47m}}
+  GND18: {type: ground, at: [660, 1110]}
+  GND19: {type: ground, at: [710, 1150]}
+  C8: {type: capacitor.polarized, at: [860, 1060], rotation: 90, params: {value: 470u}}
+  R10: {type: resistor, at: [910, 1060], rotation: 270, params: {value: 22k}}
+  GND20: {type: ground, at: [860, 1100]}
+  GND21: {type: ground, at: [910, 1110]}
+  P3: {type: probe.v, at: [880, 1020], params: {name: VNEG}}
+  V2: {type: source.triangle, at: [680, 540], rotation: 90, params: {low: 0.5 V, high: 5 V, frequency: 500 Hz}, comment: PWM carrier of both regulators}
+  GND22: {type: ground, at: [710, 560]}
+  U2: {type: comparator, at: [560, 380], mirror: true, params: {value: LM393}}
+  R11: {type: resistor, at: [440, 350], rotation: 270, params: {value: 4.7k}}
+  PWR1: {type: power, at: [440, 300], params: {net: +12V, voltage: 12 V}}
+  PWR2: {type: power, at: [560, 330], params: {net: +12V, voltage: 12 V}}
+  GND23: {type: ground, at: [560, 430]}
+  U1: {type: opamp, at: [780, 360], mirror: true, params: {value: OPAMP}}
+  PWR3: {type: power, at: [780, 310], params: {net: +12V, voltage: 12 V}}
+  GND24: {type: ground, at: [780, 410]}
+  R12: {type: resistor, at: [880, 380], rotation: 180, params: {value: 100k}}
+  C9: {type: capacitor, at: [800, 460], rotation: 180, params: {value: 100n}}
+  R13: {type: resistor, at: [740, 460], rotation: 180, params: {value: 1Meg}}
+  R14: {type: resistor, at: [950, 330], rotation: 270, params: {value: 1Meg}}
+  R15: {type: resistor, at: [950, 410], rotation: 270, params: {value: 10.08k}}
+  R16: {type: resistor, at: [1000, 380], params: {value: 1.2Meg}}
+  GND25: {type: ground, at: [950, 460]}
+  PWR4: {type: power, at: [1030, 400], rotation: 180, params: {net: -12V, voltage: -12 V}}
+  U5: {type: comparator, at: [560, 700], mirror: true, params: {value: LM393}}
+  R17: {type: resistor, at: [440, 670], rotation: 270, params: {value: 4.7k}}
+  PWR5: {type: power, at: [440, 620], params: {net: +12V, voltage: 12 V}}
+  PWR6: {type: power, at: [560, 650], params: {net: +12V, voltage: 12 V}}
+  GND26: {type: ground, at: [560, 750]}
+  U4: {type: opamp, at: [780, 720], mirror: true, params: {value: OPAMP}}
+  PWR7: {type: power, at: [780, 670], params: {net: +12V, voltage: 12 V}}
+  GND27: {type: ground, at: [780, 770]}
+  R18: {type: resistor, at: [880, 680], rotation: 180, params: {value: 100k}}
+  R19: {type: resistor, at: [880, 720], rotation: 180, params: {value: 100k}}
+  R29: {type: resistor, at: [870, 800], params: {value: 100k}}
+  C10: {type: capacitor, at: [800, 860], rotation: 180, params: {value: 100n}}
+  R20: {type: resistor, at: [740, 860], rotation: 180, params: {value: 1Meg}}
+  GND28: {type: ground, at: [900, 820]}
+  R23: {type: resistor, at: [950, 690], rotation: 270, params: {value: 1.2Meg}}
+  R21: {type: resistor, at: [950, 750], rotation: 270, params: {value: 1Meg}}
+  R22: {type: resistor, at: [1000, 720], params: {value: 10.08k}}
+  GND29: {type: ground, at: [1030, 740]}
+  PWR8: {type: power, at: [950, 640], params: {net: +12V, voltage: 12 V}}
+  V3: {type: source.dc, at: [1240, 550], params: {value: 5 V}, comment: precision reference}
+  GND30: {type: ground, at: [1240, 600]}
+  RV_DC: {type: potentiometer, at: [1160, 470], params: {value: 10k, position: '0.2'}}
+  RV_AC: {type: potentiometer, at: [1300, 470], params: {value: 10k, position: '0'}}
+  GND31: {type: ground, at: [1110, 490]}
+  GND32: {type: ground, at: [1250, 490]}
+  X1: {type: source.sine_reference, at: [1160, 360], mirror: true, params: {frequency: 50 Hz}, comment: 'AC from RV_AC, on top of RV_DC'}
+  GND33: {type: ground, at: [1230, 390]}
+  C11: {type: capacitor, at: [870, 300], rotation: 180, params: {value: 220n}}
+  GND34: {type: ground, at: [890, 320]}
+  R24: {type: resistor, at: [900, 270], params: {value: 1Meg}}
+  R25: {type: resistor, at: [900, 210], rotation: 180, params: {value: 707.1k}}
+  U3: {type: opamp, at: [1480, 580], params: {value: PA94}, comment: 900 V power op-amp}
+  R26: {type: resistor, at: [1520, 720], rotation: 180, params: {value: 450k}}
+  R27: {type: resistor, at: [1410, 750], rotation: 270, params: {value: 10k}}
+  GND35: {type: ground, at: [1410, 800]}
+  R28: {type: resistor, at: [1620, 610], rotation: 270, params: {value: 4.7k}}
+  C12: {type: capacitor, at: [1670, 600], rotation: 90, params: {value: 100n}}
+  J1: {type: terminal, at: [1720, 580], params: {name: OUT}}
+  J2: {type: terminal, at: [1720, 640], params: {name: COM}}
+  GND36: {type: ground, at: [1620, 660]}
+  GND37: {type: ground, at: [1670, 640]}
+  GND38: {type: ground, at: [1720, 660]}
+  XSC1: {type: probe.scope, at: [1960, 300], params: {time_div: 5 ms, volts_div: 100 V, offset: 0 V, trigger: CH3, level: 0 V, edge: rising, mode: auto}}
+  GND39: {type: ground, at: [1960, 400]}
+wires:
+  - [[0, 510], [0, 540]]
+  - [[0, 450], [0, 0], [30, 0]]
+  - [[90, 0], [120, 0]]
+  - [[120, 60], [120, 90]]
+  - [[180, 0], [240, 0], [240, 30], [260, 30]]
+  - [[180, 60], [180, 130], [360, 130], [360, 30], [340, 30]]
+  - [[210, 10], [210, 0]]
+  - [[210, 110], [210, 130]]
+  - [[420, 130], [420, 150]]
+  - [[300, 70], [300, 90]]
+  - [[300, -10], [300, -40], [560, -40]]
+  - [[400, -20], [400, -40]]
+  - [[450, -30], [450, -40]]
+  - [[400, 20], [400, 40]]
+  - [[450, 30], [450, 50]]
+  - [[600, 0], [600, 20]]
+  - [[620, -40], [760, -40]]
+  - [[660, -30], [660, -40]]
+  - [[710, -30], [710, -40]]
+  - [[660, 30], [660, 50]]
+  - [[710, 70], [710, 90]]
+  - [[820, -40], [1480, -40]]
+  - [[860, -20], [860, -40]]
+  - [[910, -30], [910, -40]]
+  - [[860, 20], [860, 40]]
+  - [[910, 30], [910, 50]]
+  - [[0, 400], [-40, 400], [-40, 1060], [30, 1060]]
+  - [[90, 1060], [120, 1060]]
+  - [[120, 1120], [120, 1150]]
+  - [[180, 1060], [240, 1060], [240, 1090], [260, 1090]]
+  - [[180, 1120], [180, 1190], [360, 1190], [360, 1090], [340, 1090]]
+  - [[210, 1070], [210, 1060]]
+  - [[210, 1170], [210, 1190]]
+  - [[420, 1190], [420, 1210]]
+  - [[300, 1130], [300, 1150]]
+  - [[300, 1050], [300, 1020], [560, 1020]]
+  - [[400, 1040], [400, 1020]]
+  - [[450, 1030], [450, 1020]]
+  - [[400, 1080], [400, 1100]]
+  - [[450, 1090], [450, 1110]]
+  - [[600, 980], [640, 980], [640, 1000]]
+  - [[620, 1020], [760, 1020]]
+  - [[660, 1030], [660, 1020]]
+  - [[710, 1030], [710, 1020]]
+  - [[660, 1090], [660, 1110]]
+  - [[710, 1130], [710, 1150]]
+  - [[820, 1020], [1480, 1020]]
+  - [[860, 1040], [860, 1020]]
+  - [[910, 1030], [910, 1020]]
+  - [[860, 1080], [860, 1100]]
+  - [[910, 1090], [910, 1110]]
+  - [[710, 540], [710, 560]]
+  - [[500, 380], [440, 380]]
+  - [[470, 380], [470, 180], [580, 180], [580, 0]]
+  - [[440, 320], [440, 300]]
+  - [[650, 540], [650, 400], [610, 400]]
+  - [[720, 360], [610, 360]]
+  - [[850, 380], [830, 380]]
+  - [[840, 380], [840, 460], [820, 460]]
+  - [[780, 460], [770, 460]]
+  - [[710, 460], [710, 360]]
+  - [[950, -40], [950, 300]]
+  - [[950, 360], [950, 380]]
+  - [[910, 380], [970, 380]]
+  - [[950, 440], [950, 460]]
+  - [[1030, 380], [1030, 400]]
+  - [[500, 700], [440, 700]]
+  - [[470, 700], [470, 820], [580, 820], [580, 980]]
+  - [[440, 640], [440, 620]]
+  - [[650, 540], [650, 720], [610, 720]]
+  - [[720, 720], [680, 720], [680, 680], [610, 680]]
+  - [[850, 680], [850, 720]]
+  - [[830, 700], [850, 700]]
+  - [[930, 380], [930, 680], [910, 680]]
+  - [[830, 740], [840, 740], [840, 860], [820, 860]]
+  - [[900, 800], [900, 820]]
+  - [[780, 860], [770, 860]]
+  - [[710, 860], [710, 720]]
+  - [[950, 780], [950, 1020]]
+  - [[910, 720], [970, 720]]
+  - [[1030, 720], [1030, 740]]
+  - [[950, 660], [950, 640]]
+  - [[1240, 580], [1240, 600]]
+  - [[1190, 470], [1190, 520], [1330, 520], [1330, 470]]
+  - [[1130, 470], [1110, 470], [1110, 490]]
+  - [[1270, 470], [1250, 470], [1250, 490]]
+  - [[1160, 450], [1160, 400]]
+  - [[1300, 450], [1300, 350], [1200, 350]]
+  - [[1200, 370], [1230, 370], [1230, 390]]
+  - [[890, 300], [890, 320]]
+  - [[830, 340], [850, 340], [850, 270], [870, 270]]
+  - [[870, 210], [870, 270]]
+  - [[930, 270], [1080, 270], [1080, 430], [1160, 430]]
+  - [[930, 210], [1250, 210], [1250, 350]]
+  - [[1480, -40], [1480, 530]]
+  - [[1480, 1020], [1480, 630]]
+  - [[1160, 320], [1160, 290], [1420, 290], [1420, 560], [1430, 560]]
+  - [[1430, 600], [1410, 600], [1410, 720]]
+  - [[1410, 720], [1490, 720]]
+  - [[1410, 780], [1410, 800]]
+  - [[1540, 580], [1720, 580]]
+  - [[1580, 580], [1580, 720], [1550, 720]]
+  - [[1620, 640], [1620, 660]]
+  - [[1670, 620], [1670, 640]]
+  - [[1720, 640], [1720, 660]]
+  - [[740, -40], [740, -140], [1820, -140], [1820, 270], [1870, 270]]
+  - [[1000, -40], [1000, -100], [1800, -100], [1800, 290], [1870, 290]]
+  - [[1700, 580], [1700, 310], [1870, 310]]
+  - [[1300, 1020], [1300, 1080], [1840, 1080], [1840, 330], [1870, 330]]
+  - [[1960, 380], [1960, 400]]
+labels: []
+groups:
+  - {name: Positive rail, comment: 'transformer 1:1.15, bridge, reservoir - and a buck regulator (500 Hz here, real ones 50-200 kHz): VPOS = the peak of OUT + 10 V', color: red, members: [R1, T1, GND2, BR1, C1, R2, R30, GND3, GND4, C2, R3, S1, GND5, GND6, GND7, D1, C3, R4, L1, GND8, GND9, P1, C4, R5, GND10, GND11, P2, w3, w4, w5, w6, w7, w8, w9, w10, w11, w12, w13, w14, w15, w16, w17, w18, w19, w20, w21, w23, w24, w25, w26]}
+  - {name: Negative rail, comment: 'the same, turned round: VNEG = -VPOS', color: blue, members: [R6, T2, GND12, BR2, C5, R7, R31, GND13, GND14, C6, R8, S2, GND15, GND16, GND17, D2, C7, R9, L2, GND18, GND19, C8, R10, GND20, GND21, P3, w28, w29, w30, w31, w32, w33, w34, w35, w36, w37, w38, w39, w40, w42, w43, w44, w45, w46, w48, w49, w50, w51]}
+  - {name: Regulator of VPOS, comment: 'U1: VPOS - 10 V to its target; U2: PWM for S1', color: yellow, members: [U2, R11, PWR1, PWR2, GND23, U1, PWR3, GND24, R12, C9, R13, R14, R15, R16, GND25, PWR4, C11, GND34, w53, w55, w57, w58, w59, w60, w61, w63, w64, w65, w66, w90]}
+  - {name: Regulator of VNEG, comment: 'U4 makes VNEG mirror VPOS; U5: PWM for S2', color: yellow, members: [U5, R17, PWR5, PWR6, GND26, U4, PWR7, GND27, R18, R19, R29, C10, R20, GND28, R23, R21, R22, GND29, PWR8, w67, w69, w71, w72, w73, w75, w76, w77, w78, w80, w81, w82]}
+  - {name: Set voltages, comment: 'turn RV_DC for DC, RV_AC for AC (each 0 to 230 V)', color: green, members: [V3, RV_DC, RV_AC, X1, GND30, GND31, GND32, GND33, w83, w84, w85, w86, w87, w88, w89]}
+  - {name: Linear power stage, comment: 'the PA94 on VPOS/VNEG makes OUT = 46 x REF, its ripple gone', color: purple, members: [U3, R26, R27, GND35, R28, C12, J1, J2, GND36, GND37, GND38, w98, w99, w100, w101, w102, w103, w104, w105]}
+analyses:
+  tran: {stop: 300 ms, step: 100 us}

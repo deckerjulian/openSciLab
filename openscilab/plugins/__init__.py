@@ -45,7 +45,7 @@ ENVIRONMENT = "OPENSCILAB_PLUGINS"
 #: the modules of plugin files are named so (pickled objects of a plugin find their class by it)
 PREFIX = "openscilab_plugin_"
 #: the plugins that come with openSciLab (modules of this package), in the order of the device list
-BUILT_IN = ("pico", "arduino", "dslogic", "rigol", "simulation", "remote")
+BUILT_IN = ("pico", "arduino", "dslogic", "rigol", "simulation", "remote", "circuits")
 
 
 @dataclass
@@ -159,9 +159,25 @@ def reset() -> None:
                     kinds.unregister(entry.kind)
             for spec in nodes(plugin):
                 default_registry.remove(spec.type)
+            sections = sys.modules.get("openscilab.ui.sections")  # (only with Qt: the loader stays without)
+            if sections is not None:
+                sections.unregister_module(plugin.module.__name__)
+            from ..lab import project
+
+            project.unregister_folders(plugin.module.__name__)
             sys.modules.pop(plugin.module.__name__, None)
     _plugins[:] = [plugin for plugin in _plugins if plugin.builtin]
     _loaded = False
+
+
+def section_failed(module: str, error: BaseException) -> None:
+    """A section of the plugin of ``module`` could not be built in a window: reported as its error."""
+    for plugin in _plugins:
+        if plugin.module is not None and (module == plugin.module.__name__
+                                          or module.startswith(plugin.module.__name__ + ".")):
+            _failed(plugin, error)
+            return
+    log.warning("A section of %s could not be built: %s", module, error)
 
 
 def _failed(plugin: Plugin, error: BaseException) -> None:

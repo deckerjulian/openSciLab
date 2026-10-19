@@ -17,7 +17,7 @@ from ..core.files import atomic_write
 from .engine.runtime import summarize
 
 STYLE = """
-body { font-family: -apple-system, 'Segoe UI', Roboto, sans-serif; margin: 2em auto; max-width: 960px;
+body { font-family: 'Inter Tight', -apple-system, 'Segoe UI', Roboto, sans-serif; margin: 2em auto; max-width: 960px;
        color: #1f1f22; padding: 0 16px; }
 h1 { font-size: 1.6em; margin-bottom: 0.2em; } h2 { font-size: 1.2em; margin-top: 1.6em; }
 table { border-collapse: collapse; margin: 0.6em 0; } th, td { border: 1px solid #ccc; padding: 3px 8px; }
@@ -155,7 +155,7 @@ def svg_plot(series: list[tuple[str, list, list]], width: int = 640, height: int
         return (left + (x - x0) / (x1 - x0) * plot_width, top + plot_height - (y - y0) / (y1 - y0) * plot_height)
 
     parts = [(f"<svg xmlns='http://www.w3.org/2000/svg' width='{width}' height='{height}' "
-              f"viewBox='0 0 {width} {height}' font-family='sans-serif' font-size='11'>"),
+              f"viewBox='0 0 {width} {height}' font-family=\"'Inter Tight', sans-serif\" font-size='11'>"),
              f"<rect x='{left}' y='{top}' width='{plot_width}' height='{plot_height}' fill='none' stroke='#bbb'/>"]
     for value, anchor_y in ((y1, top + 4), (y0, top + plot_height)):
         parts.append(f"<text x='{left - 4}' y='{anchor_y}' text-anchor='end'>{value:.4g}</text>")

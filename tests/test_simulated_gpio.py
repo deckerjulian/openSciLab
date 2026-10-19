@@ -187,12 +187,12 @@ def test_gpio_flow_nodes():
     flow = yaml_io.loads("""
 flow: Blink
 nodes:
-  uno: {type: device.instrument, address: "sim:uno"}
-  out:   {type: gpio.write, pin: D7, level: 1}
-  pwm:   {type: gpio.pwm, pin: D9, freq: 1 kHz, duty: 0.6}
+  uno: {type: device.device, address: "sim:uno"}
+  out:   {type: gpio.output, pin: D7, level: 1}
+  pwm:   {type: gpio.pwm, pin: D9, frequency: 1 kHz, duty: 0.6}
   wait:  {type: control.timer, delay: 0.5 s, count: 1}
-  d3:    {type: gpio.read, pin: D3}
-  a0:    {type: gpio.read, pin: A0, analog: true}
+  d3:    {type: gpio.input, pin: D3}
+  a0:    {type: gpio.input, pin: A0, analog: true}
   mon:   {type: device.monitor, pins: [D3], rate: 10 Hz, duration: 0.2 s}
   pulse: {type: gpio.pulse, pin: D8, width: 5 ms}
 edges:

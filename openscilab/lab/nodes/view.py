@@ -17,7 +17,7 @@ import numpy as np
 from ...core import signals
 from ..engine.runtime import NodeRuntime
 from .control import plain
-from .registry import In, Param, collect, node
+from .registry import UNITS, In, Param, collect, node
 
 
 def as_capture(value: Any) -> signals.Capture:
@@ -32,12 +32,17 @@ def as_capture(value: Any) -> signals.Capture:
     raise TypeError(f"the scope shows captures and signals, not {type(value).__name__}")
 
 
+#: the name of a view (its tab, its title in a panel)
+_TITLE = Param("title", "str", "", label="title", description="The name of the view (empty: the node's)")
+
+
 @node("view.scope", title="Scope",
       description="Shows captures in a data view (with decoders, cursors and "
                   "measurements). Blocks of a stream are joined.",
-      inputs=[In("in", signals.ANY, "a capture, a digital or an analog signal", multiple=True)],
-      params=[Param("title", "str", ""), Param("join", "bool", True, description="join stream blocks")],
-      icon="channels")
+      inputs=[In("in", signals.ANY, "A capture, a digital or an analog signal", multiple=True)],
+      params=[_TITLE, Param("join", "bool", True, label="join blocks", advanced=True,
+                            description="The blocks of a stream as one capture")],
+      icon="channels", summary=("title",), keywords=("data view", "traces", "waveform", "oscilloscope"))
 class ScopeNode(NodeRuntime):
     async def setup(self) -> None:
         self.capture = None
@@ -83,16 +88,18 @@ def _text_number(text: str) -> Any:
 
 
 def _ports(params: dict):
-    return [In(str(name), signals.ANY, multiple=True) for name in params.get("inputs") or []], []
+    return [In(str(name), signals.ANY, f"The trace {name}", multiple=True) for name in params.get("inputs") or []], []
 
 
-@node("view.strip_chart", title="Strip chart",
+@node("view.chart", title="Chart",
       description="Values over time, like a chart recorder: numbers, events, the samples of analog and "
-                  "digital signals, the channels of a capture or stream (a trace each). More traces: name "
-                  "them in 'inputs'.",
-      inputs=[In("in", signals.ANY, multiple=True)],
-      params=[Param("title", "str", ""), Param("window", "quantity", "10 s", "s"), Param("inputs", "list", [])],
-      ports=_ports, icon="chart")
+                  "digital signals, the channels of a capture or stream (a trace each). More traces: "
+                  "'inputs' (▾ picks outputs of the flow: each gets an input and its wire).",
+      inputs=[In("in", signals.ANY, "Values or signals: a trace each", multiple=True)],
+      params=[_TITLE, Param("window", "quantity", "10 s", "s", label="window", description="The time it shows"),
+              Param("inputs", "list", [], description="A trace per input: names, or outputs of the flow to wire (▾)",
+                    suggest="flow_outputs", editor="inputs", label="more traces")],
+      ports=_ports, icon="chart", summary=("title", "window"), keywords=("strip chart", "plot", "trend", "recorder"))
 class StripChartNode(NodeRuntime):
     async def setup(self) -> None:
         self.traces: dict[str, tuple[list, list]] = {}
@@ -134,8 +141,11 @@ class StripChartNode(NodeRuntime):
       description="Points (x, y): a point for every value at 'y', with the x it belongs to – the x values "
                   "in the order they came, the latest one again for more values at 'y' (a characteristic "
                   "curve: several measurements per step are fine).",
-      inputs=[In("x", signals.ANY, optional=False), In("y", signals.ANY, optional=False)],
-      params=[Param("title", "str", ""), Param("x_label", "str", "x"), Param("y_label", "str", "y")], icon="chart")
+      inputs=[In("x", signals.ANY, "The x of the next points", optional=False),
+              In("y", signals.ANY, "A point at the latest x", optional=False)],
+      params=[_TITLE, Param("x_label", "str", "x", label="x axis", description="The name of the x axis"),
+              Param("y_label", "str", "y", label="y axis", description="The name of the y axis")],
+      icon="chart", summary=("x_label", "y_label"), keywords=("scatter", "characteristic curve", "plot"))
 class XyNode(NodeRuntime):
     async def setup(self) -> None:
         self.points = signals.Table(name=self.node.id, columns={"x": [], "y": []})
@@ -162,9 +172,11 @@ class XyNode(NodeRuntime):
 
 
 @node("view.spectrum", title="Spectrum",
-      description="The spectrum of an analog signal (or a table of frequency and magnitude from dsp.fft).",
-      inputs=[In("in", signals.ANY, optional=False)],
-      params=[Param("title", "str", ""), Param("scale", "choice", "dB", choices=("dB", "linear"))], icon="chart")
+      description="The spectrum of an analog signal (or a table of frequency and magnitude from signal.fft).",
+      inputs=[In("in", signals.ANY, "An analog signal, or the table of an FFT", optional=False)],
+      params=[_TITLE, Param("scale", "choice", "dB", choices=("dB", "linear"), label="scale",
+                            description="The amplitude in dB or linear")],
+      icon="chart", summary=("scale",), keywords=("fft", "frequency", "harmonics"))
 class SpectrumNode(NodeRuntime):
     async def on_input(self, port: str, value: Any) -> None:
         from .dsp import spectrum
@@ -176,8 +188,9 @@ class SpectrumNode(NodeRuntime):
         self.ctx.views.show("spectrum", self.node.id, value, title=self.p("title") or self.node.id)
 
 
-@node("view.table", title="Table view", description="Shows a table (or the rows of other values).",
-      inputs=[In("in", signals.ANY, optional=False)], params=[Param("title", "str", "")], icon="list")
+@node("view.table", title="Table", description="Shows a table (or the rows of other values).",
+      inputs=[In("in", signals.ANY, "A table, or values that become rows", optional=False)], params=[_TITLE],
+      icon="list", keywords=("rows", "grid", "results"))
 class TableViewNode(NodeRuntime):
     async def on_input(self, port: str, value: Any) -> None:
         from .data import row_of
@@ -190,10 +203,13 @@ class TableViewNode(NodeRuntime):
 
 @node("view.number", title="Number",
       description="Shows the latest value as a number with its unit (of a signal: its last sample).",
-      inputs=[In("in", signals.ANY, optional=False)],
-      params=[Param("title", "str", ""),
-              Param("unit", "str", "", description="the unit of values that have none (a measurement brings its own)"),
-              Param("digits", "int", 4)], icon="info")
+      inputs=[In("in", signals.ANY, "A value (of a signal: its last sample)", optional=False)],
+      params=[_TITLE,
+              Param("unit", "str", "", label="unit",
+                    description="The unit of values that have none (a measurement brings its own)",
+                    choices=UNITS),
+              Param("digits", "int", 4, label="digits", description="Significant digits", minimum=1, maximum=15)],
+      icon="info", summary=("unit", "digits"), keywords=("value", "display", "readout"))
 class NumberNode(NodeRuntime):
     async def on_input(self, port: str, value: Any) -> None:
         own = ""
@@ -210,8 +226,10 @@ class NumberNode(NodeRuntime):
 
 @node("view.led", title="LED",
       description="On for true, a number of 0.5 or more, or a text like on/yes/true; off otherwise.",
-      inputs=[In("in", signals.ANY, optional=False)],
-      params=[Param("title", "str", ""), Param("color", "str", "#7fd18b")], icon="info")
+      inputs=[In("in", signals.ANY, "On for true or ≥ 0.5", optional=False)],
+      params=[_TITLE, Param("color", "str", "", editor="color", label="color",
+                            description="The colour when it is on (empty: green)")],
+      icon="info", keywords=("lamp", "indicator", "light", "state"))
 class LedNode(NodeRuntime):
     async def on_input(self, port: str, value: Any) -> None:
         number = _number(value)
@@ -228,8 +246,10 @@ class LedNode(NodeRuntime):
 
 
 @node("view.log", title="Log", description="Every value that arrives as a line of text.",
-      inputs=[In("in", signals.ANY, optional=False, multiple=True)],
-      params=[Param("title", "str", ""), Param("lines", "int", 1000)], icon="list")
+      inputs=[In("in", signals.ANY, "Values to list (several wires: all of them)", optional=False, multiple=True)],
+      params=[_TITLE, Param("lines", "int", 1000, label="lines", description="How many lines it keeps", minimum=1,
+                            advanced=True)],
+      icon="list", keywords=("text", "print", "console", "messages"))
 class LogNode(NodeRuntime):
     async def setup(self) -> None:
         self.lines: list[str] = []

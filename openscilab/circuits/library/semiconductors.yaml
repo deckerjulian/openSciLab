@@ -1,0 +1,207 @@
+# openSciLab's own components: diodes and transistors (models in circuits/models/*.lib)
+- type: diode
+  title: Diode
+  category: Semiconductors
+  prefix: D
+  keywords: diode rectifier 1N4148 1N4007 schottky
+  description: A diode; pin 2 is the anode, pin 1 the cathode (as in KiCad).
+  symbol:
+    shapes:
+      - {line: [-8, -8, -8, 8, 8, 0, -8, -8], fill: outline}
+      - {line: [8, -8, 8, 8]}
+    pins:
+      - {number: "1", name: K, at: [30, 0], angle: 180, length: 22}
+      - {number: "2", name: A, at: [-30, 0], angle: 0, length: 22}
+    reference: {at: [0, -16]}
+    value: {at: [0, 17]}
+    pin_names: false
+  params:
+    - {name: value, label: Model, default: 1N4148, kind: model, description: "The model (1N4148, 1N4007, 1N5819 ... or one of a model library of the circuit)."}
+  spice: "{ref:D} {pin.2} {pin.1} {value}"
+  current: "@{ref:D}[id]"
+
+- type: rectifier.bridge
+  title: Bridge rectifier
+  category: Semiconductors
+  prefix: BR
+  keywords: bridge rectifier graetz diode full wave GBU4M KBP206 DB107 W04
+  description: Four diodes in a bridge (Graetz) - AC in on pins 1 and 2 (~), DC out on 3 (+) and 4 (−).
+  symbol:
+    shapes:
+      - {line: [-20, 0, 0, -20, 20, 0, 0, 20, -20, 0], fill: background}
+      - {line: [-6, 5, 6, 5, 0, -5, -6, 5], fill: outline}
+      - {line: [-6, -5, 6, -5]}
+      - {text: "~", at: [-14, -12], size: 8}
+      - {text: "~", at: [14, 12], size: 8}
+      - {text: "+", at: [10, -14], size: 8}
+      - {text: "−", at: [-10, 14], size: 8}
+    pins:
+      - {number: "1", name: "~", at: [-40, 0], angle: 0, length: 20}
+      - {number: "2", name: "~", at: [40, 0], angle: 180, length: 20}
+      - {number: "3", name: "+", at: [0, -40], angle: 90, length: 20}
+      - {number: "4", name: "-", at: [0, 40], angle: 270, length: 20}
+    reference: {at: [24, -26], align: left}
+    value: {at: [24, 26], align: left}
+    pin_names: false
+  params:
+    - {name: value, label: Diode model, default: 1N4007, kind: model, description: "The model of each of its diodes (1N4007, 1N4001, UF4007 ...)."}
+  spice: |
+    {ref:D}a {pin.1} {pin.3} {value}
+    {ref:D}b {pin.2} {pin.3} {value}
+    {ref:D}c {pin.4} {pin.1} {value}
+    {ref:D}d {pin.4} {pin.2} {value}
+
+- type: diode.zener
+  title: Zener diode
+  category: Semiconductors
+  prefix: D
+  keywords: zener reference regulator
+  description: A Zener diode; pin 2 is the anode, pin 1 the cathode.
+  symbol:
+    shapes:
+      - {line: [-8, -8, -8, 8, 8, 0, -8, -8], fill: outline}
+      - {line: [12, -12, 8, -8, 8, 8, 4, 12]}
+    pins:
+      - {number: "1", name: K, at: [30, 0], angle: 180, length: 22}
+      - {number: "2", name: A, at: [-30, 0], angle: 0, length: 22}
+    reference: {at: [0, -18]}
+    value: {at: [0, 19]}
+    pin_names: false
+  params:
+    - {name: value, label: Model, default: DZ5V1, kind: model, description: "The model (DZ3V3, DZ5V1, DZ12 ... 1N4733)."}
+  spice: "{ref:D} {pin.2} {pin.1} {value}"
+  current: "@{ref:D}[id]"
+
+- type: led
+  title: LED
+  category: Semiconductors
+  prefix: D
+  keywords: led light emitting diode lamp indicator
+  description: A light-emitting diode; it lights with its current while the circuit runs.
+  symbol:
+    shapes:
+      - {line: [-8, -8, -8, 8, 8, 0, -8, -8], fill: outline}
+      - {line: [8, -8, 8, 8]}
+      - {line: [-2, -12, 6, -20]}
+      - {line: [3, -20, 6, -20, 6, -17]}
+      - {line: [4, -12, 12, -20]}
+      - {line: [9, -20, 12, -20, 12, -17]}
+    pins:
+      - {number: "1", name: K, at: [30, 0], angle: 180, length: 22}
+      - {number: "2", name: A, at: [-30, 0], angle: 0, length: 22}
+    reference: {at: [-14, -16]}
+    value: {at: [0, 17]}
+    pin_names: false
+  params:
+    - {name: value, label: Model, default: LED_RED, kind: model, choices: [LED_RED, LED_YELLOW, LED_GREEN, LED_BLUE, LED_WHITE], description: Its colour and forward voltage.}
+    - {name: full, label: Full brightness, unit: A, default: 10 mA, min: 0, description: The current at which it is fully lit on the schematic.}
+  spice: "{ref:D} {pin.2} {pin.1} {value}"
+  current: "@{ref:D}[id]"
+
+- type: npn
+  title: NPN transistor
+  category: Semiconductors
+  prefix: Q
+  keywords: bjt transistor npn 2N3904 BC547 2N2222
+  description: A bipolar NPN transistor (pins B, C, E).
+  symbol: &bjt
+    shapes:
+      - {circle: [8, 0, 22]}
+      - {line: [0, -14, 0, 14], width: 2}
+      - {line: [0, -6, 20, -20]}
+      - {line: [0, 6, 20, 20]}
+      - {line: [20, 20, 9, 18, 15, 11, 20, 20], fill: outline}
+    pins:
+      - {number: "1", name: B, at: [-30, 0], angle: 0, length: 30}
+      - {number: "2", name: C, at: [20, -40], angle: 90, length: 20}
+      - {number: "3", name: E, at: [20, 40], angle: 270, length: 20}
+    reference: {at: [34, -6], align: left}
+    value: {at: [34, 8], align: left}
+    pin_names: false
+  params:
+    - {name: value, label: Model, default: 2N3904, kind: model, description: "The model (2N3904, BC547B, 2N2222 ...)."}
+  spice: "{ref:Q} {pin.2} {pin.1} {pin.3} {value}"
+  current: "@{ref:Q}[ic]"
+
+- type: pnp
+  title: PNP transistor
+  category: Semiconductors
+  prefix: Q
+  keywords: bjt transistor pnp 2N3906 BC557
+  description: A bipolar PNP transistor (pins B, C, E).
+  symbol:
+    shapes:
+      - {circle: [8, 0, 22]}
+      - {line: [0, -14, 0, 14], width: 2}
+      - {line: [0, -6, 20, -20]}
+      - {line: [0, 6, 20, 20]}
+      - {line: [2, 7, 13, 9, 7, 16, 2, 7], fill: outline}
+    pins:
+      - {number: "1", name: B, at: [-30, 0], angle: 0, length: 30}
+      - {number: "2", name: C, at: [20, 40], angle: 270, length: 20}
+      - {number: "3", name: E, at: [20, -40], angle: 90, length: 20}
+    reference: {at: [34, -6], align: left}
+    value: {at: [34, 8], align: left}
+    pin_names: false
+  params:
+    - {name: value, label: Model, default: 2N3906, kind: model, description: "The model (2N3906, BC557B ...)."}
+  spice: "{ref:Q} {pin.2} {pin.1} {pin.3} {value}"
+  current: "@{ref:Q}[ic]"
+
+- type: nmos
+  title: N-channel MOSFET
+  category: Semiconductors
+  prefix: Q
+  keywords: mosfet nmos fet n-channel 2N7000 IRLZ44N BS170
+  description: An N-channel enhancement MOSFET (pins G, D, S).
+  symbol:
+    shapes:
+      - {circle: [8, 0, 22]}
+      - {line: [-10, -14, -10, 14], width: 2}
+      - {line: [-4, -16, -4, -8], width: 2}
+      - {line: [-4, -4, -4, 4], width: 2}
+      - {line: [-4, 8, -4, 16], width: 2}
+      - {line: [-4, -12, 20, -12, 20, -20]}
+      - {line: [-4, 12, 20, 12, 20, 20]}
+      - {line: [-4, 0, 20, 0, 20, 12]}
+      - {line: [-4, 0, 4, -4, 4, 4, -4, 0], fill: outline}
+    pins:
+      - {number: "1", name: G, at: [-30, 0], angle: 0, length: 20}
+      - {number: "2", name: D, at: [20, -40], angle: 90, length: 20}
+      - {number: "3", name: S, at: [20, 40], angle: 270, length: 20}
+    reference: {at: [34, -6], align: left}
+    value: {at: [34, 8], align: left}
+    pin_names: false
+  params:
+    - {name: value, label: Model, default: 2N7000, kind: model, description: "The model (2N7000, BS170, IRLZ44N ...)."}
+  spice: "{ref:M} {pin.2} {pin.1} {pin.3} {value}"
+  current: "@{ref:M}[id]"
+
+- type: pmos
+  title: P-channel MOSFET
+  category: Semiconductors
+  prefix: Q
+  keywords: mosfet pmos fet p-channel BS250 IRF9540
+  description: A P-channel enhancement MOSFET (pins G, D, S).
+  symbol:
+    shapes:
+      - {circle: [8, 0, 22]}
+      - {line: [-10, -14, -10, 14], width: 2}
+      - {line: [-4, -16, -4, -8], width: 2}
+      - {line: [-4, -4, -4, 4], width: 2}
+      - {line: [-4, 8, -4, 16], width: 2}
+      - {line: [-4, -12, 20, -12, 20, -20]}
+      - {line: [-4, 12, 20, 12, 20, 20]}
+      - {line: [-4, 0, 20, 0, 20, -12]}
+      - {line: [6, 0, -2, -4, -2, 4, 6, 0], fill: outline}
+    pins:
+      - {number: "1", name: G, at: [-30, 0], angle: 0, length: 20}
+      - {number: "2", name: D, at: [20, 40], angle: 270, length: 20}
+      - {number: "3", name: S, at: [20, -40], angle: 90, length: 20}
+    reference: {at: [34, -6], align: left}
+    value: {at: [34, 8], align: left}
+    pin_names: false
+  params:
+    - {name: value, label: Model, default: BS250, kind: model, description: "The model (BS250, IRF9540 ...)."}
+  spice: "{ref:M} {pin.2} {pin.1} {pin.3} {value}"
+  current: "@{ref:M}[id]"

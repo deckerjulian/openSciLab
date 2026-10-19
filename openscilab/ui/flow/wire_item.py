@@ -18,7 +18,6 @@ from typing import Optional
 from PySide6.QtCore import QPointF, QRectF, Qt, QTimer
 from PySide6.QtGui import (
     QColor,
-    QFont,
     QFontMetrics,
     QPainter,
     QPainterPath,
@@ -30,7 +29,7 @@ from PySide6.QtWidgets import QGraphicsItem, QGraphicsPathItem
 from ...core import signals
 from ...lab.engine.runtime import summarize
 from ...lab.model import Edge
-from ..theme import PANEL, SELECTION, TEXT, qcolor, type_color
+from ..theme import PANEL, SELECTION, TEXT, qcolor, smaller_font, type_color
 
 SPARK_POINTS = 40
 
@@ -148,8 +147,7 @@ class WireItem(QGraphicsPathItem):
         if not self.label:
             return
         middle = self.path().pointAtPercent(0.5)
-        font = QFont(painter.font())
-        font.setPointSizeF(max(font.pointSizeF() - 1.5, 7))
+        font = smaller_font(painter.font(), 1.5)
         painter.setFont(font)
         metrics = QFontMetrics(font)
         text = metrics.elidedText(self.label, Qt.ElideRight, 110)

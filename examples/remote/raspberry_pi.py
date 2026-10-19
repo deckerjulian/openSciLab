@@ -11,7 +11,7 @@ The Pi then appears in openSciLab's device list as "pi-lab" with:
 * ``button`` - GPIO 17 as an input, every change with the time it happened;
 * ``led`` - GPIO 27 as an output, switched at the time openSciLab asks for;
 * ``SYNC`` - GPIO 22 as a sync output: wire it to a channel of your logic analyzer and use the node
-  remote.sync for microsecond alignment (without it the clock is measured over the network);
+  remote.align for microsecond alignment (without it the clock is measured over the network);
 * the command ``uptime``.
 
 Without a Pi (no RPi.GPIO) the pins are simulated, so the script runs on any computer.

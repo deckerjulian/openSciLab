@@ -19,7 +19,7 @@ from PySide6.QtWidgets import QHBoxLayout, QLabel, QSizePolicy, QVBoxLayout, QWi
 from ...core.device_summary import DeviceSummary
 from ...core.instrument import Instrument
 from ..documents.device import status_icon
-from ..theme import BORDER, TEXT_MUTED, WARNING, set_role, token
+from ..theme import BORDER, TEXT_MUTED, WARNING, set_role, set_tone, size, token
 
 #: the colour of the state of each level (``DeviceSummary.level``); ``None``: that of the device status
 LEVEL_TOKENS = {"armed": None, "busy": "device.busy", "error": "device.error", "off": "device.disconnected"}
@@ -57,7 +57,7 @@ class LoadBar(QWidget):
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
-        self.setFixedHeight(4)
+        self.setFixedHeight(size("meter"))
         self.value: Optional[float] = None
         self.color = QColor(TEXT_MUTED)
 
@@ -118,10 +118,9 @@ class DeviceRow(QWidget):
         self.summary = summary
         self.dot.setPixmap(status_icon(self.instrument.status).pixmap(14, 14))
         level_token = LEVEL_TOKENS.get(summary.level)
-        color = QColor(WARNING) if summary.level == "armed" else \
-            QColor(token(level_token or self.instrument.status.token))
+        set_tone(self.state_label, "status.warning" if summary.level == "armed" else
+                 level_token or self.instrument.status.token)
         self.state_label.setText(summary.state)
-        self.state_label.setStyleSheet(f"color: {color.name()};")
         self.connection_label.set_full_text(summary.connection)
         self.settings_label.set_full_text(summary.settings)
         self.settings_label.setVisible(bool(summary.settings))

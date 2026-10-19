@@ -1,0 +1,1095 @@
+# openSciLab's own components: emulated microcontrollers (circuits/mcu); the layout was generated
+- type: mcu.uno
+  title: Arduino Uno
+  category: Microcontrollers
+  prefix: U
+  role: mcu
+  board: mcu.uno
+  keywords: arduino uno atmega328p microcontroller board
+  description: An Arduino Uno (ATmega328P, 16 MHz) running a firmware file, emulated cycle by cycle (simavr); its 5V pin supplies the circuit.
+  symbol:
+    shapes:
+    - rect:
+      - -80
+      - -150
+      - 80
+      - 150
+      fill: background
+    - text: Arduino Uno
+      at:
+      - 0
+      - -138
+      size: 9
+    pins:
+    - number: '1'
+      name: D0
+      at:
+      - -100
+      - -130
+      angle: 0
+      length: 20
+      kind: bidirectional
+    - number: '2'
+      name: D1
+      at:
+      - -100
+      - -110
+      angle: 0
+      length: 20
+      kind: bidirectional
+    - number: '3'
+      name: D2
+      at:
+      - -100
+      - -90
+      angle: 0
+      length: 20
+      kind: bidirectional
+    - number: '4'
+      name: D3
+      at:
+      - -100
+      - -70
+      angle: 0
+      length: 20
+      kind: bidirectional
+    - number: '5'
+      name: D4
+      at:
+      - -100
+      - -50
+      angle: 0
+      length: 20
+      kind: bidirectional
+    - number: '6'
+      name: D5
+      at:
+      - -100
+      - -30
+      angle: 0
+      length: 20
+      kind: bidirectional
+    - number: '7'
+      name: D6
+      at:
+      - -100
+      - -10
+      angle: 0
+      length: 20
+      kind: bidirectional
+    - number: '8'
+      name: D7
+      at:
+      - -100
+      - 10
+      angle: 0
+      length: 20
+      kind: bidirectional
+    - number: '9'
+      name: D8
+      at:
+      - -100
+      - 30
+      angle: 0
+      length: 20
+      kind: bidirectional
+    - number: '10'
+      name: D9
+      at:
+      - -100
+      - 50
+      angle: 0
+      length: 20
+      kind: bidirectional
+    - number: '11'
+      name: D10
+      at:
+      - -100
+      - 70
+      angle: 0
+      length: 20
+      kind: bidirectional
+    - number: '12'
+      name: D11
+      at:
+      - -100
+      - 90
+      angle: 0
+      length: 20
+      kind: bidirectional
+    - number: '13'
+      name: D12
+      at:
+      - -100
+      - 110
+      angle: 0
+      length: 20
+      kind: bidirectional
+    - number: '14'
+      name: D13
+      at:
+      - -100
+      - 130
+      angle: 0
+      length: 20
+      kind: bidirectional
+    - number: '15'
+      name: A0
+      at:
+      - 100
+      - -130
+      angle: 180
+      length: 20
+      kind: bidirectional
+    - number: '16'
+      name: A1
+      at:
+      - 100
+      - -110
+      angle: 180
+      length: 20
+      kind: bidirectional
+    - number: '17'
+      name: A2
+      at:
+      - 100
+      - -90
+      angle: 180
+      length: 20
+      kind: bidirectional
+    - number: '18'
+      name: A3
+      at:
+      - 100
+      - -70
+      angle: 180
+      length: 20
+      kind: bidirectional
+    - number: '19'
+      name: A4
+      at:
+      - 100
+      - -50
+      angle: 180
+      length: 20
+      kind: bidirectional
+    - number: '20'
+      name: A5
+      at:
+      - 100
+      - -30
+      angle: 180
+      length: 20
+      kind: bidirectional
+    - number: '21'
+      name: 5V
+      at:
+      - 100
+      - -10
+      angle: 180
+      length: 20
+      kind: power_out
+    - number: '22'
+      name: 3V3
+      at:
+      - 100
+      - 10
+      angle: 180
+      length: 20
+      kind: power_out
+    - number: '23'
+      name: GND
+      at:
+      - 100
+      - 30
+      angle: 180
+      length: 20
+      kind: power_in
+    reference:
+      at:
+      - 0
+      - -160
+    value:
+      at:
+      - 0
+      - 162
+    name_offset: 3
+  params:
+  - name: firmware
+    label: Firmware
+    default: ''
+    kind: file
+    suffixes:
+    - .hex
+    - .elf
+    description: 'The firmware it runs: a .hex or .elf file (Arduino IDE: Sketch → Export compiled binary; PlatformIO: .pio/build/<board>/firmware.hex).'
+  show:
+  - firmware
+- type: mcu.nano
+  title: Arduino Nano
+  category: Microcontrollers
+  prefix: U
+  role: mcu
+  board: mcu.nano
+  keywords: arduino nano atmega328p microcontroller board
+  description: An Arduino Nano (ATmega328P, 16 MHz) running a firmware file, emulated cycle by cycle (simavr); A6 and A7 are analog only.
+  symbol:
+    shapes:
+    - rect:
+      - -80
+      - -150
+      - 80
+      - 150
+      fill: background
+    - text: Arduino Nano
+      at:
+      - 0
+      - -138
+      size: 9
+    pins:
+    - number: '1'
+      name: D0
+      at:
+      - -100
+      - -130
+      angle: 0
+      length: 20
+      kind: bidirectional
+    - number: '2'
+      name: D1
+      at:
+      - -100
+      - -110
+      angle: 0
+      length: 20
+      kind: bidirectional
+    - number: '3'
+      name: D2
+      at:
+      - -100
+      - -90
+      angle: 0
+      length: 20
+      kind: bidirectional
+    - number: '4'
+      name: D3
+      at:
+      - -100
+      - -70
+      angle: 0
+      length: 20
+      kind: bidirectional
+    - number: '5'
+      name: D4
+      at:
+      - -100
+      - -50
+      angle: 0
+      length: 20
+      kind: bidirectional
+    - number: '6'
+      name: D5
+      at:
+      - -100
+      - -30
+      angle: 0
+      length: 20
+      kind: bidirectional
+    - number: '7'
+      name: D6
+      at:
+      - -100
+      - -10
+      angle: 0
+      length: 20
+      kind: bidirectional
+    - number: '8'
+      name: D7
+      at:
+      - -100
+      - 10
+      angle: 0
+      length: 20
+      kind: bidirectional
+    - number: '9'
+      name: D8
+      at:
+      - -100
+      - 30
+      angle: 0
+      length: 20
+      kind: bidirectional
+    - number: '10'
+      name: D9
+      at:
+      - -100
+      - 50
+      angle: 0
+      length: 20
+      kind: bidirectional
+    - number: '11'
+      name: D10
+      at:
+      - -100
+      - 70
+      angle: 0
+      length: 20
+      kind: bidirectional
+    - number: '12'
+      name: D11
+      at:
+      - -100
+      - 90
+      angle: 0
+      length: 20
+      kind: bidirectional
+    - number: '13'
+      name: D12
+      at:
+      - -100
+      - 110
+      angle: 0
+      length: 20
+      kind: bidirectional
+    - number: '14'
+      name: D13
+      at:
+      - -100
+      - 130
+      angle: 0
+      length: 20
+      kind: bidirectional
+    - number: '15'
+      name: A0
+      at:
+      - 100
+      - -130
+      angle: 180
+      length: 20
+      kind: bidirectional
+    - number: '16'
+      name: A1
+      at:
+      - 100
+      - -110
+      angle: 180
+      length: 20
+      kind: bidirectional
+    - number: '17'
+      name: A2
+      at:
+      - 100
+      - -90
+      angle: 180
+      length: 20
+      kind: bidirectional
+    - number: '18'
+      name: A3
+      at:
+      - 100
+      - -70
+      angle: 180
+      length: 20
+      kind: bidirectional
+    - number: '19'
+      name: A4
+      at:
+      - 100
+      - -50
+      angle: 180
+      length: 20
+      kind: bidirectional
+    - number: '20'
+      name: A5
+      at:
+      - 100
+      - -30
+      angle: 180
+      length: 20
+      kind: bidirectional
+    - number: '21'
+      name: A6
+      at:
+      - 100
+      - -10
+      angle: 180
+      length: 20
+      kind: bidirectional
+    - number: '22'
+      name: A7
+      at:
+      - 100
+      - 10
+      angle: 180
+      length: 20
+      kind: bidirectional
+    - number: '23'
+      name: 5V
+      at:
+      - 100
+      - 30
+      angle: 180
+      length: 20
+      kind: power_out
+    - number: '24'
+      name: 3V3
+      at:
+      - 100
+      - 50
+      angle: 180
+      length: 20
+      kind: power_out
+    - number: '25'
+      name: GND
+      at:
+      - 100
+      - 70
+      angle: 180
+      length: 20
+      kind: power_in
+    reference:
+      at:
+      - 0
+      - -160
+    value:
+      at:
+      - 0
+      - 162
+    name_offset: 3
+  params:
+  - name: firmware
+    label: Firmware
+    default: ''
+    kind: file
+    suffixes:
+    - .hex
+    - .elf
+    description: 'The firmware it runs: a .hex or .elf file (Arduino IDE: Sketch → Export compiled binary; PlatformIO: .pio/build/<board>/firmware.hex).'
+  show:
+  - firmware
+- type: mcu.mega2560
+  title: Arduino Mega 2560
+  category: Microcontrollers
+  prefix: U
+  role: mcu
+  board: mcu.mega2560
+  keywords: arduino mega 2560 atmega2560 microcontroller board
+  description: An Arduino Mega 2560 (ATmega2560, 16 MHz) running a firmware file, emulated cycle by cycle (simavr).
+  symbol:
+    shapes:
+    - rect:
+      - -200
+      - -280
+      - 200
+      - 280
+      fill: background
+    - text: Arduino Mega 2560
+      at:
+      - 0
+      - -268
+      size: 9
+    pins:
+    - number: '1'
+      name: D0
+      at:
+      - -220
+      - -260
+      angle: 0
+      length: 20
+      kind: bidirectional
+    - number: '2'
+      name: D1
+      at:
+      - -220
+      - -240
+      angle: 0
+      length: 20
+      kind: bidirectional
+    - number: '3'
+      name: D2
+      at:
+      - -220
+      - -220
+      angle: 0
+      length: 20
+      kind: bidirectional
+    - number: '4'
+      name: D3
+      at:
+      - -220
+      - -200
+      angle: 0
+      length: 20
+      kind: bidirectional
+    - number: '5'
+      name: D4
+      at:
+      - -220
+      - -180
+      angle: 0
+      length: 20
+      kind: bidirectional
+    - number: '6'
+      name: D5
+      at:
+      - -220
+      - -160
+      angle: 0
+      length: 20
+      kind: bidirectional
+    - number: '7'
+      name: D6
+      at:
+      - -220
+      - -140
+      angle: 0
+      length: 20
+      kind: bidirectional
+    - number: '8'
+      name: D7
+      at:
+      - -220
+      - -120
+      angle: 0
+      length: 20
+      kind: bidirectional
+    - number: '9'
+      name: D8
+      at:
+      - -220
+      - -100
+      angle: 0
+      length: 20
+      kind: bidirectional
+    - number: '10'
+      name: D9
+      at:
+      - -220
+      - -80
+      angle: 0
+      length: 20
+      kind: bidirectional
+    - number: '11'
+      name: D10
+      at:
+      - -220
+      - -60
+      angle: 0
+      length: 20
+      kind: bidirectional
+    - number: '12'
+      name: D11
+      at:
+      - -220
+      - -40
+      angle: 0
+      length: 20
+      kind: bidirectional
+    - number: '13'
+      name: D12
+      at:
+      - -220
+      - -20
+      angle: 0
+      length: 20
+      kind: bidirectional
+    - number: '14'
+      name: D13
+      at:
+      - -220
+      - 0
+      angle: 0
+      length: 20
+      kind: bidirectional
+    - number: '15'
+      name: D14
+      at:
+      - -220
+      - 20
+      angle: 0
+      length: 20
+      kind: bidirectional
+    - number: '16'
+      name: D15
+      at:
+      - -220
+      - 40
+      angle: 0
+      length: 20
+      kind: bidirectional
+    - number: '17'
+      name: D16
+      at:
+      - -220
+      - 60
+      angle: 0
+      length: 20
+      kind: bidirectional
+    - number: '18'
+      name: D17
+      at:
+      - -220
+      - 80
+      angle: 0
+      length: 20
+      kind: bidirectional
+    - number: '19'
+      name: D18
+      at:
+      - -220
+      - 100
+      angle: 0
+      length: 20
+      kind: bidirectional
+    - number: '20'
+      name: D19
+      at:
+      - -220
+      - 120
+      angle: 0
+      length: 20
+      kind: bidirectional
+    - number: '21'
+      name: D20
+      at:
+      - -220
+      - 140
+      angle: 0
+      length: 20
+      kind: bidirectional
+    - number: '22'
+      name: D21
+      at:
+      - -220
+      - 160
+      angle: 0
+      length: 20
+      kind: bidirectional
+    - number: '23'
+      name: D22
+      at:
+      - -220
+      - 180
+      angle: 0
+      length: 20
+      kind: bidirectional
+    - number: '24'
+      name: D23
+      at:
+      - -220
+      - 200
+      angle: 0
+      length: 20
+      kind: bidirectional
+    - number: '25'
+      name: D24
+      at:
+      - -220
+      - 220
+      angle: 0
+      length: 20
+      kind: bidirectional
+    - number: '26'
+      name: D25
+      at:
+      - -220
+      - 240
+      angle: 0
+      length: 20
+      kind: bidirectional
+    - number: '27'
+      name: D26
+      at:
+      - -220
+      - 260
+      angle: 0
+      length: 20
+      kind: bidirectional
+    - number: '28'
+      name: D27
+      at:
+      - 220
+      - -260
+      angle: 180
+      length: 20
+      kind: bidirectional
+    - number: '29'
+      name: D28
+      at:
+      - 220
+      - -240
+      angle: 180
+      length: 20
+      kind: bidirectional
+    - number: '30'
+      name: D29
+      at:
+      - 220
+      - -220
+      angle: 180
+      length: 20
+      kind: bidirectional
+    - number: '31'
+      name: D30
+      at:
+      - 220
+      - -200
+      angle: 180
+      length: 20
+      kind: bidirectional
+    - number: '32'
+      name: D31
+      at:
+      - 220
+      - -180
+      angle: 180
+      length: 20
+      kind: bidirectional
+    - number: '33'
+      name: D32
+      at:
+      - 220
+      - -160
+      angle: 180
+      length: 20
+      kind: bidirectional
+    - number: '34'
+      name: D33
+      at:
+      - 220
+      - -140
+      angle: 180
+      length: 20
+      kind: bidirectional
+    - number: '35'
+      name: D34
+      at:
+      - 220
+      - -120
+      angle: 180
+      length: 20
+      kind: bidirectional
+    - number: '36'
+      name: D35
+      at:
+      - 220
+      - -100
+      angle: 180
+      length: 20
+      kind: bidirectional
+    - number: '37'
+      name: D36
+      at:
+      - 220
+      - -80
+      angle: 180
+      length: 20
+      kind: bidirectional
+    - number: '38'
+      name: D37
+      at:
+      - 220
+      - -60
+      angle: 180
+      length: 20
+      kind: bidirectional
+    - number: '39'
+      name: D38
+      at:
+      - 220
+      - -40
+      angle: 180
+      length: 20
+      kind: bidirectional
+    - number: '40'
+      name: D39
+      at:
+      - 220
+      - -20
+      angle: 180
+      length: 20
+      kind: bidirectional
+    - number: '41'
+      name: D40
+      at:
+      - 220
+      - 0
+      angle: 180
+      length: 20
+      kind: bidirectional
+    - number: '42'
+      name: D41
+      at:
+      - 220
+      - 20
+      angle: 180
+      length: 20
+      kind: bidirectional
+    - number: '43'
+      name: D42
+      at:
+      - 220
+      - 40
+      angle: 180
+      length: 20
+      kind: bidirectional
+    - number: '44'
+      name: D43
+      at:
+      - 220
+      - 60
+      angle: 180
+      length: 20
+      kind: bidirectional
+    - number: '45'
+      name: D44
+      at:
+      - 220
+      - 80
+      angle: 180
+      length: 20
+      kind: bidirectional
+    - number: '46'
+      name: D45
+      at:
+      - 220
+      - 100
+      angle: 180
+      length: 20
+      kind: bidirectional
+    - number: '47'
+      name: D46
+      at:
+      - 220
+      - 120
+      angle: 180
+      length: 20
+      kind: bidirectional
+    - number: '48'
+      name: D47
+      at:
+      - 220
+      - 140
+      angle: 180
+      length: 20
+      kind: bidirectional
+    - number: '49'
+      name: D48
+      at:
+      - 220
+      - 160
+      angle: 180
+      length: 20
+      kind: bidirectional
+    - number: '50'
+      name: D49
+      at:
+      - 220
+      - 180
+      angle: 180
+      length: 20
+      kind: bidirectional
+    - number: '51'
+      name: D50
+      at:
+      - 220
+      - 200
+      angle: 180
+      length: 20
+      kind: bidirectional
+    - number: '52'
+      name: D51
+      at:
+      - 220
+      - 220
+      angle: 180
+      length: 20
+      kind: bidirectional
+    - number: '53'
+      name: D52
+      at:
+      - 220
+      - 240
+      angle: 180
+      length: 20
+      kind: bidirectional
+    - number: '54'
+      name: D53
+      at:
+      - 220
+      - 260
+      angle: 180
+      length: 20
+      kind: bidirectional
+    - number: '55'
+      name: A0
+      at:
+      - -180
+      - 300
+      angle: 270
+      length: 20
+      kind: bidirectional
+    - number: '56'
+      name: A1
+      at:
+      - -160
+      - 300
+      angle: 270
+      length: 20
+      kind: bidirectional
+    - number: '57'
+      name: A2
+      at:
+      - -140
+      - 300
+      angle: 270
+      length: 20
+      kind: bidirectional
+    - number: '58'
+      name: A3
+      at:
+      - -120
+      - 300
+      angle: 270
+      length: 20
+      kind: bidirectional
+    - number: '59'
+      name: A4
+      at:
+      - -100
+      - 300
+      angle: 270
+      length: 20
+      kind: bidirectional
+    - number: '60'
+      name: A5
+      at:
+      - -80
+      - 300
+      angle: 270
+      length: 20
+      kind: bidirectional
+    - number: '61'
+      name: A6
+      at:
+      - -60
+      - 300
+      angle: 270
+      length: 20
+      kind: bidirectional
+    - number: '62'
+      name: A7
+      at:
+      - -40
+      - 300
+      angle: 270
+      length: 20
+      kind: bidirectional
+    - number: '63'
+      name: A8
+      at:
+      - -20
+      - 300
+      angle: 270
+      length: 20
+      kind: bidirectional
+    - number: '64'
+      name: A9
+      at:
+      - 0
+      - 300
+      angle: 270
+      length: 20
+      kind: bidirectional
+    - number: '65'
+      name: A10
+      at:
+      - 20
+      - 300
+      angle: 270
+      length: 20
+      kind: bidirectional
+    - number: '66'
+      name: A11
+      at:
+      - 40
+      - 300
+      angle: 270
+      length: 20
+      kind: bidirectional
+    - number: '67'
+      name: A12
+      at:
+      - 60
+      - 300
+      angle: 270
+      length: 20
+      kind: bidirectional
+    - number: '68'
+      name: A13
+      at:
+      - 80
+      - 300
+      angle: 270
+      length: 20
+      kind: bidirectional
+    - number: '69'
+      name: A14
+      at:
+      - 100
+      - 300
+      angle: 270
+      length: 20
+      kind: bidirectional
+    - number: '70'
+      name: A15
+      at:
+      - 120
+      - 300
+      angle: 270
+      length: 20
+      kind: bidirectional
+    - number: '71'
+      name: 5V
+      at:
+      - 140
+      - 300
+      angle: 270
+      length: 20
+      kind: power_out
+    - number: '72'
+      name: 3V3
+      at:
+      - 160
+      - 300
+      angle: 270
+      length: 20
+      kind: power_out
+    - number: '73'
+      name: GND
+      at:
+      - 180
+      - 300
+      angle: 270
+      length: 20
+      kind: power_in
+    reference:
+      at:
+      - 0
+      - -290
+    value:
+      at:
+      - 0
+      - 324
+    name_offset: 3
+  params:
+  - name: firmware
+    label: Firmware
+    default: ''
+    kind: file
+    suffixes:
+    - .hex
+    - .elf
+    description: 'The firmware it runs: a .hex or .elf file (Arduino IDE: Sketch → Export compiled binary; PlatformIO: .pio/build/<board>/firmware.hex).'
+  show:
+  - firmware

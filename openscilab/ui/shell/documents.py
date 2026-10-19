@@ -35,7 +35,7 @@ from PySide6.QtWidgets import (
 )
 
 from ..icons import icon
-from ..theme import TEXT_MUTED, _repolish
+from ..theme import SIZES, TEXT_MUTED, _repolish
 
 #: space left of the close button of a tab (px)
 CLOSE_MARGIN = 4
@@ -44,8 +44,9 @@ TEAR_OFF = 40
 
 
 class DocumentTabBar(QTabBar):
-    """The tab bar of a group: a tab dragged off the bar (or double-clicked) asks for a window of its
-    own (``torn_off`` with its index)."""
+    """The tab bar of a group: a tab dragged off the bar asks for a window of its own (``torn_off``
+    with its index); a double click does nothing (it was too easy to do by accident – the tab's
+    menu has *Open in a new window*)."""
 
     torn_off = Signal(int)
 
@@ -73,14 +74,6 @@ class DocumentTabBar(QTabBar):
     def mouseReleaseEvent(self, event) -> None:  # noqa: N802 - Qt naming
         self._pressed = None
         super().mouseReleaseEvent(event)
-
-    def mouseDoubleClickEvent(self, event) -> None:  # noqa: N802 - Qt naming
-        index = self.tabAt(event.position().toPoint())
-        if event.button() == Qt.LeftButton and index >= 0:
-            self.torn_off.emit(index)
-            event.accept()
-            return
-        super().mouseDoubleClickEvent(event)
 
 
 class DocumentGroup(QTabWidget):
@@ -123,14 +116,14 @@ class DocumentGroup(QTabWidget):
         button.setObjectName("tab-close")
         button.setIcon(icon("close", TEXT_MUTED))
         button.setIconSize(QSize(10, 10))
-        button.setFixedSize(16, 16)
+        button.setFixedSize(SIZES["tab-close"], SIZES["tab-close"])
         button.setAutoRaise(True)
         button.setCursor(Qt.PointingHandCursor)
         button.setToolTip("Close")
         button.setAccessibleName("Close the tab")
         button.clicked.connect(lambda _checked=False, holder=holder: self._close_tab_of(holder))
         row.addWidget(button)
-        holder.setFixedSize(CLOSE_MARGIN + 16, 17)
+        holder.setFixedSize(CLOSE_MARGIN + SIZES["tab-close"], SIZES["tab-close"] + 1)
         self.tabBar().setTabButton(index, QTabBar.LeftSide, holder)
 
     def _close_tab_of(self, holder: QWidget) -> None:

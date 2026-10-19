@@ -30,7 +30,7 @@ description: |
 settings:
   seed: 7
 nodes:
-  sim: {type: device.instrument, address: sim:free}
+  sim: {type: device.device, address: sim:free}
   sweep: {type: control.sweep, start: 0, stop: 100, step: 5, dwell: 200 ms, at: [10, 20]}
   cap:
     type: device.capture
@@ -118,7 +118,7 @@ def test_save_and_load(tmp_path):
 # ------------------------------------------------------------------ type check
 def test_type_errors_propose_a_conversion():
     flow = Flow("x")
-    flow.add_node("device.instrument", "sim", address="sim:free")
+    flow.add_node("device.device", "sim", address="sim:free")
     flow.add_node("device.capture", "cap", channels=["D0"], samples=10)
     flow.connect("sim.device", "cap.device")
     flow.add_node("control.sweep", "sweep")
@@ -140,14 +140,14 @@ def test_type_errors_propose_a_conversion():
     flow.connect("cap.D0", "meter.a")
     problems = flow.validate(registry)
     assert len(problems) == 1 and problems[0].text == "Digital does not fit Analog"
-    assert problems[0].suggestion == "convert.to_analog"
-    assert flow.can_connect("cap.D0", "meter.a", registry) == (False, "convert.to_analog")
+    assert problems[0].suggestion == "convert.analog"
+    assert flow.can_connect("cap.D0", "meter.a", registry) == (False, "convert.analog")
     assert flow.can_connect("cap.capture", "table.in", registry) == (True, "")
 
 
 def test_unknown_types_ports_devices_and_double_wires():
     flow = Flow("x")
-    flow.add_node("device.instrument", "sim", address="sim:free")
+    flow.add_node("device.device", "sim", address="sim:free")
     flow.add_node("no.such", "a")
     flow.add_node("device.capture", "cap", samples=10)
     flow.add_node("data.table", "table")
@@ -225,7 +225,7 @@ def test_subflows_are_typed_and_expanded():
 def test_registry_groups_and_custom_nodes(tmp_path):
     registry = Registry()
     assert {"device.capture", "device.stream", "view.scope", "control.sweep", "control.timer", "data.table",
-            "data.file"} <= set(registry.types())
+            "data.write"} <= set(registry.types())
     assert "control" in registry.groups()
     with pytest.raises(RegistryError):
         registry.get("nothing")
@@ -250,3 +250,12 @@ def test_param_specs_are_checked():
     with pytest.raises(RegistryError):
         Param("x", "weird")
     assert Out("y").type == "Any"
+
+
+def test_the_names_of_captured_channels_give_their_kind():
+    from openscilab.core import signals
+    from openscilab.lab.nodes.device import _port_type
+
+    assert _port_type("A0") == _port_type("AIN3") == signals.ANALOG
+    assert _port_type("D0") == _port_type("GP15") == signals.DIGITAL
+    assert _port_type("CH1") == _port_type("OUT") == _port_type("AC_L") == signals.ANY  # (a scope's, a circuit's)

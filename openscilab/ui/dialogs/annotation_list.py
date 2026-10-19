@@ -24,7 +24,7 @@ from typing import Optional
 
 import numpy as np
 from PySide6.QtCore import QAbstractTableModel, QItemSelectionModel, QModelIndex, QSortFilterProxyModel, Qt, QTimer
-from PySide6.QtGui import QFontDatabase, QGuiApplication, QKeySequence, QShortcut
+from PySide6.QtGui import QGuiApplication, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QDialog,
@@ -43,6 +43,7 @@ from PySide6.QtWidgets import (
 from ...core.formatting import to_small_time, to_thousands
 from ...sigrok.composition import compose
 from ..icons import set_icon
+from ..theme import tabular_font
 from ..view_model import CaptureViewModel
 from .common import button_box, dialog_layout, hint
 
@@ -102,7 +103,7 @@ class AnnotationListModel(QAbstractTableModel):
         self.trigger_sample = 0
         self._rows_by_segment: dict[int, int] = {}
         self._search_texts: dict[int, str] = {}
-        self._fixed_font = QFontDatabase.systemFont(QFontDatabase.FixedFont)
+        self._fixed_font = tabular_font()
 
     def set_segments(self, segments, type_names, frequency: int, trigger_sample: int, related=()) -> None:
         self.beginResetModel()
@@ -169,10 +170,10 @@ class AnnotationListModel(QAbstractTableModel):
             return to_thousands(segment.first_sample)
         if column == TIME_COLUMN:
             if not self.frequency:
-                return "-"
+                return "–"
             return to_small_time((segment.first_sample - self.trigger_sample) / self.frequency)
         if column == DURATION_COLUMN:
-            return to_small_time(segment.sample_count / self.frequency) if self.frequency else "-"
+            return to_small_time(segment.sample_count / self.frequency) if self.frequency else "–"
         if column == TYPE_COLUMN:
             return self.type_name(segment)
         return segment.values[0] if segment.values else ""
@@ -308,7 +309,7 @@ class AnnotationListWindow(QDialog):
             self.table.setColumnWidth(column, metrics.horizontalAdvance(sample_text) + 24)
         self.details = QPlainTextEdit(self)
         self.details.setReadOnly(True)
-        self.details.setFont(QFontDatabase.systemFont(QFontDatabase.FixedFont))
+        self.details.setFont(tabular_font(self.details.font()))
         self.details.setPlaceholderText("Select an entry for its details")
         splitter = QSplitter(Qt.Vertical, self)
         splitter.addWidget(self.table)
@@ -381,7 +382,7 @@ class AnnotationListWindow(QDialog):
             self.list_model.set_segments(annotation.segments, type_names, frequency, trigger, related)
             self._apply_column_visibility()
             self.summary.setText(
-                "Select an entry to show it in the waveform; hovering an annotation in the waveform "
+                "Select an entry to show it in the traces; hovering an annotation in the traces "
                 "selects its entry. Times are relative to the trigger."
             )
         self._update_count()

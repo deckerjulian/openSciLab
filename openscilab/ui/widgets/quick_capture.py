@@ -130,7 +130,7 @@ class QuickCaptureBar(QWidget):
         layout.setSpacing(6)
 
         self.rate_combo = QComboBox(self)
-        self.rate_combo.setToolTip("Sample rate")
+        self.rate_combo.setToolTip("Rate (samples per second)")
         self.rate_combo.setMinimumWidth(100)
         self.rate_combo.currentIndexChanged.connect(self._on_rate_changed)
         layout.addWidget(self.rate_combo)
@@ -143,7 +143,7 @@ class QuickCaptureBar(QWidget):
 
         self.trigger_button = QPushButton("Trigger", self)
         set_icon(self.trigger_button, "target")
-        self.trigger_button.setToolTip("Channels, trigger and every other setting of the capture")
+        self.trigger_button.setToolTip("Channels, trigger and the rest of the capture setup")
         self.trigger_button.clicked.connect(self.settings_requested.emit)
         layout.addWidget(self.trigger_button)
 
@@ -239,7 +239,7 @@ class QuickCaptureBar(QWidget):
             count = len(session.capture_channels)
             self.trigger_button.setToolTip(
                 f"{count} channel{'s' if count != 1 else ''}, {trigger_summary(session)}: click for the "
-                "channels, the trigger and every other setting of the capture"
+                "channels, the trigger and the rest of the capture setup"
             )
         finally:
             self._updating = False

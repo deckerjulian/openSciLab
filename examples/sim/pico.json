@@ -1,6 +1,6 @@
 {
   "name": "pico",
-  "title": "Simulation: Pico",
+  "title": "Simulated Pico",
   "description": "Raspberry Pi Pico with the openSciLab firmware 8: 24 channels (GP2-GP22, GP26-GP28), 100 MHz, 128 KiB of samples, GPIO and PWM on every channel pin, ADC on GP26-GP28 (12 bit, 3.3 V), a pattern generator on consecutive pins from GP2 (up to GP22). Signals: a counter on GP2-GP9 (1 MHz, clock on GP10), UART on GP11, 1 kHz on GP12, a sine on GP26, a triangle on GP27, 1.2 V on GP28.",
   "provisional": "Values of the Pico firmware 8 (phase 1) until measured (step 1g).",
   "digital": [

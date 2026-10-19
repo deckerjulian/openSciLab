@@ -353,9 +353,25 @@ def test_heartbeat_and_commands_while_reports_never_pause(pico, board):
         stop.set()
 
 
+def test_the_monitor_takes_the_pins_of_the_analog_inputs(pico, board):
+    # the pin table of the device document asks for its ADC pins by their names (GP26 is A0)
+    states = []
+    pico.monitor.on_state(states.append)
+    pico.monitor.start(20.0, ["GP2"], analog=("GP26", "A2"))
+    assert struct.unpack("<IIB", board.sent(protocol.CMD_MONITOR)[-1]) == (20000, 0b100, 0b101)
+    board.reply("STATE:1000000,4,1024,4095")
+    wait_for(lambda: states)
+    assert states[0].analog == {"GP26": pytest.approx(1024 * 3.3 / 4096), "A2": pytest.approx(4095 * 3.3 / 4096)}
+    with pytest.raises(InstrumentError, match="no analog input 'GP2'"):
+        pico.monitor.start(20.0, [], analog=("GP2",))
+
+
 def test_analog_read(pico):
     values = pico.facet(AnalogInFacet).read(["A2", "A0"])
     assert values == {"A0": pytest.approx(100 * 3.3 / 4096), "A2": pytest.approx(300 * 3.3 / 4096)}
+    # by its pin, and both names of one input
+    assert pico.facet(AnalogInFacet).read(["GP26", "A0"]) == {"GP26": pytest.approx(100 * 3.3 / 4096),
+                                                             "A0": pytest.approx(100 * 3.3 / 4096)}
 
 
 # ---------------------------------------------------------- during a capture

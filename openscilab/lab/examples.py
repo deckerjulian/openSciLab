@@ -27,7 +27,7 @@ example itself stays as it is, saving asks where to keep the copy. Besides files
 ``data`` - a data view that captures with the connected device (the Logic Analyzer).
 
 The user's own templates - projects saved with :func:`save_template` - are kept in the folder
-``templates`` of the settings directory and come first, as the category *My templates*
+``templates`` of the settings directory and come first, as the category *Your templates*
 (:data:`USER_CATEGORY`).
 """
 
@@ -126,7 +126,7 @@ def _example(key: str, path: str, category_icon: str = "", user: bool = False) -
 
 
 def user_templates() -> Optional[Category]:
-    """The category *My templates* (``None`` while there are none), by title."""
+    """The category *Your templates* (``None`` while there are none), by title."""
     directory = user_directory()
     try:
         names = os.listdir(directory)
@@ -136,7 +136,7 @@ def user_templates() -> Optional[Category]:
              for name in names if os.path.isfile(os.path.join(directory, name, "project.yaml"))]
     if not found:
         return None
-    return Category(USER_CATEGORY, "My templates",
+    return Category(USER_CATEGORY, "Your templates",
                     "Projects you saved as templates (Project → Save project as template…); right-click one to "
                     "delete it.", sorted(found, key=lambda example: example.title.lower()), "bookmark")
 

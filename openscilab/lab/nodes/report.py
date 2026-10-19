@@ -20,7 +20,7 @@ import numpy as np
 from ...core import signals, units
 from ..engine.runtime import NodeError, NodeRuntime, summarize
 from ..report import report_html, svg_plot, table_html, write_html
-from .registry import In, Out, Param, node
+from .registry import UNITS, In, Out, Param, node
 
 
 def _show(ctx, node_id: str, render) -> None:
@@ -29,11 +29,12 @@ def _show(ctx, node_id: str, render) -> None:
     ctx.views.show("report", node_id, None, html=render)
 
 
-@node("report.section", title="Report section",
+@node("report.section", title="Section",
       description="A heading and text in the report; values at 'in' are added below it.",
-      inputs=[In("in", signals.ANY, "values to list")],
-      params=[Param("title", "str", "Results"), Param("text", "str", "")],
-      icon="book")
+      inputs=[In("in", signals.ANY, "Values to list below the text")],
+      params=[Param("title", "str", "Results", label="heading", description="The heading of the section"),
+              Param("text", "str", "", label="text", description="The text below the heading")],
+      icon="book", summary=("title",), keywords=("heading", "text", "chapter"))
 class SectionNode(NodeRuntime):
     async def run(self) -> None:
         if not self.ctx.wired("in"):
@@ -54,11 +55,11 @@ class SectionNode(NodeRuntime):
         return f"<h2>{html.escape(str(self.p('title', 'Results')))}</h2>{body}"
 
 
-@node("report.table", title="Report table",
+@node("report.table", title="Table",
       description="The last table (or the values) arriving at 'in' as a table in the report.",
-      inputs=[In("in", signals.ANY)],
-      params=[Param("title", "str", "Table")],
-      icon="list")
+      inputs=[In("in", signals.ANY, "A table, or values that become rows")],
+      params=[Param("title", "str", "Table", label="title", description="The caption of the table")],
+      icon="list", summary=("title",), keywords=("rows", "results"))
 class TableNode(NodeRuntime):
     async def setup(self) -> None:
         self.table = None
@@ -79,15 +80,18 @@ class TableNode(NodeRuntime):
         return f"<h2>{html.escape(str(self.p('title', 'Table')))}</h2>" + table_html(columns)
 
 
-@node("report.image", title="Report image",
+@node("report.chart", title="Chart",
       description="A diagram in the report: an XY chart of two table columns ('x', 'y') or of (x, y) "
                   "values, or the traces of a capture or signal.",
-      inputs=[In("in", signals.ANY)],
-      params=[Param("title", "str", "Diagram"), Param("x", "str", description="table column for x", suggest="upstream_columns"),
-              Param("y", "str", description="table column(s) for y, comma separated",
-                    suggest="upstream_columns"),
-              Param("x_label", "str", ""), Param("y_label", "str", ""), Param("points", "bool", True)],
-      icon="chart")
+      inputs=[In("in", signals.ANY, "A table, (x, y) values, a capture or a signal")],
+      params=[Param("title", "str", "Diagram", label="title", description="The caption of the diagram"),
+              Param("x", "str", description="The table column for x", suggest="upstream_columns", label="x column"),
+              Param("y", "str", description="The table column(s) for y, comma separated",
+                    suggest="upstream_columns", label="y column"),
+              Param("x_label", "str", "", label="x axis", description="The name of the x axis", advanced=True),
+              Param("y_label", "str", "", label="y axis", description="The name of the y axis", advanced=True),
+              Param("points", "bool", True, label="points", description="Mark every point", advanced=True)],
+      icon="chart", summary=("title", "x", "y"), keywords=("diagram", "image", "plot", "figure"))
 class ImageNode(NodeRuntime):
     async def setup(self) -> None:
         self.last: Any = None
@@ -189,17 +193,26 @@ def _maybe_number(value: Any) -> Optional[float]:
 
 
 @node("report.check", title="Check",
-      description="Checks the values at 'in' against limits ('low', 'high') or an 'expected' value "
-                  "with a 'tolerance'; 'pass' tells the result, the report lists it. With 'last' only the "
-                  "last value counts, checked when the flow ends: a measurement that settles.",
-      inputs=[In("in", signals.ANY)],
-      outputs=[Out("pass", signals.BOOL)],
-      params=[Param("name", "str", ""), Param("low", "float"), Param("high", "float"),
-              Param("expected", "float"), Param("tolerance", "float", 0.0), Param("unit", "str", ""),
-              Param("last", "bool", False,
-                    description="check only the last value, when the flow ends (the accuracy of an alignment "
+      description="Checks the values at 'in': at least the minimum, at most the maximum, or the "
+                  "'expected' value ± tolerance; 'result' tells whether it passed, 'passed' and 'failed' "
+                  "come as events, the report lists it under its title. With 'last' only the last value "
+                  "counts, checked when the flow ends: a measurement that settles.",
+      inputs=[In("in", signals.ANY, "The values to check")],
+      outputs=[Out("result", signals.BOOL, "Whether the check passed"),
+               Out("passed", signals.EVENT, "The check passed"), Out("failed", signals.EVENT, "The check failed")],
+      params=[Param("title", "str", "", label="title", description="What the report calls the check"),
+              Param("low", "float", label="minimum (≥)", description="The value must be at least this"),
+              Param("high", "float", label="maximum (≤)", description="The value must be at most this"),
+              Param("expected", "float", description="The value it should have (with the tolerance)",
+                    label="expected"),
+              Param("tolerance", "float", 0.0, label="± tolerance", only_if={"expected": True},
+                    description="How far the value may be from 'expected'"),
+              Param("unit", "str", "", label="display unit", choices=UNITS, advanced=True,
+                    description="The unit written beside the values (it does not convert them)"),
+              Param("last", "bool", False, label="last value only", advanced=True,
+                    description="Check only the last value, when the flow ends (the accuracy of an alignment "
                                 "settles as edges come; its first value says little)")],
-      icon="check")
+      icon="check", summary=("title", "low", "high"), keywords=("test", "pass", "fail", "limit", "verify"))
 class CheckNode(NodeRuntime):
     _last: Any = None
 
@@ -232,23 +245,27 @@ class CheckNode(NodeRuntime):
         if high is not None:
             passed = passed and number <= float(high)
             limits.append(f"≤ {_quantity(float(high), unit)}")
-        name = str(self.p("name") or self.node.id)
+        name = str(self.p("title") or self.node.id)
         text = f"{name}: {_quantity(number, unit)} " + (", ".join(limits) if limits else "(no limits)")
         self.ctx.views.show("check", self.node.id, passed, text=text, measured=number)
-        self.ctx.emit("pass", signals.Bool(name=name, value=passed, at=self.ctx.now()))
+        self.ctx.emit("result", signals.Bool(name=name, value=passed, at=self.ctx.now()))
+        self.ctx.emit("passed" if passed else "failed",
+                      signals.Event(name=name, times=[self.ctx.now()], data=[passed]))
 
 
 def _quantity(value: float, unit: str) -> str:
     return units.format_quantity(value, unit, 5) if unit else f"{value:.6g}"
 
 
-@node("report.write", title="Write report",
-      description="Writes the report (sections, tables, images, checks with passed or failed) to 'path' "
-                  "when the flow ends, or on every value at 'write'. HTML, or PDF for a .pdf path.",
-      inputs=[In("write", signals.ANY)],
-      outputs=[Out("written", signals.EVENT), Out("passed", signals.BOOL)],
-      params=[Param("path", "path", "report.html"), Param("title", "str", "")],
-      icon="export")
+@node("report.write", title="Write",
+      description="Writes the report (sections, tables, charts, checks with passed or failed) to 'path' "
+                  "when the flow ends, or on every value at 'trigger'. HTML, or PDF for a .pdf path.",
+      inputs=[In("trigger", signals.EVENT, "Write the report now (with a wire: only then)")],
+      outputs=[Out("written", signals.EVENT, "The report was written (its path)"),
+               Out("result", signals.BOOL, "Whether every check passed")],
+      params=[Param("path", "path", "report.html", label="file", description="An .html or a .pdf file"),
+              Param("title", "str", "", label="title", description="The title of the report (empty: the flow's)")],
+      icon="export", summary=("path",), keywords=("html", "pdf", "document", "export"))
 class WriteNode(NodeRuntime):
     finish_last = True
 
@@ -256,7 +273,7 @@ class WriteNode(NodeRuntime):
         self.write()
 
     async def finish(self) -> None:
-        if not self.ctx.wired("write"):
+        if not self.ctx.wired("trigger"):
             self.write()
 
     def write(self) -> None:
@@ -280,7 +297,7 @@ class WriteNode(NodeRuntime):
         self.ctx.log(f"report: {os.path.basename(path)}")
         self.ctx.emit("written", signals.Event(times=[self.ctx.now()], data=[path]))
         if checks:
-            self.ctx.emit("passed", signals.Bool(name="report", value=all(checks), at=self.ctx.now()))
+            self.ctx.emit("result", signals.Bool(name="report", value=all(checks), at=self.ctx.now()))
 
 
 NODES = [cls.node_spec for cls in (SectionNode, TableNode, ImageNode, CheckNode, WriteNode)]

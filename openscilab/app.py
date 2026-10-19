@@ -56,7 +56,10 @@ def parse_arguments(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
 
 
 def smoke_test(window, report: str) -> int:
-    """Check that a (packaged) application starts and finds its decoders, firmware images and libusb."""
+    """Check that a (packaged) application starts and finds its decoders, firmware images, libusb and the
+    libraries of Circuits (ngspice, the AVR emulator) it brings."""
+    from .circuits import engines
+    from .circuits.mcu import avr
     from .core import firmware
     from .driver.dslogic import usb as dslogic_usb
 
@@ -66,9 +69,12 @@ def smoke_test(window, report: str) -> int:
     decoders = len(registry.decoders)
     images = len(firmware.find_images())
     libusb = dslogic_usb.backend_available()
+    ngspice = engines.available()
+    emulator = avr.available()
     text = (
         f"openSciLab {__version__}: shell created, {decoders} decoders, {images} firmware images, "
-        f"libusb {'found' if libusb else 'MISSING'}\n"
+        f"libusb {'found' if libusb else 'MISSING'}, ngspice {'found' if ngspice else 'MISSING'}, "
+        f"AVR emulator {'found' if emulator else 'MISSING'}\n"
     )
     if report == "-":
         sys.stderr.write(text)
@@ -76,7 +82,7 @@ def smoke_test(window, report: str) -> int:
         with open(report, "w", encoding="utf-8") as handle:
             handle.write(text)
     window.force_close()
-    return 0 if decoders and libusb else 1
+    return 0 if decoders and libusb and ngspice and emulator else 1
 
 
 def enable_driver_log() -> str:
@@ -133,7 +139,7 @@ def _gui(argv: Sequence[str]) -> int:
     # (without one it fell back to "dark" on Linux and to a helper program on macOS).
     from .ui.icons import app_icon
     from .ui.shell.main_window import ShellWindow
-    from .ui.theme import apply_palette, build_stylesheet
+    from .ui.theme import apply_font, apply_palette, build_stylesheet
 
     application.setApplicationName("openSciLab")
     application.setApplicationVersion(__version__)
@@ -141,6 +147,7 @@ def _gui(argv: Sequence[str]) -> int:
     # Fusion renders the style sheet identically on every platform.
     application.setStyle("Fusion")
     apply_palette(application)
+    apply_font(application)
     application.setStyleSheet(build_stylesheet())
 
     application.setWindowIcon(app_icon())
@@ -164,7 +171,7 @@ def _gui(argv: Sequence[str]) -> int:
         QTimer.singleShot(500, window.raise_priority)  # (asks once the window is there)
     failed = plugins.problems()
     if failed:
-        window.statusBar().showMessage(
+        window.notify(
             f"{len(failed)} plugin{'s' if len(failed) > 1 else ''} could not be loaded ({failed[0].name}: "
             f"{failed[0].error}): Help → Plugins...", 20000)
 
@@ -176,12 +183,12 @@ def _gui(argv: Sequence[str]) -> int:
 
         restored = preferences.get("startup.restore_session") and window.restore_session()
         if not restored:
-            # The start page in front (what to do first), a flow to start with beside it
-            # (temporary until it is saved).
-            show_start = preferences.get("startup.show_start_page")
-            if show_start:
+            # The start page: what to do first (a simulator, a device, an example, a new flow);
+            # without it, an empty flow to start with
+            if preferences.get("startup.show_start_page"):
                 window.show_start_page()
-            window.new_flow(activate=not show_start)
+            else:
+                window.new_flow()
 
     # What the application made while starting stays: the garbage collector stops walking it, so a
     # full collection holds every thread for well under a millisecond instead of about 10 ms

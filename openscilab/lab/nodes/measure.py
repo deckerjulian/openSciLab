@@ -48,6 +48,14 @@ def analog_values(value: Any, node_id: str) -> tuple[np.ndarray, str, float]:
     raise NodeError(f"{node_id}: expects an analog signal, got {type(value).__name__}")
 
 
+#: what a measurement of a digital signal takes and gives
+_DIGITAL_IN = In("in", signals.DIGITAL, "A digital signal (a channel of a capture or stream)", optional=False)
+_ANALOG_IN = In("in", signals.ANALOG, "An analog signal (each block of a stream on its own)", optional=False)
+_RESULT = Out("out", signals.SCALAR, "The result, with its unit")
+_STATISTIC = Param("statistic", "choice", "mean", choices=STATISTICS, label="statistic",
+                   description="Which value of all periods in the signal: mean, minimum, maximum …")
+
+
 class _Measure(NodeRuntime):
     unit = ""
 
@@ -90,7 +98,7 @@ def _stats(value: signals.Digital, node_id: str) -> statistics.ChannelStatistics
 
 
 @node("measure.frequency", title="Frequency", description="Frequency of a digital signal (from its periods).",
-      inputs=[In("in", signals.DIGITAL, optional=False)], outputs=[Out("out", signals.SCALAR)], icon="ruler")
+      inputs=[_DIGITAL_IN], outputs=[_RESULT], icon="ruler", keywords=("hz", "rate", "clock"))
 class Frequency(_Measure):
     unit = "Hz"
 
@@ -99,8 +107,8 @@ class Frequency(_Measure):
 
 
 @node("measure.period", title="Period", description="Period (rising edge to rising edge) of a digital signal.",
-      inputs=[In("in", signals.DIGITAL, optional=False)], outputs=[Out("out", signals.SCALAR)],
-      params=[Param("statistic", "choice", "mean", choices=STATISTICS)], icon="ruler")
+      inputs=[_DIGITAL_IN], outputs=[_RESULT],
+      params=[_STATISTIC], icon="ruler", summary=("statistic",), keywords=("time", "cycle"))
 class Period(_Measure):
     unit = "s"
 
@@ -110,9 +118,10 @@ class Period(_Measure):
 
 
 @node("measure.pulse_width", title="Pulse width", description="Width of the high (or low) pulses.",
-      inputs=[In("in", signals.DIGITAL, optional=False)], outputs=[Out("out", signals.SCALAR)],
-      params=[Param("level", "choice", "high", choices=("high", "low")),
-              Param("statistic", "choice", "mean", choices=STATISTICS)], icon="ruler")
+      inputs=[_DIGITAL_IN], outputs=[_RESULT],
+      params=[Param("level", "choice", "high", choices=("high", "low"), label="level",
+                    description="The pulses at 1 (high) or at 0 (low)"),
+              _STATISTIC], icon="ruler", summary=("level", "statistic"), keywords=("high time", "width"))
 class PulseWidth(_Measure):
     unit = "s"
 
@@ -122,7 +131,7 @@ class PulseWidth(_Measure):
 
 
 @node("measure.duty", title="Duty cycle", description="Share of the period the signal is high (0..1).",
-      inputs=[In("in", signals.DIGITAL, optional=False)], outputs=[Out("out", signals.SCALAR)], icon="ruler")
+      inputs=[_DIGITAL_IN], outputs=[_RESULT], icon="ruler", keywords=("duty cycle", "pwm", "percent"))
 class Duty(_Measure):
     unit = ""
 
@@ -139,8 +148,8 @@ class _Analog(_Measure):
 
 
 @node("measure.min", title="Minimum",
-      description="The lowest value of an analog signal (of each block of a stream).", inputs=[In("in", signals.ANALOG, optional=False)],
-      outputs=[Out("out", signals.SCALAR)], icon="ruler")
+      description="The lowest value of an analog signal (of each block of a stream).", inputs=[_ANALOG_IN],
+      outputs=[_RESULT], icon="ruler")
 class Minimum(_Analog):
     def measure(self, value):
         values = analog_values(value, self.node.id)[0]
@@ -148,8 +157,8 @@ class Minimum(_Analog):
 
 
 @node("measure.max", title="Maximum",
-      description="The highest value of an analog signal (of each block of a stream).", inputs=[In("in", signals.ANALOG, optional=False)],
-      outputs=[Out("out", signals.SCALAR)], icon="ruler")
+      description="The highest value of an analog signal (of each block of a stream).", inputs=[_ANALOG_IN],
+      outputs=[_RESULT], icon="ruler")
 class Maximum(_Analog):
     def measure(self, value):
         values = analog_values(value, self.node.id)[0]
@@ -157,8 +166,8 @@ class Maximum(_Analog):
 
 
 @node("measure.mean", title="Mean",
-      description="The mean of an analog signal (of each block of a stream).", inputs=[In("in", signals.ANALOG, optional=False)],
-      outputs=[Out("out", signals.SCALAR)], icon="ruler")
+      description="The mean of an analog signal (of each block of a stream).", inputs=[_ANALOG_IN],
+      outputs=[_RESULT], icon="ruler")
 class Mean(_Analog):
     def measure(self, value):
         values = analog_values(value, self.node.id)[0]
@@ -166,8 +175,8 @@ class Mean(_Analog):
 
 
 @node("measure.rms", title="RMS",
-      description="The root mean square of an analog signal (of each block of a stream).", inputs=[In("in", signals.ANALOG, optional=False)],
-      outputs=[Out("out", signals.SCALAR)], icon="ruler")
+      description="The root mean square of an analog signal (of each block of a stream).", inputs=[_ANALOG_IN],
+      outputs=[_RESULT], icon="ruler")
 class Rms(_Analog):
     def measure(self, value):
         values = analog_values(value, self.node.id)[0]
@@ -175,8 +184,8 @@ class Rms(_Analog):
 
 
 @node("measure.peak_to_peak", title="Peak to peak",
-      description="Highest minus lowest value of an analog signal (of each block of a stream).", inputs=[In("in", signals.ANALOG, optional=False)],
-      outputs=[Out("out", signals.SCALAR)], icon="ruler")
+      description="Highest minus lowest value of an analog signal (of each block of a stream).", inputs=[_ANALOG_IN],
+      outputs=[_RESULT], icon="ruler")
 class PeakToPeak(_Analog):
     def measure(self, value):
         values = analog_values(value, self.node.id)[0]
@@ -185,22 +194,41 @@ class PeakToPeak(_Analog):
 
 @node("measure.count", title="Count",
       description="Counts: the edges of a digital signal, the events of an event stream, the rows of a "
-                  "table – or, for other values, the values that arrived. 'total' adds up over the flow.",
-      inputs=[In("in", signals.ANY, optional=False, multiple=True)], outputs=[Out("out", signals.SCALAR)],
-      params=[Param("edge", "choice", "rising", choices=("rising", "falling", "both")), Param("total", "bool", True)],
-      icon="ruler")
+                  "table – or, for other values, the values that arrived. 'total' adds up over the flow "
+                  "(from 'start'); a value at 'reset' starts again.",
+      inputs=[In("in", signals.ANY, "What to count (several wires: all of it)", optional=False, multiple=True),
+              In("reset", signals.EVENT, "Start counting again from 'start'")],
+      outputs=[Out("out", signals.SCALAR, "The count")],
+      params=[Param("edge", "choice", "rising", choices=("rising", "falling", "both"), label="edge",
+                    description="Which edges of a digital signal count"),
+              Param("total", "bool", True, label="total", description="Add up over the flow (else: per value)"),
+              Param("start", "int", 0, label="start", description="Where the total starts (and starts again on reset)",
+                    only_if={"total": True}, advanced=True)],
+      icon="ruler", summary=("edge", "total"), keywords=("counter", "events", "edges", "how many"))
 class Count(_Measure):
     async def setup(self) -> None:
-        self.total = 0.0
+        self.total = float(self.p("start", 0) or 0)
         #: per signal: the last sample of the previous block and the time right after it (a stream's
         #: blocks continue each other: an edge between two blocks counts too)
         self.last: dict[str, tuple[int, float]] = {}
+
+    async def on_input(self, port: str, value: Any) -> None:
+        if port == "reset":
+            self.total = float(self.p("start", 0) or 0)
+            self.last.clear()
+            self.ctx.emit("out", signals.Scalar(name=self.node.id, value=self.total, at=self.ctx.now()))
+            return
+        await super().on_input(port, value)
 
     def measure(self, value):
         if isinstance(value, signals.Capture) and value.digital:
             value = value.channel(next(iter(value.digital)))  # (its first digital line, as the other measurements)
         if isinstance(value, signals.Digital):
-            count = len(value.edges(self.p("edge", "rising")))
+            # from the levels alone: states without time stamps have edges too
+            change = np.diff(value.values.astype(np.int8))
+            edge = self.p("edge", "rising")
+            count = int(np.count_nonzero(change > 0 if edge == "rising" else change < 0 if edge == "falling"
+                                         else change != 0))
             if len(value) and value.time.is_uniform:
                 # the last block of the same signal (several wires: each signal by its name)
                 last = self.last.get(value.name)
@@ -213,7 +241,7 @@ class Count(_Measure):
         elif isinstance(value, (signals.Event, signals.Table)):
             count = len(value)
         else:
-            count = 1
+            count = 1  # (any other value counts once: a number, a truth value, a text)
         if self.p("total", True):
             self.total += count
             return self.total
@@ -222,9 +250,13 @@ class Count(_Measure):
 
 @node("measure.setup_hold", title="Setup/hold",
       description="Shortest setup and hold time of 'data' around the edges of 'clock'.",
-      inputs=[In("data", signals.DIGITAL, optional=False), In("clock", signals.DIGITAL, optional=False)],
-      outputs=[Out("setup", signals.SCALAR), Out("hold", signals.SCALAR)],
-      params=[Param("edge", "choice", "rising", choices=("rising", "falling"))], icon="clock")
+      inputs=[In("data", signals.DIGITAL, "The data line", optional=False),
+              In("clock", signals.DIGITAL, "The clock line", optional=False)],
+      outputs=[Out("setup", signals.SCALAR, "The shortest time data was stable before a clock edge"),
+               Out("hold", signals.SCALAR, "The shortest time data stayed stable after a clock edge")],
+      params=[Param("edge", "choice", "rising", choices=("rising", "falling"), label="clock edge",
+                    description="The edges of the clock that take the data")], icon="clock",
+      keywords=("timing", "clock", "data"))
 class SetupHold(NodeRuntime):
     async def on_input(self, port: str, value: Any) -> None:
         data, clock = self.ctx.latest("data"), self.ctx.latest("clock")

@@ -9,8 +9,8 @@
 :class:`RemoteFacet` is the device as it describes itself: its inputs (values with their time in
 local time), outputs (set at a time), commands, sync signals and the state of its clock. The
 other facets let the nodes that already exist use it: a ``bool`` output is a pin of
-:class:`RemoteGpio` (``gpio.write``), ``scalar``/``bool`` inputs are read by :class:`RemoteMonitor`
-(``device.monitor``) and :class:`RemoteAnalogIn` (``gpio.read`` with ``analog``).
+:class:`RemoteGpio` (``gpio.output``), ``scalar``/``bool`` inputs are read by :class:`RemoteMonitor`
+(``device.monitor``) and :class:`RemoteAnalogIn` (``gpio.input`` with ``analog``).
 
 The facets look the connection up by the device's name every time: a device that connects again
 (after a network drop) is the same instrument. Who listens to its inputs and sync signals listens
@@ -255,14 +255,14 @@ class RemoteMonitor(MonitorFacet):
         return MonitorState(time=time.monotonic(), digital=digital, analog=values)
 
     def start(self, rate: float, pins: list[str], analog: tuple[str, ...] = ()) -> None:
-        raise InstrumentError("the remote device sends its values by itself: use remote.receive")
+        raise InstrumentError("the remote device sends its values by itself: use remote.input")
 
     def stop(self) -> None:
         """Nothing runs (see :meth:`start`)."""
 
 
 class RemoteAnalogIn(AnalogInFacet):
-    """The latest value of a ``scalar`` input (``gpio.read`` with ``analog``)."""
+    """The latest value of a ``scalar`` input (``gpio.input`` with ``analog``)."""
 
     def __init__(self, remote: RemoteFacet) -> None:
         super().__init__()

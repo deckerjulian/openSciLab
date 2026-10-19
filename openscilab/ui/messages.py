@@ -92,14 +92,18 @@ def choose(
     text: str,
     options: Sequence[str],
     details: Optional[str] = None,
+    cancel: bool = True,
 ) -> Optional[int]:
-    """Let the user pick one of ``options``; returns its index or ``None`` when cancelled."""
+    """Let the user pick one of ``options``; returns its index or ``None`` when cancelled.
+
+    ``cancel=False`` leaves out *Cancel* when an option already says "not now" (*Later*): Esc
+    then chooses the last option."""
     box = _box(parent, QMessageBox.Question, title, text, details)
     buttons = [box.addButton(option, QMessageBox.AcceptRole) for option in options]
-    cancel = box.addButton(QMessageBox.Cancel)
+    escape = box.addButton(QMessageBox.Cancel) if cancel or not buttons else buttons[-1]
     if buttons:
         set_variant(buttons[0], "primary")
         box.setDefaultButton(buttons[0])
-    box.setEscapeButton(cancel)
+    box.setEscapeButton(escape)
     clicked = _exec(box)
     return buttons.index(clicked) if clicked in buttons else None

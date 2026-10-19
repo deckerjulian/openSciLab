@@ -8,8 +8,8 @@ The computer the DAQ is plugged into runs this script (Windows or Linux with NI-
 The DAQ appears in openSciLab's device list as "ni-daq" with:
 
 * ``ai0`` - the measurement (analog, 10 kS/s, blocks of 100 samples);
-* ``sync`` - AI1 records openSciLab's sync signal (node timing.sync on a GPIO of an instrument,
-  wired to AI1 and to a channel of your logic analyzer; node remote.sync with sync: sync). It is
+* ``sync`` - AI1 records openSciLab's sync signal (node time.sync on a GPIO of an instrument,
+  wired to AI1 and to a channel of your logic analyzer; node remote.align with sync: sync). It is
   sampled by the same clock as AI0, so AI0 is aligned to a sample (100 µs at 10 kS/s);
 * ``loop`` - AI2, wired to the digital output P0.0: the command ``calibrate_latency`` switches P0.0
   and measures how late the blocks arrive. The latency is kept in ``ni_daq_latency.json`` and used

@@ -23,3 +23,7 @@ docs/roadmap/
 *.lac.gz
 *.vcd
 !examples/*.lac
+
+# tools of others, installed or built into the vendor folder (core/vendor.py, tools/build_vendor.py)
+/openscilab/vendor/*
+!/openscilab/vendor/README.md

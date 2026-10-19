@@ -1,0 +1,166 @@
+# openSciLab's own components: ground, supplies and probes
+- type: ground
+  title: Ground
+  category: Connect
+  prefix: GND
+  role: ground
+  keywords: gnd ground earth 0V
+  description: The ground of the circuit (0 V); every ground symbol is the same net.
+  symbol:
+    shapes:
+      - {line: [0, 0, 0, 10]}
+      - {line: [-10, 10, 10, 10]}
+      - {line: [-6, 14, 6, 14]}
+      - {line: [-2, 18, 2, 18]}
+    pins:
+      - {number: "1", at: [0, 0], angle: 90, length: 0}
+    reference: {at: [0, 0], hidden: true}
+    value: false
+    pin_names: false
+  show: []
+
+- type: power
+  title: Supply
+  category: Connect
+  prefix: PWR
+  role: power
+  keywords: vcc vdd supply power rail +5V +3.3V
+  description: A supply rail; every symbol of the same net is one net, its voltage comes from a source to ground.
+  symbol:
+    shapes:
+      - {line: [0, 0, 0, -10]}
+      - {line: [-10, -10, 10, -10], width: 2}
+    pins:
+      - {number: "1", at: [0, 0], angle: 270, length: 0}
+    reference: {at: [0, 0], hidden: true}
+    value: {at: [0, -18]}
+    pin_names: false
+  params:
+    - {name: net, label: Net, default: VCC, kind: text, description: The name of the rail.}
+    - {name: voltage, label: Voltage, unit: V, default: 5 V, kind: text, live: true, description: "Its voltage to ground (empty: set by other parts)."}
+  show: [net]
+
+- type: probe.v
+  title: Voltage probe
+  category: Measure
+  prefix: P
+  role: probe.v
+  keywords: probe voltmeter measure voltage channel scope
+  description: Shows the voltage of the net it touches; it is a channel of the circuit's device (data view, flows).
+  symbol:
+    shapes:
+      - {line: [0, 0, 6, -6]}
+      - {circle: [12, -12, 8], fill: background}
+      - {text: "V", at: [12, -12], size: 9}
+    pins:
+      - {number: "1", at: [0, 0], angle: 315, length: 0}
+    reference: {at: [12, -26], hidden: true}
+    value: {at: [24, -12], align: left}
+    pin_names: false
+  params:
+    - {name: name, label: Name, default: "", kind: text, description: "Its name and the name of its channel (empty: the name of the net)."}
+  show: [name]
+
+- type: terminal
+  title: Terminal
+  category: Connect
+  prefix: J
+  role: probe.v
+  keywords: terminal output socket binding post jack connector banana out
+  description: "Where a voltage is taken off - an output socket, named (DC +, AC L ...); it measures like a voltage probe and is a channel of the circuit's device."
+  symbol:
+    shapes:
+      - {line: [0, 0, 12, 0]}
+      - {circle: [20, 0, 8], fill: background}
+      - {circle: [20, 0, 3], fill: outline}
+    pins:
+      - {number: "1", at: [0, 0], angle: 0, length: 0}
+    reference: {at: [20, -14], hidden: true}
+    value: {at: [32, 0], align: left, size: 11}
+    pin_names: false
+  params:
+    - {name: name, label: Name, default: OUT, kind: text, description: "What is taken off here (DC +, AC L ...); the name of its channel."}
+  show: [name]
+
+- type: probe.logic
+  title: Logic probe
+  category: Measure
+  prefix: P
+  role: probe.logic
+  keywords: probe logic digital high low channel
+  description: Shows whether the net it touches is high or low (thresholds from the supply); a digital channel of the circuit's device.
+  symbol:
+    shapes:
+      - {line: [0, 0, 6, -6]}
+      - {rect: [4, -20, 20, -4], fill: background}
+      - {text: "L", at: [12, -12], size: 9}
+    pins:
+      - {number: "1", at: [0, 0], angle: 315, length: 0}
+    reference: {at: [12, -26], hidden: true}
+    value: {at: [24, -12], align: left}
+    pin_names: false
+  params:
+    - {name: name, label: Name, default: "", kind: text, description: "Its name and the name of its channel (empty: the name of the net)."}
+  show: [name]
+
+- type: probe.i
+  title: Current probe
+  category: Measure
+  prefix: AM
+  role: probe.i
+  keywords: probe ammeter measure current
+  description: Measures the current flowing from pin 1 to pin 2 (put it into the wire); an analog channel of the circuit's device.
+  symbol:
+    shapes:
+      - {circle: [0, 0, 10], fill: background}
+      - {text: "A", at: [0, 0], size: 9}
+    pins:
+      - {number: "1", at: [-20, 0], angle: 0, length: 10}
+      - {number: "2", at: [20, 0], angle: 180, length: 10}
+    reference: {at: [0, -16]}
+    value: {at: [0, 18]}
+    pin_names: false
+  params:
+    - {name: name, label: Name, default: "", kind: text, description: "Its name and the name of its channel (empty: its reference)."}
+  show: [name]
+  spice: "{ref:V} {pin.1} {pin.2} DC 0"
+  current: "i({ref:V})"
+
+- type: probe.scope
+  title: Oscilloscope
+  category: Measure
+  prefix: XSC
+  role: probe.scope
+  keywords: oscilloscope scope probe waveform channel trigger
+  description: An oscilloscope with four channels against its GND; while the circuit runs it draws them on its screen and below the schematic (time and volts per division, trigger).
+  screen: [-56, -46, 56, 26]
+  symbol:
+    shapes:
+      - {rect: [-70, -60, 70, 60], fill: background}
+      - {rect: [-56, -46, 56, 26]}
+      - {text: "CH1", at: [-60, -30], size: 6, align: left}
+      - {text: "CH2", at: [-60, -10], size: 6, align: left}
+      - {text: "CH3", at: [-60, 10], size: 6, align: left}
+      - {text: "CH4", at: [-60, 30], size: 6, align: left}
+      - {circle: [-30, 44, 5]}
+      - {circle: [-10, 44, 5]}
+      - {circle: [10, 44, 5]}
+      - {circle: [30, 44, 5]}
+    pins:
+      - {number: "1", name: CH1, at: [-90, -30], angle: 0, length: 20}
+      - {number: "2", name: CH2, at: [-90, -10], angle: 0, length: 20}
+      - {number: "3", name: CH3, at: [-90, 10], angle: 0, length: 20}
+      - {number: "4", name: CH4, at: [-90, 30], angle: 0, length: 20}
+      - {number: "5", name: GND, at: [0, 80], angle: 270, length: 20}
+    reference: {at: [0, -68]}
+    value: {at: [0, 70]}
+    pin_names: false
+  params:
+    - {name: time_div, label: Time per division, unit: s, default: 1 ms, min: 0, description: The time of one of the ten divisions of the screen.}
+    - {name: volts_div, label: Volts per division, unit: V, default: 1 V, min: 0, description: The voltage of one of the eight divisions (every channel).}
+    - {name: offset, label: Offset, unit: V, default: 0 V, description: The voltage at the middle of the screen.}
+    - {name: trigger, label: Trigger channel, default: CH1, choices: [CH1, CH2, CH3, CH4], description: The channel whose edges hold the picture still.}
+    - {name: level, label: Trigger level, unit: V, default: 2.5 V, description: The voltage an edge crosses to trigger.}
+    - {name: edge, label: Trigger edge, default: rising, choices: [rising, falling], description: Rising or falling edges trigger.}
+    - {name: mode, label: Trigger mode, default: auto, choices: [auto, normal, roll], description: "auto: without an edge the picture runs on, from 100 ms per division it rolls; normal: it waits for an edge; roll: the newest values come in on the right."}
+  show: [time_div]

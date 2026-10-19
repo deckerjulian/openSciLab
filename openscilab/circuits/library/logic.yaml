@@ -1,0 +1,188 @@
+# openSciLab's own components: digital gates (XSPICE); their pins meet analog nets through bridges
+- type: gate.and
+  title: AND gate
+  category: Logic
+  prefix: U
+  keywords: and gate logic digital 7408
+  description: Two inputs, high when both are high.
+  symbol:
+    shapes:
+      - {line: [0, -20, -20, -20, -20, 20, 0, 20]}
+      - {arc: [0, -20, 20, 0, 0, 20]}
+    pins:
+      - {number: "1", name: A, at: [-40, -10], angle: 0, length: 20, kind: input}
+      - {number: "2", name: B, at: [-40, 10], angle: 0, length: 20, kind: input}
+      - {number: "3", name: Y, at: [40, 0], angle: 180, length: 20, kind: output}
+    reference: {at: [0, -28]}
+    value: false
+    pin_names: false
+  params: &delay
+    - {name: delay, label: Delay, unit: s, default: 10 ns, min: 0, description: The time from an input to the output.}
+  show: []
+  digital: true
+  spice: "{ref:A} [{pin.1} {pin.2}] {pin.3} {ref}_model"
+  definitions: [".model {ref}_model d_and(rise_delay={delay} fall_delay={delay})"]
+
+- type: gate.nand
+  title: NAND gate
+  category: Logic
+  prefix: U
+  keywords: nand gate logic digital 7400
+  description: Two inputs, low when both are high.
+  symbol:
+    shapes:
+      - {line: [0, -20, -20, -20, -20, 20, 0, 20]}
+      - {arc: [0, -20, 20, 0, 0, 20]}
+      - {circle: [24, 0, 4]}
+    pins:
+      - {number: "1", name: A, at: [-40, -10], angle: 0, length: 20, kind: input}
+      - {number: "2", name: B, at: [-40, 10], angle: 0, length: 20, kind: input}
+      - {number: "3", name: Y, at: [40, 0], angle: 180, length: 12, kind: output}
+    reference: {at: [0, -28]}
+    value: false
+    pin_names: false
+  params: *delay
+  show: []
+  digital: true
+  spice: "{ref:A} [{pin.1} {pin.2}] {pin.3} {ref}_model"
+  definitions: [".model {ref}_model d_nand(rise_delay={delay} fall_delay={delay})"]
+
+- type: gate.or
+  title: OR gate
+  category: Logic
+  prefix: U
+  keywords: or gate logic digital 7432
+  description: Two inputs, high when one of them is high.
+  symbol:
+    shapes:
+      - {arc: [-20, -20, -12, 0, -20, 20]}
+      - {bezier: [-20, -20, 0, -20, 14, -12, 20, 0]}
+      - {bezier: [-20, 20, 0, 20, 14, 12, 20, 0]}
+    pins:
+      - {number: "1", name: A, at: [-40, -10], angle: 0, length: 26, kind: input}
+      - {number: "2", name: B, at: [-40, 10], angle: 0, length: 26, kind: input}
+      - {number: "3", name: Y, at: [40, 0], angle: 180, length: 20, kind: output}
+    reference: {at: [0, -28]}
+    value: false
+    pin_names: false
+  params: *delay
+  show: []
+  digital: true
+  spice: "{ref:A} [{pin.1} {pin.2}] {pin.3} {ref}_model"
+  definitions: [".model {ref}_model d_or(rise_delay={delay} fall_delay={delay})"]
+
+- type: gate.nor
+  title: NOR gate
+  category: Logic
+  prefix: U
+  keywords: nor gate logic digital 7402
+  description: Two inputs, low when one of them is high.
+  symbol:
+    shapes:
+      - {arc: [-20, -20, -12, 0, -20, 20]}
+      - {bezier: [-20, -20, 0, -20, 14, -12, 20, 0]}
+      - {bezier: [-20, 20, 0, 20, 14, 12, 20, 0]}
+      - {circle: [24, 0, 4]}
+    pins:
+      - {number: "1", name: A, at: [-40, -10], angle: 0, length: 26, kind: input}
+      - {number: "2", name: B, at: [-40, 10], angle: 0, length: 26, kind: input}
+      - {number: "3", name: Y, at: [40, 0], angle: 180, length: 12, kind: output}
+    reference: {at: [0, -28]}
+    value: false
+    pin_names: false
+  params: *delay
+  show: []
+  digital: true
+  spice: "{ref:A} [{pin.1} {pin.2}] {pin.3} {ref}_model"
+  definitions: [".model {ref}_model d_nor(rise_delay={delay} fall_delay={delay})"]
+
+- type: gate.xor
+  title: XOR gate
+  category: Logic
+  prefix: U
+  keywords: xor exclusive gate logic digital 7486
+  description: Two inputs, high when exactly one is high.
+  symbol:
+    shapes:
+      - {arc: [-26, -20, -18, 0, -26, 20]}
+      - {arc: [-20, -20, -12, 0, -20, 20]}
+      - {bezier: [-20, -20, 0, -20, 14, -12, 20, 0]}
+      - {bezier: [-20, 20, 0, 20, 14, 12, 20, 0]}
+    pins:
+      - {number: "1", name: A, at: [-40, -10], angle: 0, length: 20, kind: input}
+      - {number: "2", name: B, at: [-40, 10], angle: 0, length: 20, kind: input}
+      - {number: "3", name: Y, at: [40, 0], angle: 180, length: 20, kind: output}
+    reference: {at: [0, -28]}
+    value: false
+    pin_names: false
+  params: *delay
+  show: []
+  digital: true
+  spice: "{ref:A} [{pin.1} {pin.2}] {pin.3} {ref}_model"
+  definitions: [".model {ref}_model d_xor(rise_delay={delay} fall_delay={delay})"]
+
+- type: gate.not
+  title: Inverter
+  category: Logic
+  prefix: U
+  keywords: not inverter gate logic digital 7404
+  description: High when its input is low.
+  symbol:
+    shapes:
+      - {line: [-20, -16, -20, 16, 12, 0, -20, -16]}
+      - {circle: [16, 0, 4]}
+    pins:
+      - {number: "1", name: A, at: [-40, 0], angle: 0, length: 20, kind: input}
+      - {number: "2", name: Y, at: [40, 0], angle: 180, length: 20, kind: output}
+    reference: {at: [0, -24]}
+    value: false
+    pin_names: false
+  params: *delay
+  show: []
+  digital: true
+  spice: "{ref:A} {pin.1} {pin.2} {ref}_model"
+  definitions: [".model {ref}_model d_inverter(rise_delay={delay} fall_delay={delay})"]
+
+- type: gate.buffer
+  title: Buffer
+  category: Logic
+  prefix: U
+  keywords: buffer driver gate logic digital
+  description: Its output follows its input.
+  symbol:
+    shapes:
+      - {line: [-20, -16, -20, 16, 12, 0, -20, -16]}
+    pins:
+      - {number: "1", name: A, at: [-40, 0], angle: 0, length: 20, kind: input}
+      - {number: "2", name: Y, at: [40, 0], angle: 180, length: 28, kind: output}
+    reference: {at: [0, -24]}
+    value: false
+    pin_names: false
+  params: *delay
+  show: []
+  digital: true
+  spice: "{ref:A} {pin.1} {pin.2} {ref}_model"
+  definitions: [".model {ref}_model d_buffer(rise_delay={delay} fall_delay={delay})"]
+
+- type: flipflop.d
+  title: D flip-flop
+  category: Logic
+  prefix: U
+  keywords: flip-flop dff latch register 7474
+  description: Takes D on the rising edge of CLK.
+  symbol:
+    shapes:
+      - {rect: [-30, -40, 30, 40], fill: background}
+      - {line: [-30, 14, -22, 20, -30, 26]}
+    pins:
+      - {number: "1", name: D, at: [-50, -20], angle: 0, length: 20, kind: input}
+      - {number: "2", name: CLK, at: [-50, 20], angle: 0, length: 20, kind: input}
+      - {number: "3", name: Q, at: [50, -20], angle: 180, length: 20, kind: output}
+      - {number: "4", name: "~{Q}", at: [50, 20], angle: 180, length: 20, kind: output}
+    reference: {at: [0, -48]}
+    value: false
+  params: *delay
+  show: []
+  digital: true
+  spice: "{ref:A} {pin.1} {pin.2} NULL NULL {pin.3} {pin.4} {ref}_model"
+  definitions: [".model {ref}_model d_dff(clk_delay={delay} set_delay={delay} reset_delay={delay} rise_delay={delay} fall_delay={delay})"]

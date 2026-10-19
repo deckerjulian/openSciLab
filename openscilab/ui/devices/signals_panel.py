@@ -354,7 +354,7 @@ class SignalsPanel(QWidget):
         self.refresh_table()
         self.circuit_changed.emit({"wiring": self.simulation.wiring()})
         self.message.show_success("Wires: " + (", ".join(f"{wire['from']} → {wire['to']}" for wire in wires)
-                                               or "none"))
+                                               or "–"))
         return True
 
     def add_wire(self, source: str, target: str) -> bool:

@@ -31,7 +31,7 @@ log = logging.getLogger(__name__)
 #: node types whose ``channels`` parameter names the channels of the capture they send
 CAPTURE_TYPES = ("device.capture", "device.stream")
 #: nodes that hand a capture on as it came (the channels upstream of them are those of their input)
-PASS_THROUGH = ("data.buffer", "dsp.filter", "dsp.resample", "dsp.average")
+PASS_THROUGH = ("data.buffer", "signal.filter", "signal.resample", "signal.average")
 
 
 @dataclass
@@ -48,11 +48,15 @@ class DeviceHints:
     #: pins that cannot be used, with the reason
     reserved: dict[str, str] = field(default_factory=dict)
     outputs: list[str] = field(default_factory=list)
+    #: the kind of each generator output (``analog``, ``pattern``, ``square``)
+    output_kinds: dict[str, str] = field(default_factory=dict)
     #: what a remote device describes: name -> kind
     remote_inputs: dict[str, str] = field(default_factory=dict)
     remote_outputs: dict[str, str] = field(default_factory=dict)
     remote_commands: list[str] = field(default_factory=list)
     remote_syncs: list[str] = field(default_factory=list)
+    #: channels that can clock the state mode (``None``: not known, every channel is offered)
+    clock_channels: Optional[list[str]] = None
 
     def pins_that(self, capability: str = "") -> list[str]:
         return [name for name, can in self.pins.items() if not capability or capability in can]
@@ -69,6 +73,14 @@ def from_profile(address: str, profile: dict) -> DeviceHints:
             if pin.get("reserved"):
                 hints.reserved[name] = str(pin["reserved"])
     hints.outputs = [str(output.get("name")) for output in profile.get("outputs") or [] if output.get("name")]
+    hints.output_kinds = {str(output.get("name")): str(output.get("kind", "")) for output in profile.get("outputs") or []
+                          if output.get("name")}
+    if "STATE_MODE" in (profile.get("capabilities") or []):
+        clocks = profile.get("clock_pins")
+        hints.clock_channels = [str(name) for name in clocks] if clocks is not None else \
+            [str(name) for name in profile.get("digital", [])]
+    else:
+        hints.clock_channels = []
     return hints
 
 
@@ -111,12 +123,16 @@ def from_instrument(instrument) -> DeviceHints:
             driver = capture.driver
             analog = list(driver.analog_channel_names()) if driver.analog_channel_count else []
             hints.channels, hints.analog = digital + analog, analog
+            clocks = driver.state_clock_channels() if driver.supports_state_mode() else []
+            hints.clock_channels = [digital[number] for number in clocks if 0 <= number < len(digital)]
         except Exception:  # a device that cannot answer: no channels to offer
             log.debug("%s does not tell its channels", instrument.name, exc_info=True)
     generator = instrument.generator
     if generator is not None:
         try:
-            hints.outputs = [output.name for output in generator.outputs()]
+            outputs = generator.outputs()
+            hints.outputs = [output.name for output in outputs]
+            hints.output_kinds = {output.name: str(output.kind) for output in outputs}
         except Exception:
             log.debug("%s does not tell its outputs", instrument.name, exc_info=True)
     return hints
@@ -146,7 +162,7 @@ def device_hints(address: str, instruments: Iterable = ()) -> Optional[DeviceHin
             name, _instance, options = simulated.parse(address)
         except ValueError:
             return None
-        return from_remote(address, simulated.describe(name, options), f"Simulation: remote {name}")
+        return from_remote(address, simulated.describe(name, options), f"Simulated remote {name}")
     try:
         if kind == "sim":
             parsed = profiles.SimAddress.parse(address)
@@ -190,20 +206,56 @@ def _source_of(flow: Flow, node_id: str, port: str = "in", seen: Optional[set] =
     return None
 
 
+#: the input ports a capture (or states) comes in on
+CAPTURE_INPUTS = ("in", "capture")
+
+
 def upstream_channels(flow: Flow, node_id: str) -> list[str]:
-    """The channels of the capture wired (directly or through filters) into ``node_id``."""
-    found = _source_of(flow, node_id)
+    """The channels of the capture (or of the states of a state capture) wired (directly or
+    through filters) into ``node_id``."""
+    found = None
+    for port in CAPTURE_INPUTS:
+        found = _source_of(flow, node_id, port)
+        if found is not None:
+            break
     if found is None:
         return []
     source, port = found
     if source.type in CAPTURE_TYPES:
         channels = source.params.get("channels") or []
-        if port != "capture":
+        if port not in ("capture", "states"):
             return [port] if port in [str(channel) for channel in channels] else []
         return [str(channel) for channel in channels]
     if source.type == "convert.channel" and source.params.get("channel"):
         return [str(source.params["channel"])]
     return []
+
+
+def upstream_fields(flow: Flow, node_id: str) -> list[str]:
+    """The fields of the bundle wired into ``node_id``."""
+    found = _source_of(flow, node_id)
+    if found is None or found[0].type != "data.bundle":
+        return []
+    return [str(name) for name in found[0].params.get("fields") or []]
+
+
+def flow_outputs(flow: Flow, node_id: str, registry=None) -> list[str]:
+    """The outputs of the other nodes of ``flow`` as ``node.port`` (not their device outputs): what a
+    node with inputs by name (a strip chart's traces) can take."""
+    from ..core import signals
+    from .nodes.registry import RegistryError, default_registry
+
+    found = []
+    for other_id, node in flow.nodes.items():
+        if other_id == node_id or node.type in ("structure.comment", "structure.group"):
+            continue
+        try:
+            spec = flow.spec(node, registry or default_registry)
+        except RegistryError:
+            continue
+        _inputs, outputs = spec.resolve_ports(node.params)
+        found += [f"{other_id}.{port.name}" for port in outputs if port.type != signals.DEVICE]
+    return found
 
 
 def upstream_columns(flow: Flow, node_id: str) -> list[str]:
@@ -218,16 +270,28 @@ def upstream_columns(flow: Flow, node_id: str) -> list[str]:
 
 
 # ------------------------------------------------------------- suggestions
-def suggestions(flow: Flow, node_id: str, param: ParamSpec, devices: dict[str, DeviceHints]) -> Optional[list[str]]:
+def suggestions(flow: Flow, node_id: str, param: ParamSpec, devices: dict[str, DeviceHints],
+                registry=None, source: str = "") -> Optional[list[str]]:
     """Values to offer for ``param`` of ``node_id``; ``None`` when nothing is known (no device that
-    tells, nothing wired upstream) – the editor then takes any text."""
-    source, _, capability = param.suggest.partition(":")
+    tells, nothing wired upstream) – the editor then takes any text. ``source``: another source
+    than the parameter's (the values of a mapping)."""
+    source, _, capability = (source or param.suggest).partition(":")
     if not source:
         return None
+    if source == "flow_outputs":
+        return flow_outputs(flow, node_id, registry) or None
+    if source == "upstream_fields":
+        return upstream_fields(flow, node_id) or None
     if source == "upstream_channels":
         return upstream_channels(flow, node_id) or None
     if source == "upstream_columns":
         return upstream_columns(flow, node_id) or None
+    if source in ("own_keys", "own_list"):
+        node = flow.nodes.get(node_id)
+        value = node.params.get(capability) if node is not None else None
+        if source == "own_keys":
+            return [str(key) for key in value] if isinstance(value, dict) and value else None
+        return [str(item) for item in value] if isinstance(value, (list, tuple)) and value else None
     device = flow.device_of(node_id) if node_id in flow.nodes else None
     if device is None and len(flow.devices) == 1:
         device = next(iter(flow.devices))  # not wired yet: the only device is the one it will use
@@ -239,7 +303,11 @@ def suggestions(flow: Flow, node_id: str, param: ParamSpec, devices: dict[str, D
     if source == "analog":
         return list(hints.analog) or None
     if source == "outputs":
-        return list(hints.outputs) or None
+        kinds = set(capability.split("+")) if capability else set()
+        return [name for name in hints.outputs if not kinds or hints.output_kinds.get(name, "") in kinds
+                or not hints.output_kinds.get(name)] or None
+    if source == "clock_channels":
+        return list(hints.clock_channels) if hints.clock_channels is not None else (list(hints.channels) or None)
     if source == "pins":
         if not hints.pins:
             return None
@@ -253,13 +321,19 @@ def _remote_values(hints: DeviceHints, source: str) -> list[str]:
             "remote_commands": list(hints.remote_commands), "remote_syncs": list(hints.remote_syncs)}.get(source, [])
 
 
-def node_suggestions(flow: Flow, node_id: str, spec: NodeSpec, devices: dict[str, DeviceHints]) -> dict[str, list[str]]:
-    """``param name -> values`` of the parameters of ``node_id`` that have something to offer."""
+def node_suggestions(flow: Flow, node_id: str, spec: NodeSpec, devices: dict[str, DeviceHints],
+                     registry=None) -> dict[str, list[str]]:
+    """``param name -> values`` of the parameters of ``node_id`` that have something to offer (the
+    values of a mapping as ``name#values``)."""
     found = {}
     for param in spec.params:
-        values = suggestions(flow, node_id, param, devices)
+        values = suggestions(flow, node_id, param, devices, registry)
         if values is not None:
             found[param.name] = values
+        if param.values:
+            values = suggestions(flow, node_id, param, devices, registry, source=param.values)
+            if values is not None:
+                found[f"{param.name}#values"] = values
     return found
 
 
@@ -297,8 +371,11 @@ def value_problem(param: ParamSpec, value) -> str:
 
 
 def _values(param: ParamSpec, value) -> list[str]:
-    """The single values in a parameter value (a list's items, a mapping's values)."""
+    """The single values in a parameter value (a list's items, a mapping's values; the keys of a
+    mapping whose keys are what is suggested: the pins of a pattern's tracks, the channels mapped)."""
     if isinstance(value, dict):
+        if param.editor in ("pattern", "mapping"):
+            return [str(key) for key in value]
         return [str(item) for item in value.values() if item not in (None, "")]
     if isinstance(value, (list, tuple)):
         return [str(item) for item in value]
@@ -316,9 +393,26 @@ def device_problem(flow: Flow, node_id: str, param: ParamSpec, value, devices: d
         missing = [item for item in _values(param, value) if known and item not in known
                    and not (source == "upstream_columns" and all(part.strip() in known for part in item.split(",")))]
         return f"{param.name}: the input has no {what} {', '.join(missing)} ({', '.join(known)})" if missing else ""
+    if source == "flow_outputs":
+        return ""  # (the names of inputs, wired from those outputs)
+    if source == "upstream_fields":
+        known = upstream_fields(flow, node_id)
+        missing = [item for item in _values(param, value) if known and item not in known]
+        return f"{param.name}: the bundle has no field {', '.join(missing)} ({', '.join(known)})" if missing else ""
+    if source in ("own_keys", "own_list"):
+        known = suggestions(flow, node_id, param, devices) or []
+        missing = [item for item in _values(param, value) if known and item not in known]
+        return f"{param.name}: {', '.join(missing)} is not in '{capability}' ({', '.join(known)})" if missing else ""
     device = flow.device_of(node_id)
     hints = devices.get(device) if device else None
     if hints is None:
+        return ""
+    if source == "clock_channels":
+        known = hints.clock_channels if hints.clock_channels is not None else hints.channels
+        missing = [item for item in _values(param, value) if item not in known]
+        if missing:
+            return (f"{param.name}: {', '.join(missing)} cannot clock the state mode of {hints.title}"
+                    + (f" (clocks: {', '.join(known)})" if known else " (it has no state mode)"))
         return ""
     if source == "pins":
         if not hints.pins:
@@ -362,3 +456,57 @@ def check(flow: Flow, registry: Optional[Registry] = None, devices: Optional[dic
             if text:
                 problems.append(Problem("warning", text, node_id))
     return problems
+
+
+# ------------------------------------------------------------- summaries
+#: the longest summary of a value on the canvas (characters)
+SUMMARY_LENGTH = 28
+
+
+def _short(text: str, length: int = SUMMARY_LENGTH) -> str:
+    text = " ".join(str(text).split())
+    return text if len(text) <= length else text[:length - 1].rstrip() + "…"
+
+
+def summarize(param: ParamSpec, value) -> str:
+    """``value`` of ``param`` as a node shows it on the canvas: short and readable (``↑ D8`` for a
+    trigger, ``D0, D1, D8`` for channels, ``4 steps`` for a sequence); ``–`` when it is not set."""
+    if value is None or value == "" or value == [] or value == {}:
+        return "–"
+    if isinstance(value, bool):
+        return "on" if value else "off"
+    if param.editor == "trigger" and isinstance(value, dict):
+        source = value.get("source", "")
+        if value.get("pattern") is not None:
+            return _short(f"pattern {value['pattern']} at {source}")
+        edge = str(value.get("edge", "rising"))
+        return _short(f"{ {'rising': '↑', 'falling': '↓', 'both': '↕'}.get(edge, edge)} {source}".strip())
+    if param.editor == "pattern" and isinstance(value, dict):
+        return f"{len(value)} pin{'s' if len(value) != 1 else ''}: " + _short(", ".join(map(str, value)), 18)
+    if param.editor == "steps" and isinstance(value, list):
+        return f"{len(value)} step{'s' if len(value) != 1 else ''}"
+    if param.editor == "states" and isinstance(value, dict):
+        return f"{len(value)} state{'s' if len(value) != 1 else ''}: " + _short(", ".join(map(str, value)), 18)
+    if param.kind == "code":
+        lines = [line.strip() for line in str(value).splitlines() if line.strip() and not line.strip().startswith("#")]
+        return _short(lines[0] if lines else "–")
+    if isinstance(value, (list, tuple)):
+        return _short(", ".join(str(item) for item in value))
+    if isinstance(value, dict):
+        return _short(", ".join(f"{key}: {item}" for key, item in value.items()))
+    if isinstance(value, float):
+        number = units.format_quantity(value, param.unit) if param.unit else f"{value:g}"
+        return _short(number)
+    if isinstance(value, int) and param.unit:
+        return _short(units.format_quantity(value, param.unit))
+    return _short(value)
+
+
+def summary(spec: NodeSpec, params: dict) -> list[tuple[str, str]]:
+    """``(label, value)`` of the parameters a node shows on the canvas: its :meth:`summary_params`
+    with their effective values (the default where none is set)."""
+    rows = []
+    for param in spec.summary_params():
+        value = params.get(param.name, param.default)
+        rows.append((param.display_name, summarize(param, value)))
+    return rows

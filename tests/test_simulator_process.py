@@ -67,7 +67,7 @@ def test_the_device_list_runs_a_usb_simulator_in_a_device_process(shell):
     from openscilab.ui.devices.simulated import inject
 
     preferences._load()["devices.simulator_process"] = True
-    instrument = shell.connect_entry(DeviceEntry("sim", "profile", "pico", "Simulation: Pico", simulated=True))
+    instrument = shell.connect_entry(DeviceEntry("sim", "profile", "pico", "Simulated Pico", simulated=True))
     try:
         assert instrument in shell.hub and instrument.process.alive and instrument.process.pid != os.getpid()
         assert instrument.is_simulated and instrument.simulation is not None
@@ -102,7 +102,7 @@ def test_a_simulator_that_knows_its_time_stays_in_the_application(shell):
     from openscilab.ui.devices import DeviceEntry
 
     preferences._load()["devices.simulator_process"] = True
-    uno = shell.connect_entry(DeviceEntry("sim", "profile", "uno", "Simulation: Arduino Uno", simulated=True))
+    uno = shell.connect_entry(DeviceEntry("sim", "profile", "uno", "Simulated Arduino Uno", simulated=True))
     try:
         assert getattr(uno, "process", None) is None and uno.simulated_driver is not None
         assert shell.open_device_card(uno).signals_panel is not None
@@ -131,7 +131,7 @@ def test_a_net_is_wired_between_two_device_processes():
     try:
         assert pico.process.pid != daq.process.pid
         undo = connect_nets(pico, "GP16", daq, "P0.7")
-        assert "wired from Simulation: Pico GP16" in daq.simulation.circuit()["P0.7"]
+        assert "wired from Simulated Pico GP16" in daq.simulation.circuit()["P0.7"]
         pico.gpio.write("GP16", 1)  # (in the Pico's process; the DAQ reads it in its own)
         assert level_becomes(lambda: daq.gpio.read("P0.7"), 1)
         pico.gpio.write("GP16", 0)

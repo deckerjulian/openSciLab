@@ -147,7 +147,7 @@ void gpio_ctrl_pull_down(uint8_t gpio, uint32_t settleUs)
     gpio_set_input_enabled(gpio, true);
 #else
     gpio_pull_down(gpio);
-    (void)settleUs;
+    busy_wait_us(settleUs);
 #endif
 }
 

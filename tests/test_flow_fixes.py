@@ -28,10 +28,10 @@ def wait_for(condition, timeout: float = 10.0) -> bool:
 
 def test_a_new_device_node_has_the_default_address(shell):
     document = shell.new_flow()
-    node_id = document.add_node("device.instrument", (0, 0))
+    node_id = document.add_node("device.device", (0, 0))
     assert document.flow.nodes[node_id].params["address"] == "sim:free"
     assert document.flow.devices == {node_id: "sim:free"}
-    preset = document.add_node("device.instrument", (0, 200), "uno", address="sim:uno")
+    preset = document.add_node("device.device", (0, 200), "uno", address="sim:uno")
     assert document.flow.nodes[preset].params["address"] == "sim:uno"
 
 
@@ -109,7 +109,7 @@ def test_the_run_has_ended_when_its_result_is_there(shell):
     document.fast_box.setChecked(True)
     assert document.start_run()
     assert wait_for(lambda: document.runner.result is not None)
-    assert not document.runner.running and document.action_run.isEnabled()
+    assert not document.runner.running and document.run_state == "idle" and document.can_start_run
 
 
 def test_renaming_keeps_the_ports_of_a_subflow():

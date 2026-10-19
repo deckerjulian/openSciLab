@@ -1,5 +1,5 @@
 """The Timing tab of the device card: measuring the latency with a loopback without a flow (wired in
-the simulator), the sample clock of a device (timing.align follows it), a sync output, and the time of
+the simulator), the sample clock of a device (time.align follows it), a sync output, and the time of
 captures of the data view; the wires and the USB link of a simulator, kept for it."""
 
 from __future__ import annotations
@@ -115,7 +115,7 @@ def test_the_sample_clock_of_a_device_decides_what_align_fits():
     from openscilab.lab.nodes import timing as timing_nodes  # noqa: F401 - registers the nodes
     from openscilab.lab.nodes.registry import default_registry
 
-    params = {param.name: param for param in default_registry.get("timing.align").params}
+    params = {param.name: param for param in default_registry.get("time.align").params}
     assert params["drift"].default == "auto" and "auto" in params["drift"].choices
 
 

@@ -76,6 +76,20 @@ DEFAULTS: dict[str, Any] = {
     "timing.host_clock": "free",
     #: how close this computer's clock is to the time scale (seconds; 0: the usual for its kind)
     "timing.host_accuracy": 0.0,
+    # circuits (docs/circuits.md)
+    #: folders of KiCad symbol libraries besides those found (KiCad's own, the vendor folder); os.pathsep apart
+    "circuits.kicad_symbols": "",
+    #: folders of SPICE model libraries for every circuit; os.pathsep apart
+    "circuits.model_folders": "",
+    #: the KiCad symbol libraries are part of the catalog of components
+    "circuits.use_kicad": True,
+    # a running circuit shows where its current flows (dots along wires and through components)
+    "circuits.show_current": True,
+    #: tools openSciLab needs (ngspice, simavr, KiCad's symbols) are installed into its vendor folder
+    #: when they are missing (docs/circuits.md)
+    "circuits.install_tools": True,
+    #: a libngspice of the user's choice instead of the one found ("": found, see core/vendor.py)
+    "circuits.ngspice_path": "",
 }
 
 HOST_CLOCKS = ("free", "ntp", "ptp")

@@ -11,7 +11,7 @@ from PySide6.QtWidgets import QApplication
 
 from openscilab.core import signals
 from openscilab.lab import Flow
-from openscilab.ui.documents.chart import ChartDocument, ValueDocument, nice_ticks
+from openscilab.ui.documents.chart import ChartDocument, ViewsDocument, nice_ticks
 
 
 def wait_for(condition, timeout: float = 10.0) -> bool:
@@ -32,10 +32,10 @@ def test_nice_ticks():
 def test_a_running_flow_opens_its_views(shell):
     flow = Flow("Views")
     flow.add_node("control.sweep", "sweep", start=0, stop=4, step=1, dwell="10 ms")
-    flow.add_node("dsp.math", "square", expression="a * a", unit="V")
+    flow.add_node("signal.math", "square", expression="a * a", unit="V")
     flow.connect("sweep.value", "square.a")
     for kind in ("number", "led", "log", "table", "strip_chart"):
-        flow.add_node(f"view.{kind}", kind, title=kind.title())
+        flow.add_node(f"view.{'chart' if kind == 'strip_chart' else kind}", kind, title=kind.title())
         flow.connect("square.out", f"{kind}.in")
     flow.add_node("view.xy", "xy", title="Curve")
     flow.connect("sweep.value", "xy.x")
@@ -44,9 +44,12 @@ def test_a_running_flow_opens_its_views(shell):
     document.fast_box.setChecked(True)
     assert document.start_run()
     assert wait_for(lambda: document.runner.result is not None)
-    assert wait_for(lambda: len(shell.documents()) == 7)
-
-    views = {doc.title: doc for doc in shell.documents() if isinstance(doc, (ChartDocument, ValueDocument))}
+    # one document with a tile per view node (not a tab per node)
+    assert wait_for(lambda: len(shell.documents()) == 2)
+    (tiles,) = [doc for doc in shell.documents() if isinstance(doc, ViewsDocument)]
+    assert tiles.title == "Views · Views" and len(tiles.tiles) == 6
+    assert wait_for(lambda: tiles.tiles["number"].view.label.text() == "16 V")
+    views = {view.title: view for view in tiles.views()}
     assert set(views) == {"Number", "Led", "Log", "Table", "Strip_Chart", "Curve"}
     assert views["Number"].label.text() == "16 V"
     assert views["Led"].led.on
@@ -57,6 +60,8 @@ def test_a_running_flow_opens_its_views(shell):
     for view in views.values():
         view.resize(500, 300)
         assert not view.grab().isNull()
+    tiles.resize(900, 700)
+    assert not tiles.grab().isNull()
 
 
 def test_a_spectrum_document_draws(application=None):

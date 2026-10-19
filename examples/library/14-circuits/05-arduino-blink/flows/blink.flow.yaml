@@ -1,0 +1,11 @@
+flow: The LED blinks
+description: With the potentiometer at 20 % the LED is on and off about a quarter of a second each (probe LED, a logic channel).
+nodes:
+  uno: {type: device.device, address: "circuit:circuits/blink.circuit.yaml", at: [0, 0]}
+  capture: {type: device.capture, channels: [LED], rate: 2 kHz, duration: 2 s, at: [288, 0]}
+  edges: {type: measure.count, edge: rising, total: false, at: [576, 0]}
+  check: {type: report.check, low: 3, high: 6, title: Blinks in 2 s, at: [864, 0]}
+edges:
+  - uno.device -> capture.device
+  - capture.LED -> edges.in
+  - edges.out -> check.in

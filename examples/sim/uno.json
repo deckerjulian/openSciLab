@@ -1,6 +1,6 @@
 {
   "name": "uno",
-  "title": "Simulation: Arduino Uno",
+  "title": "Simulated Arduino Uno",
   "description": "Arduino Uno with the openSciLab firmware: D2-D13 as inputs and outputs (PWM on D3, D5, D6, D9, D10, D11), A0-A5 analog (10 bit, 5 V). Wired: D7 to D3, PWM of D9 through an RC low pass (10 kΩ, 10 µF) to A0, a push button with bounce on D2.",
   "firmware": "arduino",
   "digital": [

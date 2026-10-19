@@ -273,7 +273,7 @@ def test_the_counter_flow_writes_a_capture(tmp_path):
 
 def test_a_stream_arrives_in_blocks(registry, tmp_path):
     flow = Flow("x")
-    flow.add_node("device.instrument", "sim", address="sim:free")
+    flow.add_node("device.device", "sim", address="sim:free")
     flow.add_node("device.stream", "stream", channels=["D15"], rate="100 kHz", duration="50 ms")
     flow.connect("sim.device", "stream.device")
     flow.add_node("test.collect", "blocks")
@@ -293,7 +293,7 @@ def test_a_stream_arrives_in_blocks(registry, tmp_path):
 
 def test_unknown_devices_are_reported(registry):
     flow = Flow("x")
-    flow.add_node("device.instrument", "sim", address="sim:nothing")
+    flow.add_node("device.device", "sim", address="sim:nothing")
     flow.add_node("device.capture", "cap", samples=10)
     flow.connect("sim.device", "cap.device")
     engine, result = run(flow, registry)

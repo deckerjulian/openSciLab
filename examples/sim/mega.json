@@ -1,0 +1,899 @@
+{
+  "name": "mega",
+  "title": "Simulated Arduino Mega 2560",
+  "description": "Arduino Mega 2560 with the openSciLab firmware: all 70 pins - D2-D53 and A0-A15 as inputs and outputs (68 channels, D0/D1 carry the USB serial line), A0-A15 analog (10 bit, 5 V). Wired: D34 to D35, A0 to A1, D3 to D2 (the clock input of the state mode, INT4).",
+  "firmware": "arduino",
+  "digital": [
+    "D22",
+    "D23",
+    "D24",
+    "D25",
+    "D26",
+    "D27",
+    "D28",
+    "D29",
+    "D53",
+    "D52",
+    "D51",
+    "D50",
+    "D10",
+    "D11",
+    "D12",
+    "D13",
+    "D37",
+    "D36",
+    "D35",
+    "D34",
+    "D33",
+    "D32",
+    "D31",
+    "D30",
+    "D21",
+    "D20",
+    "D19",
+    "D18",
+    "D38",
+    "D5",
+    "D2",
+    "D3",
+    "A0",
+    "A1",
+    "A2",
+    "A3",
+    "A4",
+    "A5",
+    "A6",
+    "A7",
+    "D41",
+    "D40",
+    "D39",
+    "D4",
+    "D17",
+    "D16",
+    "D6",
+    "D7",
+    "D8",
+    "D9",
+    "D15",
+    "D14",
+    "A8",
+    "A9",
+    "A10",
+    "A11",
+    "A12",
+    "A13",
+    "A14",
+    "A15",
+    "D49",
+    "D48",
+    "D47",
+    "D46",
+    "D45",
+    "D44",
+    "D43",
+    "D42"
+  ],
+  "analog": [
+    "A0",
+    "A1",
+    "A2",
+    "A3",
+    "A4",
+    "A5",
+    "A6",
+    "A7",
+    "A8",
+    "A9",
+    "A10",
+    "A11",
+    "A12",
+    "A13",
+    "A14",
+    "A15"
+  ],
+  "pins": [
+    {
+      "name": "D22",
+      "caps": [
+        "DIN",
+        "DOUT",
+        "PULLUP"
+      ]
+    },
+    {
+      "name": "D23",
+      "caps": [
+        "DIN",
+        "DOUT",
+        "PULLUP"
+      ]
+    },
+    {
+      "name": "D24",
+      "caps": [
+        "DIN",
+        "DOUT",
+        "PULLUP"
+      ]
+    },
+    {
+      "name": "D25",
+      "caps": [
+        "DIN",
+        "DOUT",
+        "PULLUP"
+      ]
+    },
+    {
+      "name": "D26",
+      "caps": [
+        "DIN",
+        "DOUT",
+        "PULLUP"
+      ]
+    },
+    {
+      "name": "D27",
+      "caps": [
+        "DIN",
+        "DOUT",
+        "PULLUP"
+      ]
+    },
+    {
+      "name": "D28",
+      "caps": [
+        "DIN",
+        "DOUT",
+        "PULLUP"
+      ]
+    },
+    {
+      "name": "D29",
+      "caps": [
+        "DIN",
+        "DOUT",
+        "PULLUP"
+      ]
+    },
+    {
+      "name": "D53",
+      "caps": [
+        "CLOCK_SW",
+        "DIN",
+        "DOUT",
+        "PULLUP"
+      ]
+    },
+    {
+      "name": "D52",
+      "caps": [
+        "CLOCK_SW",
+        "DIN",
+        "DOUT",
+        "PULLUP"
+      ]
+    },
+    {
+      "name": "D51",
+      "caps": [
+        "CLOCK_SW",
+        "DIN",
+        "DOUT",
+        "PULLUP"
+      ]
+    },
+    {
+      "name": "D50",
+      "caps": [
+        "CLOCK_SW",
+        "DIN",
+        "DOUT",
+        "PULLUP"
+      ]
+    },
+    {
+      "name": "D10",
+      "caps": [
+        "CLOCK_SW",
+        "DIN",
+        "DOUT",
+        "PULLUP",
+        "PWM"
+      ]
+    },
+    {
+      "name": "D11",
+      "caps": [
+        "CLOCK_SW",
+        "DIN",
+        "DOUT",
+        "PULLUP",
+        "PWM",
+        "SQUARE"
+      ]
+    },
+    {
+      "name": "D12",
+      "caps": [
+        "CLOCK_SW",
+        "DIN",
+        "DOUT",
+        "PULLUP",
+        "PWM",
+        "SQUARE"
+      ]
+    },
+    {
+      "name": "D13",
+      "caps": [
+        "CLOCK_SW",
+        "DIN",
+        "DOUT",
+        "PULLUP",
+        "PWM"
+      ]
+    },
+    {
+      "name": "D37",
+      "caps": [
+        "DIN",
+        "DOUT",
+        "PULLUP"
+      ]
+    },
+    {
+      "name": "D36",
+      "caps": [
+        "DIN",
+        "DOUT",
+        "PULLUP"
+      ]
+    },
+    {
+      "name": "D35",
+      "caps": [
+        "DIN",
+        "DOUT",
+        "PULLUP"
+      ]
+    },
+    {
+      "name": "D34",
+      "caps": [
+        "DIN",
+        "DOUT",
+        "PULLUP"
+      ]
+    },
+    {
+      "name": "D33",
+      "caps": [
+        "DIN",
+        "DOUT",
+        "PULLUP"
+      ]
+    },
+    {
+      "name": "D32",
+      "caps": [
+        "DIN",
+        "DOUT",
+        "PULLUP"
+      ]
+    },
+    {
+      "name": "D31",
+      "caps": [
+        "DIN",
+        "DOUT",
+        "PULLUP"
+      ]
+    },
+    {
+      "name": "D30",
+      "caps": [
+        "DIN",
+        "DOUT",
+        "PULLUP"
+      ]
+    },
+    {
+      "name": "D21",
+      "caps": [
+        "CLOCK",
+        "DIN",
+        "DOUT",
+        "PULLUP"
+      ]
+    },
+    {
+      "name": "D20",
+      "caps": [
+        "CLOCK",
+        "DIN",
+        "DOUT",
+        "PULLUP"
+      ]
+    },
+    {
+      "name": "D19",
+      "caps": [
+        "CLOCK",
+        "DIN",
+        "DOUT",
+        "PULLUP"
+      ]
+    },
+    {
+      "name": "D18",
+      "caps": [
+        "CLOCK",
+        "DIN",
+        "DOUT",
+        "PULLUP"
+      ]
+    },
+    {
+      "name": "D38",
+      "caps": [
+        "DIN",
+        "DOUT",
+        "PULLUP"
+      ]
+    },
+    {
+      "name": "D0",
+      "caps": [
+        "DIN"
+      ],
+      "reserved": "USB serial (RX)"
+    },
+    {
+      "name": "D1",
+      "caps": [
+        "DIN"
+      ],
+      "reserved": "USB serial (TX)"
+    },
+    {
+      "name": "D5",
+      "caps": [
+        "DIN",
+        "DOUT",
+        "PULLUP",
+        "PWM"
+      ]
+    },
+    {
+      "name": "D2",
+      "caps": [
+        "CLOCK",
+        "DIN",
+        "DOUT",
+        "PULLUP",
+        "PWM"
+      ]
+    },
+    {
+      "name": "D3",
+      "caps": [
+        "CLOCK",
+        "DIN",
+        "DOUT",
+        "PULLUP",
+        "PWM"
+      ]
+    },
+    {
+      "name": "A0",
+      "caps": [
+        "ADC",
+        "DIN",
+        "DOUT",
+        "PULLUP"
+      ],
+      "analog_channel": 0
+    },
+    {
+      "name": "A1",
+      "caps": [
+        "ADC",
+        "DIN",
+        "DOUT",
+        "PULLUP"
+      ],
+      "analog_channel": 1
+    },
+    {
+      "name": "A2",
+      "caps": [
+        "ADC",
+        "DIN",
+        "DOUT",
+        "PULLUP"
+      ],
+      "analog_channel": 2
+    },
+    {
+      "name": "A3",
+      "caps": [
+        "ADC",
+        "DIN",
+        "DOUT",
+        "PULLUP"
+      ],
+      "analog_channel": 3
+    },
+    {
+      "name": "A4",
+      "caps": [
+        "ADC",
+        "DIN",
+        "DOUT",
+        "PULLUP"
+      ],
+      "analog_channel": 4
+    },
+    {
+      "name": "A5",
+      "caps": [
+        "ADC",
+        "DIN",
+        "DOUT",
+        "PULLUP"
+      ],
+      "analog_channel": 5
+    },
+    {
+      "name": "A6",
+      "caps": [
+        "ADC",
+        "DIN",
+        "DOUT",
+        "PULLUP"
+      ],
+      "analog_channel": 6
+    },
+    {
+      "name": "A7",
+      "caps": [
+        "ADC",
+        "DIN",
+        "DOUT",
+        "PULLUP"
+      ],
+      "analog_channel": 7
+    },
+    {
+      "name": "D41",
+      "caps": [
+        "DIN",
+        "DOUT",
+        "PULLUP"
+      ]
+    },
+    {
+      "name": "D40",
+      "caps": [
+        "DIN",
+        "DOUT",
+        "PULLUP"
+      ]
+    },
+    {
+      "name": "D39",
+      "caps": [
+        "DIN",
+        "DOUT",
+        "PULLUP"
+      ]
+    },
+    {
+      "name": "D4",
+      "caps": [
+        "DIN",
+        "DOUT",
+        "PULLUP",
+        "PWM"
+      ]
+    },
+    {
+      "name": "D17",
+      "caps": [
+        "DIN",
+        "DOUT",
+        "PULLUP"
+      ]
+    },
+    {
+      "name": "D16",
+      "caps": [
+        "DIN",
+        "DOUT",
+        "PULLUP"
+      ]
+    },
+    {
+      "name": "D6",
+      "caps": [
+        "DIN",
+        "DOUT",
+        "PULLUP",
+        "PWM"
+      ]
+    },
+    {
+      "name": "D7",
+      "caps": [
+        "DIN",
+        "DOUT",
+        "PULLUP",
+        "PWM"
+      ]
+    },
+    {
+      "name": "D8",
+      "caps": [
+        "DIN",
+        "DOUT",
+        "PULLUP",
+        "PWM"
+      ]
+    },
+    {
+      "name": "D9",
+      "caps": [
+        "DIN",
+        "DOUT",
+        "PULLUP",
+        "PWM"
+      ]
+    },
+    {
+      "name": "D15",
+      "caps": [
+        "DIN",
+        "DOUT",
+        "PULLUP"
+      ]
+    },
+    {
+      "name": "D14",
+      "caps": [
+        "DIN",
+        "DOUT",
+        "PULLUP"
+      ]
+    },
+    {
+      "name": "A8",
+      "caps": [
+        "ADC",
+        "CLOCK_SW",
+        "DIN",
+        "DOUT",
+        "PULLUP"
+      ],
+      "analog_channel": 8
+    },
+    {
+      "name": "A9",
+      "caps": [
+        "ADC",
+        "CLOCK_SW",
+        "DIN",
+        "DOUT",
+        "PULLUP"
+      ],
+      "analog_channel": 9
+    },
+    {
+      "name": "A10",
+      "caps": [
+        "ADC",
+        "CLOCK_SW",
+        "DIN",
+        "DOUT",
+        "PULLUP"
+      ],
+      "analog_channel": 10
+    },
+    {
+      "name": "A11",
+      "caps": [
+        "ADC",
+        "CLOCK_SW",
+        "DIN",
+        "DOUT",
+        "PULLUP"
+      ],
+      "analog_channel": 11
+    },
+    {
+      "name": "A12",
+      "caps": [
+        "ADC",
+        "CLOCK_SW",
+        "DIN",
+        "DOUT",
+        "PULLUP"
+      ],
+      "analog_channel": 12
+    },
+    {
+      "name": "A13",
+      "caps": [
+        "ADC",
+        "CLOCK_SW",
+        "DIN",
+        "DOUT",
+        "PULLUP"
+      ],
+      "analog_channel": 13
+    },
+    {
+      "name": "A14",
+      "caps": [
+        "ADC",
+        "CLOCK_SW",
+        "DIN",
+        "DOUT",
+        "PULLUP"
+      ],
+      "analog_channel": 14
+    },
+    {
+      "name": "A15",
+      "caps": [
+        "ADC",
+        "CLOCK_SW",
+        "DIN",
+        "DOUT",
+        "PULLUP"
+      ],
+      "analog_channel": 15
+    },
+    {
+      "name": "D49",
+      "caps": [
+        "DIN",
+        "DOUT",
+        "PULLUP"
+      ]
+    },
+    {
+      "name": "D48",
+      "caps": [
+        "DIN",
+        "DOUT",
+        "PULLUP"
+      ]
+    },
+    {
+      "name": "D47",
+      "caps": [
+        "DIN",
+        "DOUT",
+        "PULLUP"
+      ]
+    },
+    {
+      "name": "D46",
+      "caps": [
+        "DIN",
+        "DOUT",
+        "PULLUP",
+        "PWM"
+      ]
+    },
+    {
+      "name": "D45",
+      "caps": [
+        "DIN",
+        "DOUT",
+        "PULLUP",
+        "PWM"
+      ]
+    },
+    {
+      "name": "D44",
+      "caps": [
+        "DIN",
+        "DOUT",
+        "PULLUP",
+        "PWM"
+      ]
+    },
+    {
+      "name": "D43",
+      "caps": [
+        "DIN",
+        "DOUT",
+        "PULLUP"
+      ]
+    },
+    {
+      "name": "D42",
+      "caps": [
+        "DIN",
+        "DOUT",
+        "PULLUP"
+      ]
+    }
+  ],
+  "max_rate": 100000,
+  "memory_depth": 4096,
+  "stream_bandwidth": 11520,
+  "adc_bits": 10,
+  "analog_range": [
+    0.0,
+    5.0
+  ],
+  "adc_noise": 0.003,
+  "logic_level": 5.0,
+  "latency": 0.002,
+  "gpio_latency": 0.002,
+  "watchdog": 1.0,
+  "monitor_rate": 1000,
+  "capabilities": [
+    "CONTINUOUS_STREAM",
+    "GEN_SQUARE",
+    "GPIO",
+    "IMMEDIATE_TRIGGER",
+    "MONITOR",
+    "PATTERN_GEN=50000,68",
+    "PWM",
+    "STATE_MODE",
+    "STREAM_STATE",
+    "TX_I2C",
+    "TX_SPI",
+    "TX_UART"
+  ],
+  "clock_pins": [
+    "D53",
+    "D52",
+    "D51",
+    "D50",
+    "D10",
+    "D11",
+    "D12",
+    "D13",
+    "D21",
+    "D20",
+    "D19",
+    "D18",
+    "D2",
+    "D3",
+    "A8",
+    "A9",
+    "A10",
+    "A11",
+    "A12",
+    "A13",
+    "A14",
+    "A15"
+  ],
+  "circuit": {
+    "sources": {},
+    "wiring": [
+      {
+        "from": "D34",
+        "to": "D35"
+      },
+      {
+        "from": "A0",
+        "to": "A1"
+      },
+      {
+        "from": "D3",
+        "to": "D2"
+      }
+    ]
+  },
+  "provisional": "Values of the openSciLab Arduino firmware (phase 2) until measured (step 2a).",
+  "outputs": [
+    {
+      "name": "PATTERN",
+      "kind": "pattern",
+      "pins": [
+        "D22",
+        "D23",
+        "D24",
+        "D25",
+        "D26",
+        "D27",
+        "D28",
+        "D29",
+        "D53",
+        "D52",
+        "D51",
+        "D50",
+        "D10",
+        "D11",
+        "D12",
+        "D13",
+        "D37",
+        "D36",
+        "D35",
+        "D34",
+        "D33",
+        "D32",
+        "D31",
+        "D30",
+        "D21",
+        "D20",
+        "D19",
+        "D18",
+        "D38",
+        "D5",
+        "D2",
+        "D3",
+        "A0",
+        "A1",
+        "A2",
+        "A3",
+        "A4",
+        "A5",
+        "A6",
+        "A7",
+        "D41",
+        "D40",
+        "D39",
+        "D4",
+        "D17",
+        "D16",
+        "D6",
+        "D7",
+        "D8",
+        "D9",
+        "D15",
+        "D14",
+        "A8",
+        "A9",
+        "A10",
+        "A11",
+        "A12",
+        "A13",
+        "A14",
+        "A15",
+        "D49",
+        "D48",
+        "D47",
+        "D46",
+        "D45",
+        "D44",
+        "D43",
+        "D42"
+      ],
+      "max_rate": 50000,
+      "max_points": 4096
+    },
+    {
+      "name": "SQUARE",
+      "kind": "square",
+      "net": "D11",
+      "pins": [
+        "D11"
+      ],
+      "voltage_range": [
+        0.0,
+        5.0
+      ],
+      "max_frequency": 4000000
+    }
+  ],
+  "memory_depth_digital": {
+    "8": 4096,
+    "16": 2048,
+    "24": 1365,
+    "32": 1024,
+    "48": 682,
+    "68": 372
+  },
+  "stream_max_rate": 20000,
+  "gen_bytes": 1536,
+  "buffer_analog": false,
+  "max_post_seconds": 2,
+  "clock_hz": 16000000
+}

@@ -46,7 +46,7 @@ from ...core.instrument import GeneratorFacet, InstrumentError
 from .. import messages
 from ..devices.hub_bridge import HubBridge
 from ..icons import set_icon
-from ..theme import BORDER, TEXT_MUTED, set_role, set_variant, token
+from ..theme import BORDER, TEXT_MUTED, set_role, set_tone, token
 from ..widgets.plot_lines import screen_points
 from .base import DocumentWidget
 
@@ -320,19 +320,14 @@ class WaveformDocument(DocumentWidget):
         self.output_box = QComboBox(output_box)
         self.output_box.setMinimumWidth(220)
         output_layout.addWidget(self.output_box, 1)
-        self.start_button = QPushButton("Start", output_box)
-        set_icon(self.start_button, "play")
-        set_variant(self.start_button, "primary")
-        self.start_button.clicked.connect(self.start)
-        output_layout.addWidget(self.start_button)
-        self.stop_button = QPushButton("Stop", output_box)
-        set_icon(self.stop_button, "stop")
-        self.stop_button.clicked.connect(self.stop)
-        output_layout.addWidget(self.stop_button)
+        # (Play and Stop are the header's: the run protocol below)
+        play_hint = QLabel("Play (F5) in the header", output_box)
+        set_role(play_hint, "hint")
+        output_layout.addWidget(play_hint)
         right_layout.addWidget(output_box)
         self.problems_label = QLabel(right)
         self.problems_label.setWordWrap(True)
-        self.problems_label.setStyleSheet(f"color: {token('run.error')}")
+        set_tone(self.problems_label, "run.error")
         right_layout.addWidget(self.problems_label)
         self.limit_button = QPushButton("Limit the rate", right)
         self.limit_button.setToolTip("Play every n-th sample at a rate the output can (edges closer than that get lost)")
@@ -547,17 +542,15 @@ class WaveformDocument(DocumentWidget):
             return [self.error] if self.error else []
         selected = self.selected_output()
         if selected is None:
-            return ["No generator output: connect an instrument with a generator (e.g. sim:dho924s or sim:free)."]
+            return ["No generator output: connect a device with a generator (e.g. sim:dho924s or sim:free)."]
         return waves.problems(self.waveform, selected[2])
 
     def _check_output(self) -> None:
         found = self.problems()
         self.problems_label.setText("\n".join(found))
         selected = self.selected_output()
-        playing = self.playing is not None
-        self.start_button.setEnabled(not found)
-        self.start_button.setText("Restart" if playing else "Start")
-        self.stop_button.setEnabled(playing)
+        self._can_play = not found
+        self.run_state_changed.emit(self.run_state)
         too_fast = selected is not None and self.waveform is not None and self.waveform.is_pattern \
             and self.waveform.rate > selected[2].max_rate
         self.limit_button.setVisible(bool(too_fast))
@@ -577,6 +570,25 @@ class WaveformDocument(DocumentWidget):
         self.set_waveform(limited)
         self._dirty = True
         return True
+
+    # ---------------------------------------------------- the header's Run
+    runnable = True
+    run_label = "Play"
+    run_tooltip = "Play the waveform on the chosen output (again: from its start)"
+
+    @property
+    def can_start_run(self) -> bool:
+        return getattr(self, "_can_play", False)
+
+    @property
+    def run_state(self) -> str:
+        return "running" if self.playing is not None else "idle"
+
+    def start_run(self) -> bool:
+        return self.start()
+
+    def stop_run(self) -> None:
+        self.stop()
 
     def start(self) -> bool:
         if self.waveform is None:

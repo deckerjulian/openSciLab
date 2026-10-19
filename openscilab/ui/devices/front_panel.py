@@ -48,7 +48,7 @@ from ...core.instrument import Instrument, SettingsFacet
 from ...driver.base import CAPABILITY_DEVICE_SETTINGS, CAPABILITY_REMOTE_SCREEN, capability_value
 from ..dialogs.common import InlineMessage, hint
 from ..icons import set_icon
-from ..theme import TEXT_MUTED, set_variant
+from ..theme import TEXT_MUTED, qcolor, set_variant
 
 log = logging.getLogger(__name__)
 
@@ -155,7 +155,7 @@ class ScreenView(QWidget):
 
     def paintEvent(self, _event) -> None:  # noqa: N802 - Qt
         painter = QPainter(self)
-        painter.fillRect(self.rect(), QColor("#000000"))
+        painter.fillRect(self.rect(), qcolor("screen"))
         if self.image is not None:
             painter.setRenderHint(QPainter.SmoothPixmapTransform)
             painter.drawImage(self._target(), self.image)
@@ -468,7 +468,7 @@ class FrontPanelPage(QSplitter):
             header = QHBoxLayout()
             header.setContentsMargins(0, 0, 0, 4)
             if can_capture:
-                self.capture_button = QPushButton("Capture with these settings", left)
+                self.capture_button = QPushButton("Capture with this setup", left)
                 self.capture_button.setObjectName("capture-device-settings")
                 set_icon(self.capture_button, "play")
                 set_variant(self.capture_button, "primary")
@@ -498,7 +498,7 @@ class FrontPanelPage(QSplitter):
             self.window_note.setAlignment(Qt.AlignCenter)
             self.window_note.setVisible(False)
             column.addWidget(self.window_note, 1)
-            self.screen_hint = hint("Click and drag on the screen as on the instrument's touch screen.", left)
+            self.screen_hint = hint("Click and drag on the screen as on the oscilloscope's touch screen.", left)
             column.addWidget(self.screen_hint)
         if has_screen or can_capture:
             if not has_screen:
@@ -609,12 +609,12 @@ class FrontPanelPage(QSplitter):
         self.link = link
         view = self.screen_view
         if link is None:
-            view.message = f"The screen cannot be shown: {problem or 'the instrument has none'}"
+            view.message = f"The screen cannot be shown: {problem or 'the oscilloscope has none'}"
             view.update()
             return
         view.link = link
         if not link.touch_supported:
-            self.screen_hint.setText("The screen over USB, without touches: connect the instrument to the network to "
+            self.screen_hint.setText("The screen over USB, without touches: connect the oscilloscope to the network to "
                                      "touch it here (and to see it faster).")
         if self._active or self.screen_window is not None:
             link.start(view.deliver)

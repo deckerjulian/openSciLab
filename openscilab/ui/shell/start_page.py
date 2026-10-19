@@ -4,9 +4,9 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""Start page: what to do first (a simulator, a device, a new flow, a file), every project of the
-library to start from - tiles by category: the user's own templates first, then the plain starting
-points - and the recent files and projects."""
+"""Start page: what to do first (a simulator, a device, a new flow, a file), every example to start
+from - tiles by category: the user's own templates first, then the plain starting points - and the
+recent files and projects (beside the tiles, or behind *Recent* when the page is narrow)."""
 
 from __future__ import annotations
 
@@ -35,7 +35,7 @@ from ... import __version__
 from ...core import recent
 from ..documents.base import DocumentWidget
 from ..icons import icon, set_icon
-from ..theme import ACCENT, set_role, set_variant
+from ..theme import ACCENT, set_role, set_variant, size
 
 #: the size of a tile of the library (pixels)
 TILE_WIDTH = 236
@@ -244,7 +244,7 @@ class StartPage(DocumentWidget):
         top.addLayout(titles)
         top.addStretch(1)
         self.filter_edit = QLineEdit(self)
-        self.filter_edit.setPlaceholderText("Search projects and examples")
+        self.filter_edit.setPlaceholderText("Search the examples")
         self.filter_edit.setClearButtonEnabled(True)
         self.filter_edit.setMinimumWidth(260)
         self.filter_edit.textChanged.connect(self.apply_filter)
@@ -265,7 +265,7 @@ class StartPage(DocumentWidget):
         actions.addWidget(self.simulator_button)
         self.connect_button = QPushButton("Connect a device", self)
         set_icon(self.connect_button, "plug")
-        self.connect_button.setToolTip("A board on USB or in the network; its device card opens")
+        self.connect_button.setToolTip("A device on USB or in the network; its document opens")
         self.connect_button.clicked.connect(self.connect_requested.emit)
         actions.addWidget(self.connect_button)
         self.new_flow_button = QPushButton("New flow", self)
@@ -281,6 +281,13 @@ class StartPage(DocumentWidget):
         set_icon(self.open_project_button, "folder")
         self.open_project_button.clicked.connect(self.open_project_requested.emit)
         actions.addWidget(self.open_project_button)
+        # the recent files when the page is too narrow for their column
+        self.recent_button = QPushButton("Recent", self)
+        set_icon(self.recent_button, "clock")
+        self.recent_menu = QMenu(self.recent_button)
+        self.recent_button.setMenu(self.recent_menu)
+        self.recent_button.setVisible(False)
+        actions.addWidget(self.recent_button)
         actions.addStretch(1)
         outer.addLayout(actions)
 
@@ -302,8 +309,9 @@ class StartPage(DocumentWidget):
         right.addWidget(recent_heading)
         self.recent_list = QListWidget(self)
         self.recent_list.setFrameShape(QFrame.NoFrame)
-        self.recent_list.setStyleSheet("QListWidget { background: transparent; }")
+        set_role(self.recent_list, "plain")
         self.recent_list.itemActivated.connect(self._open_item)
+        self.recent_list.itemClicked.connect(self._open_item)
         right.addWidget(self.recent_list, 1)
         self.empty_hint = QLabel("Files and projects you open appear here.", self)
         self.empty_hint.setWordWrap(True)
@@ -312,7 +320,7 @@ class StartPage(DocumentWidget):
         right.addStretch(0)
         self.recent_holder = QWidget(self)
         self.recent_holder.setLayout(right)
-        self.recent_holder.setFixedWidth(220)
+        self.recent_holder.setFixedWidth(size("recent"))
         body.addWidget(self.recent_holder)
         outer.addLayout(body, 1)
 
@@ -364,8 +372,10 @@ class StartPage(DocumentWidget):
 
     def resizeEvent(self, event) -> None:  # noqa: N802 - Qt naming
         super().resizeEvent(event)
-        # a narrow page gives the room of the recent list to the tiles
-        self.recent_holder.setVisible(self.width() >= 3 * TILE_WIDTH + 340)
+        # a narrow page gives the room of the recent list to the tiles; Recent is a button then
+        wide = self.width() >= 3 * TILE_WIDTH + 340
+        self.recent_holder.setVisible(wide)
+        self.recent_button.setVisible(not wide and self.recent_list.count() > 0)
         self.reflow()
 
     def apply_filter(self, text: str = "") -> int:
@@ -399,15 +409,24 @@ class StartPage(DocumentWidget):
         return "Start"
 
     def refresh(self) -> None:
+        from .sidebar import file_icon
+
         self.recent_list.clear()
+        self.recent_menu.clear()
         for kind, entries in (("projects", recent.entries("projects")), ("files", recent.entries("files"))):
             for path in entries:
                 name = os.path.basename(path.rstrip(os.sep)) or path
-                item = QListWidgetItem(icon("folder" if kind == "projects" else "file-plus"), name, self.recent_list)
+                picture = icon("layers" if kind == "projects" else file_icon(path))
+                item = QListWidgetItem(picture, name, self.recent_list)
                 item.setToolTip(path)
                 item.setData(Qt.UserRole, (kind, path))
+                action = self.recent_menu.addAction(picture, name)
+                action.setToolTip(path)
+                action.triggered.connect(lambda _checked=False, item=item: self._open_item(item))
         self.empty_hint.setVisible(self.recent_list.count() == 0)
         self.recent_list.setVisible(self.recent_list.count() > 0)
+        self.recent_button.setVisible(self.recent_list.count() > 0 and not self.recent_holder.isVisible()
+                                      and self.isVisible())
 
     def _open_item(self, item: QListWidgetItem) -> None:
         kind, path = item.data(Qt.UserRole)

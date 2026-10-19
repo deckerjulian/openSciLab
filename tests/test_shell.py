@@ -25,8 +25,8 @@ def menu_titles(shell) -> list[str]:
 
 # ------------------------------------------------------------------ start up
 def test_the_shell_starts_with_its_menus_and_docks(shell):
-    assert menu_titles(shell) == ["Project", "Edit", "View", "Devices", "Templates", "Help"]
-    assert shell.sidebar_dock.isVisible()
+    assert menu_titles(shell) == ["File", "Edit", "View", "Run", "Devices", "Examples", "Help"]
+    assert not shell.sidebar_dock.isVisible()  # folded away until the activity bar opens it
     assert shell.inspector_dock.isVisible()
     assert not shell.console_dock.isVisible()
     assert shell.active_document() is None
@@ -41,8 +41,8 @@ def test_the_logic_analyzer_template_opens_devices_and_an_analyzer(shell):
     assert shell.activity_bar.current == "devices"
     assert shell.sidebar.current_key == "devices"
     # The menus of the data view join the shell's; devices are the shell's business.
-    assert menu_titles(shell) == ["Project", "Edit", "Data", "Analyze", "Display", "View", "Devices", "Templates", "Help"]
-    assert not document.menuBar().isVisible()
+    assert menu_titles(shell) == ["File", "Edit", "Data", "Analyze", "Display", "View", "Run", "Devices", "Examples", "Help"]
+    assert not hasattr(document, "menuBar")  # a document, not a window: its menus are the shell's
     assert document.toolbar() is not None
 
 
@@ -80,7 +80,7 @@ def test_a_document_with_changes_is_marked_and_asks_before_closing(shell, monkey
     assert shell.close_active()
     assert shell.documents() == []
     assert asked and "demo.lac" in asked[0]
-    assert menu_titles(shell) == ["Project", "Edit", "View", "Devices", "Templates", "Help"]
+    assert menu_titles(shell) == ["File", "Edit", "View", "Run", "Devices", "Examples", "Help"]
 
 
 def test_save_goes_to_the_active_document(shell, tmp_path, monkeypatch):
@@ -184,9 +184,9 @@ def test_the_palette_finds_and_runs_every_menu_action(shell):
     titles = {command.title for command in shell.commands()}
 
     # Every menu entry of the shell and the analyzer can be reached.
-    for expected in ("Project › Open file", "Data › Capture again", "Analyze › Measurements",
+    for expected in ("File › Open file", "Data › Capture again", "Analyze › Measurements",
                      "Display › Zoom to fit", "View › Console", "Help › About openSciLab",
-                     "Devices › Install or update firmware", "Go to › demo.lac"):
+                     "Devices › Boards and firmware", "Run › Run", "Go to › demo.lac"):
         assert expected in titles, expected
 
     palette = shell.show_command_palette()
@@ -244,7 +244,7 @@ def test_command_line_files_open_on_start(monkeypatch, application_for_app):
     assert opened == [DEMO]
 
 
-def test_the_application_starts_with_a_flow(monkeypatch, application_for_app):
+def test_the_application_starts_with_the_start_page(monkeypatch, application_for_app):
     from openscilab import app
     from openscilab.ui.documents.flow import FlowDocument
     from openscilab.ui.shell.main_window import ShellWindow
@@ -257,9 +257,10 @@ def test_the_application_starts_with_a_flow(monkeypatch, application_for_app):
     window = windows[0]
     try:
         kinds = [document.document_kind for document in window.area.documents()]
-        assert kinds == ["start", "flow"]
-        assert window.active_document().document_kind == "start"  # what to do first
-        flow = window.area.documents()[1]
+        assert kinds == ["start"]  # what to do first; no empty flow nobody asked for
+        assert window.active_document().document_kind == "start"
+        window.start_page.new_flow_button.click()
+        flow = window.active_document()
         assert isinstance(flow, FlowDocument) and flow.path is None  # temporary until it is saved
     finally:
         window.force_close()
@@ -280,23 +281,24 @@ def application_for_app(monkeypatch):
 
 # --------------------------------------------------------------- sidebar etc.
 def test_the_activity_bar_switches_and_hides_the_sidebar(shell):
-    shell.activity_bar.section_action("search").trigger()
-    assert shell.sidebar.current_key == "search"
+    shell.activity_bar.section_action("devices").trigger()
+    assert shell.sidebar.current_key == "devices"
     assert shell.sidebar_dock.isVisible()
 
-    shell.activity_bar.section_action("search").trigger()  # again: hide
+    shell.activity_bar.section_action("devices").trigger()  # again: hide
     assert not shell.sidebar_dock.isVisible()
 
     shell.toggle_sidebar()
     assert shell.sidebar_dock.isVisible()
 
 
-def test_the_search_section_runs_commands(shell):
-    shell.activity_bar.select("search")
-    shell.search_section.input.setText("console")
-    results = shell.search_section.results
-    assert results.count() > 0
-    results.itemActivated.emit(results.item(0))
+def test_searching_is_the_command_palette(shell):
+    # (no search section of its own in the sidebar: Ctrl+K finds commands, documents and files)
+    assert "search" not in shell.activity_bar.keys()
+    palette = shell.show_command_palette()
+    palette.input.setText("console")
+    assert palette.results.count() > 0
+    palette.execute_current()
     assert shell.console_dock.isVisible()
 
 
@@ -336,12 +338,17 @@ def test_status_messages_reach_the_log(shell):
     assert "hello lab" in shell.console.log.toPlainText()
 
 
-def test_the_inspector_shows_the_capture_of_the_active_analyzer(shell):
+def test_the_inspector_shows_the_analysis_of_the_active_data_view(shell):
     document = shell.open_file(DEMO)
-    text = shell.inspector.content.text()
+    # decoders, measure, search, markers and the capture: the inspector of the shell
+    assert shell.inspector.content is document.side_tabs
+    text = document.info_label.text()
     assert "demo.lac" in text and "Total samples" in text
 
-    shell.new_data_view()
-    assert "not saved" in shell.inspector.content.text()
+    other = shell.new_data_view()
+    assert shell.inspector.content is other.side_tabs
     shell.area.activate(document)
-    assert "demo.lac" in shell.inspector.content.text()
+    assert shell.inspector.content is document.side_tabs
+    shell.inspector_dock.setVisible(False)
+    document.show_panel(document.measure_panel)  # (Ctrl+Shift+M: the inspector shows it)
+    assert shell.inspector_dock.isVisible() and document.side_tabs.currentWidget().isAncestorOf(document.measure_panel)

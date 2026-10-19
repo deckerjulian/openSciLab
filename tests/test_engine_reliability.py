@@ -212,7 +212,7 @@ def more(registry):
 def test_views_keep_only_what_they_show_now(more):
     flow = Flow("x")
     flow.add_node("control.timer", "timer", interval="1 ms", count=3000)
-    flow.add_node("view.strip_chart", "chart", window="100 ms")
+    flow.add_node("view.chart", "chart", window="100 ms")
     flow.add_node("report.section", "section")
     flow.add_node("report.check", "check", low=1.0)
     flow.connect("timer.index", "chart.in")
@@ -376,7 +376,7 @@ def test_function_nodes_get_their_parameters(registry):
 
 def test_a_capture_slower_than_one_sample_a_second_is_refused(registry):
     flow = Flow("x")
-    flow.add_node("device.instrument", "sim", address="sim:free")
+    flow.add_node("device.device", "sim", address="sim:free")
     flow.add_node("device.capture", "capture", channels=["D0"], rate="0.2 Hz", samples=10)
     flow.connect("sim.device", "capture.device")
     result = Engine(flow, registry=registry, mode="virtual").run(timeout=20)

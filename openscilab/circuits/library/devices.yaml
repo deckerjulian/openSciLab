@@ -1,0 +1,55 @@
+# openSciLab's own components: pins of connected devices in a circuit (hardware in the loop)
+- type: device.input
+  title: Device input
+  category: Devices
+  prefix: J
+  role: device.in
+  keywords: device hardware in the loop hil real pin input read gpio adc pico arduino daq measure
+  description: "A pin a connected device reads (its input): what the device measures there - a level or a voltage - drives this net while the circuit runs (hardware in the loop)."
+  symbol:
+    shapes:
+      - {rect: [10, -10, 60, 10], fill: background}
+      - {line: [0, 0, 10, 0]}
+      - {line: [18, 0, 40, 0]}
+      - {line: [24, -5, 18, 0, 24, 5]}
+      - {text: "IN", at: [50, 0], size: 7}
+    pins:
+      - {number: "1", at: [0, 0], angle: 0, length: 0}
+    reference: {at: [35, -18]}
+    value: {at: [66, 0], align: left}
+    pin_names: false
+  params:
+    - {name: device, label: Device, default: "", kind: device, description: "The connected device, as Devices lists it (empty: the only one connected)."}
+    - {name: pin, label: Pin, default: "", kind: device_pin, description: "The pin of the device it reads (D2, A0, GP15 ...)."}
+    - {name: signal, label: Signal, default: digital, choices: [digital, analog], kind: choice, description: "digital: its level (0 V or the logic level of the device); analog: the voltage at an analog input."}
+    - {name: resistance, label: Source resistance, unit: Ω, default: "10", min: 0, description: The resistance the measured voltage drives the net through.}
+  show: [device, pin]
+  spice: |
+    {ref:V}x {ref}_s 0 DC 0 external
+    {ref:R} {ref}_s {pin.1} {{max(resistance, 1e-3)}}
+
+- type: device.output
+  title: Device output
+  category: Devices
+  prefix: J
+  role: device.out
+  keywords: device hardware in the loop hil real pin output drive gpio dac led relay pico arduino daq
+  description: "A pin a connected device drives (its output): it follows this net while the circuit runs - high or low (digital: above or below half the logic supply of the circuit) or the voltage of an analog output (hardware in the loop)."
+  symbol:
+    shapes:
+      - {rect: [10, -10, 60, 10], fill: background}
+      - {line: [0, 0, 10, 0]}
+      - {line: [18, 0, 40, 0]}
+      - {line: [34, -5, 40, 0, 34, 5]}
+      - {text: "OUT", at: [50, 0], size: 7}
+    pins:
+      - {number: "1", at: [0, 0], angle: 0, length: 0}
+    reference: {at: [35, -18]}
+    value: {at: [66, 0], align: left}
+    pin_names: false
+  params:
+    - {name: device, label: Device, default: "", kind: device, description: "The connected device, as Devices lists it (empty: the only one connected)."}
+    - {name: pin, label: Pin, default: "", kind: device_pin, description: "The pin of the device it drives (D13, GP25, AO0 ...)."}
+    - {name: signal, label: Signal, default: digital, choices: [digital, analog], kind: choice, description: "digital: a digital output, high or low; analog: an analog output (DAC) set to the voltage of the net."}
+  show: [device, pin]
+  spice: "{ref:R} {pin.1} 0 10Meg"

@@ -1,0 +1,85 @@
+flow: Loopback with state mode
+description: 'generator.pattern plays three passes of 1 s at 200 Hz: the clock on D3 (100 Hz), the data on D34 (two clocks high, two low) and a slow square on A0 (1 Hz, 0 V and 5 V - the Mega has no DAC). The state capture takes 64 states of D35 at the rising edges of D2: 1, 1, 0, 0, ... - 16 rising edges. The monitor reads A1 and D35 at 50 Hz for 2.5 s; A1 reaches 5 V and 0 V.'
+nodes:
+  mega: {type: device.device, at: [0, 320]}
+  pattern:
+    type: generator.pattern
+    tracks:
+      D3: |-
+        // clock period=2 start=low
+        {l1,h1,}100;
+      D34: |-
+        // square high=4 low=4 start=high
+        {h4,l4,}25;
+      A0: |-
+        // square high=100 low=100 start=high
+        {h100,l100,}1;
+    rate: 200 Hz
+    repeat: 3
+    at: [288, 560]
+  states:
+    type: device.capture
+    channels: [D35]
+    clock: D2
+    clock_edge: rising
+    samples: 64
+    rate: 1 kHz
+    at: [288, 64]
+  bit: {type: convert.bit, bit: D35, at: [576, 88]}
+  rising: {type: measure.count, edge: rising, at: [864, 0]}
+  state_check:
+    type: report.check
+    expected: 16
+    tolerance: 1
+    title: Rising edges of D35 in 64 states
+    at: [1152, 0]
+  state_view: {type: view.scope, title: D35 state by state, at: [864, 168]}
+  monitor:
+    type: device.monitor
+    pins: [D35]
+    analog: [A1]
+    rate: 50 Hz
+    duration: 2.5 s
+    at: [288, 328]
+  chart: {type: view.chart, title: A1 and D35, inputs: [A1, D35], window: 3 s, at: [576, 272]}
+  span:
+    type: control.python
+    inputs: [volts]
+    outputs: [lowest, highest]
+    code: |
+      lowest, highest = None, None
+
+      def on_input(ctx, port, value):
+          global lowest, highest
+          lowest = value.value if lowest is None else min(lowest, value.value)
+          highest = value.value if highest is None else max(highest, value.value)
+          ctx.emit("lowest", signals.Scalar(name="lowest", unit="V", value=lowest, at=ctx.now()))
+          ctx.emit("highest", signals.Scalar(name="highest", unit="V", value=highest, at=ctx.now()))
+    at: [576, 480]
+  low_check:
+    type: report.check
+    high: 0.5
+    unit: V
+    last: true
+    title: A1 goes down to 0 V (lowest reading)
+    at: [864, 392]
+  high_check:
+    type: report.check
+    low: 4.5
+    unit: V
+    last: true
+    title: A1 goes up to 5 V (highest reading)
+    at: [864, 592]
+edges:
+  - mega.device -> pattern.device
+  - mega.device -> states.device
+  - mega.device -> monitor.device
+  - states.states -> bit.in
+  - bit.out -> rising.in
+  - bit.out -> state_view.in
+  - rising.out -> state_check.in
+  - monitor.A1 -> chart.A1
+  - monitor.D35 -> chart.D35
+  - monitor.A1 -> span.volts
+  - span.lowest -> low_check.in
+  - span.highest -> high_check.in

@@ -80,7 +80,7 @@ def test_a_flow_opens_it_by_its_address_and_simulates_it(folder):
     flow = yaml_io.loads("""
 flow: Counter
 nodes:
-  counter: {type: device.instrument, address: "counter:8"}
+  counter: {type: device.device, address: "counter:8"}
   cap: {type: device.capture, channels: [0, 1, 2], rate: 1 MHz, samples: 64}
 edges:
   - counter.device -> cap.device
@@ -149,7 +149,7 @@ def test_the_devices_of_openscilab_are_plugins_as_well():
     assert pico.builtin and pico.module == "openscilab.plugins.pico" and pico.process and pico.simulation == "pico"
     assert [kind.kind for kind in kinds.registered() if kind.builtin] == [
         "pico", "pico-net", "pico-multi", "arduino", "arduino-sim", "dslogic", "rigol", "rigol-sim", "sim", "emulated",
-        "remote", "remote-sim"]
+        "remote", "remote-sim", "circuit"]
     assert simulation_profile_for("COM5") == "pico" and simulation_profile_for("arduino:COM3") == "uno"
     assert simulation_profile_for("rigol:192.168.1.20") == "dho924s"
     with pytest.raises(DeviceConnectionError, match="no capture driver"):
@@ -296,14 +296,14 @@ def test_a_plugin_adds_nodes_to_every_flow(folder, tmp_path, capsys):
 def test_a_plugin_cannot_replace_a_node_of_openscilab(folder):
     with open(os.path.join(folder, "my_filter.py"), "w") as handle:
         handle.write("from openscilab.lab import node\n"
-                     "@node('dsp.filter')\n"
+                     "@node('signal.filter')\n"
                      "def mine(x):\n"
                      "    return x\n")
     found = {plugin.name: plugin for plugin in plugins.load()}
     assert "node type of openSciLab itself" in found["my_filter"].error
     from openscilab.lab.nodes.registry import default_registry
 
-    assert default_registry.get("dsp.filter").source == "openscilab.lab.nodes.dsp"
+    assert default_registry.get("signal.filter").source == "openscilab.lab.nodes.dsp"
 
 
 def test_the_palette_shows_the_nodes_of_a_plugin(folder, shell, monkeypatch):

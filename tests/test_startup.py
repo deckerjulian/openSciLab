@@ -19,8 +19,8 @@ def test_the_palette_loads_the_decoders_when_they_are_looked_at(qtbot):
     registry = Registry()
     palette = NodePalette(registry)
     qtbot.addWidget(palette)
-    assert registry.pending_groups() == ["decode"]  # not imported for showing the palette
-    assert not any(name.startswith("decode.") for name in palette.types() if name)
+    assert registry.pending_groups() == ["decoder"]  # not imported for showing the palette
+    assert not any(name.startswith("decoder.") for name in palette.types() if name)
     pending = [palette.tree.topLevelItem(index) for index in range(palette.tree.topLevelItemCount())
                if palette.tree.topLevelItem(index).data(0, PENDING_ROLE)]
     assert len(pending) == 1
@@ -28,7 +28,7 @@ def test_the_palette_loads_the_decoders_when_they_are_looked_at(qtbot):
     pending[0].setExpanded(True)
     QApplication.processEvents()
     assert registry.pending_groups() == []
-    assert any(name.startswith("decode.") for name in palette.types())
+    assert any(name.startswith("decoder.") for name in palette.types())
     assert all(count > 0 for count in groups(palette).values())
 
 
@@ -37,7 +37,7 @@ def test_searching_finds_decoders_that_were_not_loaded(qtbot):
     palette = NodePalette(registry)
     qtbot.addWidget(palette)
     palette.search.setText("uart")
-    assert "decode.uart" in palette.types()
+    assert "decoder.uart" in palette.types()
 
 
 def test_flows_use_the_decoders_of_the_application(shell):
@@ -95,7 +95,9 @@ def test_regions_hold_their_colour_as_numbers(make_dataview):
 # --------------------------------------------------------------- the window
 def test_the_window_does_not_repeat_the_style_of_the_application(shell):
     from openscilab.ui.shell.main_window import ShellWindow
-    from openscilab.ui.theme import SHELL_STYLESHEET
+    from openscilab.ui.theme import shell_stylesheet
+
+    SHELL_STYLESHEET = shell_stylesheet()
 
     application = QApplication.instance()
     before = application.styleSheet()

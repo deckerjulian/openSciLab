@@ -1,17 +1,17 @@
 flow: Remote DAQ
-description: 'The sync line of the DAQ (an input of blocks with sync: true) and the analyzer''s D5 go to remote.sync; the analog input ai0 arrives as blocks with the DAQ''s time, converted.'
+description: 'The sync line of the DAQ (an input of blocks with sync: true) and the analyzer''s D5 go to remote.align; the analog input ai0 arrives as blocks with the DAQ''s time, converted.'
 nodes:
-  uno: {type: device.instrument, at: [0, 0]}
-  la: {type: device.instrument, at: [0, 336]}
-  daq: {type: device.instrument, at: [0, 208]}
-  sync: {type: timing.sync, pin: D7, duration: 2.3 s, at: [272, 0]}
-  reference: {type: device.stream, channels: [D5], rate: 100 kHz, duration: 2.5 s, at: [272, 320]}
-  align: {type: remote.sync, sync: sync, at: [544, 312]}
-  ai0: {type: remote.receive, channel: ai0, duration: 2.5 s, at: [272, 176]}
-  scatter: {type: view.number, title: Scatter of the sync edges, unit: s, at: [808, 336]}
-  scatter_check: {type: report.check, name: Scatter, high: 0.0002, unit: s, at: [808, 176]}
-  edges: {type: view.number, title: Matched edges, at: [808, 512]}
-  chart: {type: view.strip_chart, title: AI0, window: 3 s, at: [544, 144]}
+  uno: {type: device.device, at: [0, 0]}
+  la: {type: device.device, at: [0, 344]}
+  daq: {type: device.device, at: [0, 216]}
+  sync: {type: time.sync, pin: D7, duration: 2.3 s, at: [288, 0]}
+  reference: {type: device.stream, channels: [D5], rate: 100 kHz, duration: 2.5 s, at: [288, 320]}
+  align: {type: remote.align, sync: sync, at: [576, 320]}
+  ai0: {type: remote.input, channel: ai0, duration: 2.5 s, at: [288, 184]}
+  scatter: {type: view.number, title: Scatter of the sync edges, unit: s, at: [864, 360]}
+  scatter_check: {type: report.check, high: 0.0002, unit: s, title: Scatter, at: [864, 152]}
+  edges: {type: view.number, title: Matched edges, at: [864, 528]}
+  chart: {type: view.chart, title: AI0, window: 3 s, at: [576, 144]}
 edges:
   - uno.device -> sync.device
   - la.device -> reference.device
@@ -20,5 +20,5 @@ edges:
   - reference.D5 -> align.signal
   - align.uncertainty -> scatter.in
   - align.uncertainty -> scatter_check.in
-  - align.edges -> edges.in
+  - align.matched -> edges.in
   - ai0.out -> chart.in

@@ -1,0 +1,213 @@
+# openSciLab's own components: passive parts (see circuits/library.py for the format)
+- type: resistor
+  title: Resistor
+  category: Passive
+  prefix: R
+  keywords: res resistance ohm
+  description: A resistor.
+  symbol:
+    shapes:
+      - {rect: [-20, -6, 20, 6]}
+    pins:
+      - {number: "1", at: [-30, 0], angle: 0, length: 10}
+      - {number: "2", at: [30, 0], angle: 180, length: 10}
+    reference: {at: [0, -14]}
+    value: {at: [0, 15]}
+    pin_names: false
+  params:
+    - {name: value, label: Resistance, unit: Ω, default: 1k, min: 0, live: true, description: The resistance.}
+  spice: "{ref:R} {pin.1} {pin.2} {value}"
+  current: "@{ref:R}[i]"
+
+- type: capacitor
+  title: Capacitor
+  category: Passive
+  prefix: C
+  keywords: cap capacitance farad
+  description: A capacitor.
+  symbol:
+    shapes:
+      - {line: [-4, -12, -4, 12], width: 2}
+      - {line: [4, -12, 4, 12], width: 2}
+    pins:
+      - {number: "1", at: [-20, 0], angle: 0, length: 16}
+      - {number: "2", at: [20, 0], angle: 180, length: 16}
+    reference: {at: [0, -18]}
+    value: {at: [0, 19]}
+    pin_names: false
+  params:
+    - {name: value, label: Capacitance, unit: F, default: 100n, min: 0, live: true, description: The capacitance.}
+    - {name: ic, label: Initial voltage, unit: V, default: "", kind: text, description: "The voltage at the start of a transient (empty: from the operating point)."}
+  spice: "{ref:C} {pin.1} {pin.2} {value}"
+  current: "@{ref:C}[i]"
+
+- type: capacitor.polarized
+  title: Electrolytic capacitor
+  category: Passive
+  prefix: C
+  keywords: cap elko electrolytic polarized
+  description: A polarized capacitor; pin 1 is plus.
+  symbol:
+    shapes:
+      - {line: [-4, -12, -4, 12], width: 2}
+      - {arc: [10, -12, 4, 0, 10, 12], width: 2}
+      - {text: "+", at: [-12, -10], size: 9}
+    pins:
+      - {number: "1", name: "+", at: [-20, 0], angle: 0, length: 16}
+      - {number: "2", name: "-", at: [20, 0], angle: 180, length: 15}
+    reference: {at: [0, -18]}
+    value: {at: [0, 19]}
+    pin_names: false
+  params:
+    - {name: value, label: Capacitance, unit: F, default: 10u, min: 0, live: true, description: The capacitance.}
+  spice: "{ref:C} {pin.1} {pin.2} {value}"
+  current: "@{ref:C}[i]"
+
+- type: inductor
+  title: Inductor
+  category: Passive
+  prefix: L
+  keywords: coil choke inductance henry
+  description: An inductor.
+  symbol:
+    shapes:
+      - {arc: [-24, 0, -18, -6, -12, 0]}
+      - {arc: [-12, 0, -6, -6, 0, 0]}
+      - {arc: [0, 0, 6, -6, 12, 0]}
+      - {arc: [12, 0, 18, -6, 24, 0]}
+    pins:
+      - {number: "1", at: [-30, 0], angle: 0, length: 6}
+      - {number: "2", at: [30, 0], angle: 180, length: 6}
+    reference: {at: [0, -14]}
+    value: {at: [0, 12]}
+    pin_names: false
+  params:
+    - {name: value, label: Inductance, unit: H, default: 10m, min: 0, live: true, description: The inductance.}
+  spice: "{ref:L} {pin.1} {pin.2} {value}"
+  current: "@{ref:L}[i]"
+
+- type: potentiometer
+  title: Potentiometer
+  category: Passive
+  prefix: RV
+  keywords: pot trimmer variable resistor knob
+  description: A resistor with a wiper (pin 2); turn its knob while the circuit runs.
+  symbol:
+    shapes:
+      - {rect: [-20, -6, 20, 6]}
+      - {line: [0, -20, 0, -8]}
+      - {line: [-3, -11, 0, -7, 3, -11], fill: outline}
+    pins:
+      - {number: "1", at: [-30, 0], angle: 0, length: 10}
+      - {number: "2", name: W, at: [0, -20], angle: 90, length: 0}
+      - {number: "3", at: [30, 0], angle: 180, length: 10}
+    reference: {at: [0, 15]}
+    value: {at: [0, 26]}
+    pin_names: false
+  params:
+    - {name: value, label: Resistance, unit: Ω, default: 10k, min: 0, live: true, description: The resistance between pins 1 and 3.}
+    - {name: position, label: Position, default: "0.5", min: 0, max: 1, live: true, description: "Where the wiper is: 0 at pin 1, 1 at pin 3."}
+  control: {kind: knob, param: position}
+  show: [value, position]
+  spice: |
+    {ref:R}a {pin.1} {pin.2} {{max(value*position, 1e-3)}}
+    {ref:R}b {pin.2} {pin.3} {{max(value*(1-position), 1e-3)}}
+
+- type: transformer
+  title: Transformer
+  category: Passive
+  prefix: T
+  keywords: transformer coupled inductors
+  description: Two coupled windings (pins 1-2 primary, 3-4 secondary).
+  symbol:
+    shapes:
+      - {arc: [-14, -24, -8, -18, -14, -12]}
+      - {arc: [-14, -12, -8, -6, -14, 0]}
+      - {arc: [-14, 0, -8, 6, -14, 12]}
+      - {arc: [-14, 12, -8, 18, -14, 24]}
+      - {arc: [14, -24, 8, -18, 14, -12]}
+      - {arc: [14, -12, 8, -6, 14, 0]}
+      - {arc: [14, 0, 8, 6, 14, 12]}
+      - {arc: [14, 12, 8, 18, 14, 24]}
+      - {line: [-2, -24, -2, 24]}
+      - {line: [2, -24, 2, 24]}
+    pins:
+      - {number: "1", at: [-30, -30], angle: 0, length: 16}
+      - {number: "2", at: [-30, 30], angle: 0, length: 16}
+      - {number: "3", at: [30, -30], angle: 180, length: 16}
+      - {number: "4", at: [30, 30], angle: 180, length: 16}
+    reference: {at: [0, -38]}
+    value: {at: [0, 40]}
+    pin_names: false
+  params:
+    - {name: primary, label: Primary inductance, unit: H, default: 10m, min: 0, description: The inductance of the primary winding.}
+    - {name: ratio, label: Turns ratio, default: "1", min: 0, description: Turns of the secondary per turn of the primary.}
+    - {name: coupling, label: Coupling, default: "0.999", min: 0, max: 1, description: How tightly the windings are coupled (1 is ideal).}
+  show: [ratio]
+  spice: |
+    {ref:L}p {pin.1} {pin.2} {primary}
+    {ref:L}s {pin.3} {pin.4} {{primary*ratio*ratio}}
+    {ref:K} {ref:L}p {ref:L}s {coupling}
+
+- type: transformer.variable
+  title: Variable transformer
+  category: Passive
+  prefix: T
+  keywords: variac variable transformer autotransformer adjustable ac regulating
+  description: "A variac: an autotransformer whose wiper (pin 3) takes a part of the voltage across pins 1-2 - set its output in volts or turn its knob while the circuit runs. Ideal, with the resistance of its winding."
+  symbol:
+    shapes:
+      - {arc: [-14, -24, -8, -18, -14, -12]}
+      - {arc: [-14, -12, -8, -6, -14, 0]}
+      - {arc: [-14, 0, -8, 6, -14, 12]}
+      - {arc: [-14, 12, -8, 18, -14, 24]}
+      - {line: [-14, -24, -14, -30, -30, -30]}
+      - {line: [-14, 24, -14, 30, -30, 30]}
+      - {line: [30, -30, 10, -30, 10, 18]}
+      - {line: [10, 18, -4, 4]}
+      - {line: [-4, 4, 4, 6, 2, -2, -4, 4], fill: outline}
+    pins:
+      - {number: "1", at: [-30, -30], angle: 0, length: 0}
+      - {number: "2", at: [-30, 30], angle: 0, length: 0}
+      - {number: "3", name: W, at: [30, -30], angle: 180, length: 0}
+    reference: {at: [0, -38]}
+    value: {at: [0, 40]}
+    pin_names: false
+  params:
+    - {name: output, label: Output (RMS), unit: V, default: 115 V, min: 0, live: true, description: "The voltage at the wiper (pin 3 to pin 2) while the input has its rated voltage."}
+    - {name: input, label: Rated input (RMS), unit: V, default: 230 V, min: 0, description: "The voltage across pins 1-2 the output refers to; the knob goes up to it."}
+    - {name: resistance, label: Winding resistance, unit: Ω, default: "0.5", min: 0, description: The resistance on the way to the wiper.}
+  control: {kind: knob, param: output, max: input}
+  show: [output]
+  spice: |
+    {ref:E} {ref}_e {pin.2} {pin.1} {pin.2} {{output/max(input, 1e-9)}}
+    {ref:R} {ref}_e {ref}_w {{max(resistance, 1e-6)}}
+    {ref:V}s {ref}_w {pin.3} DC 0
+    {ref:F} {pin.1} {pin.2} {ref:V}s {{output/max(input, 1e-9)}}
+  current: "i({ref:V}s)"
+
+- type: crystal
+  title: Crystal
+  category: Passive
+  prefix: Y
+  keywords: crystal quartz xtal resonator
+  description: A quartz crystal (its electrical equivalent, series resonance at the frequency).
+  symbol:
+    shapes:
+      - {rect: [-5, -12, 5, 12]}
+      - {line: [-10, -9, -10, 9], width: 2}
+      - {line: [10, -9, 10, 9], width: 2}
+    pins:
+      - {number: "1", at: [-30, 0], angle: 0, length: 20}
+      - {number: "2", at: [30, 0], angle: 180, length: 20}
+    reference: {at: [0, -18]}
+    value: {at: [0, 19]}
+    pin_names: false
+  params:
+    - {name: value, label: Frequency, unit: Hz, default: 16 MHz, min: 1, description: The series resonance.}
+    - {name: q, label: Quality, default: 50k, min: 1, description: The quality factor.}
+  spice: |
+    {ref:L}x {pin.1} {ref}_m1 {{1/(4*3.14159265*3.14159265*value*value*1e-14)}}
+    {ref:C}x {ref}_m1 {ref}_m2 1e-14
+    {ref:R}x {ref}_m2 {pin.2} {{2*3.14159265*value*(1/(4*3.14159265*3.14159265*value*value*1e-14))/q}}
+    {ref:C}p {pin.1} {pin.2} 4p

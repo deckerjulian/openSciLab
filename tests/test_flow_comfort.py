@@ -129,7 +129,7 @@ def test_a_device_added_later_is_wired_and_says_so(shell):
     document.add_node("device.capture", (300, 0), "cap")
     messages = []
     document.message.connect(messages.append)
-    device = document.add_node("device.instrument", (0, 0), "sim", address="sim:free")
+    device = document.add_node("device.device", (0, 0), "sim", address="sim:free")
     assert f"{device}.device -> cap.device" in [str(edge) for edge in document.flow.edges]
     assert messages and "cap.device" in messages[0]
 
@@ -163,8 +163,8 @@ def test_problems_show_on_their_node(shell):
 # ------------------------------------------------------------------ inspector
 def test_the_inspector_helps(shell, monkeypatch, tmp_path):
     document = shell.new_flow()
-    document.add_node("device.instrument", (0, 0), "uno", address="sim:uno")
-    document.add_node("gpio.write", (300, 0), "write")
+    document.add_node("device.device", (0, 0), "uno", address="sim:uno")
+    document.add_node("gpio.output", (300, 0), "write")
     node = document.flow.nodes["write"]
     spec = document.flow.spec(node, document.registry)
     inspector = NodeInspector(document.flow, node, spec, problems=["pin: not set"], running=True,
@@ -174,7 +174,7 @@ def test_the_inspector_helps(shell, monkeypatch, tmp_path):
     assert any("next run" in text for text in texts)
     pin_editor = inspector.editors.get("pin")
     assert isinstance(pin_editor, QComboBox) and "D13" in [pin_editor.itemText(i) for i in range(pin_editor.count())]
-    file_id = document.add_node("data.file", (0, 200), "file")
+    file_id = document.add_node("data.write", (0, 200), "file")
     file_node = document.flow.nodes[file_id]
     inspector = NodeInspector(document.flow, file_node, document.flow.spec(file_node, document.registry),
                               folder=str(tmp_path))

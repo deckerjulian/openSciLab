@@ -1,18 +1,13 @@
 flow: Count edges
-description: measure.count with 'rising' and with 'both' edges; convert.edges makes events of the edges.
+description: measure.count with 'rising' and with 'both' edges; convert.events makes events of the edges.
 nodes:
-  la: {type: device.instrument, at: [0, 8]}
-  capture: {type: device.capture, channels: [D15, D9], rate: 1 MHz, duration: 100 ms, at: [272, 8]}
-  rising: {type: measure.count, edge: rising, total: false, at: [544, 8]}
-  check:
-    type: report.check
-    name: Rising edges of D15
-    expected: 100
-    tolerance: 1
-    at: [808, 0]
-  uart_edges: {type: convert.edges, kind: both, at: [544, 152]}
-  events: {type: measure.count, total: false, at: [808, 160]}
-  show: {type: view.number, title: Edges on D9, at: [1080, 160]}
+  la: {type: device.device, at: [0, 16]}
+  capture: {type: device.capture, channels: [D15, D9], rate: 1 MHz, duration: 100 ms, at: [288, 16]}
+  rising: {type: measure.count, edge: rising, total: false, at: [576, 16]}
+  check: {type: report.check, expected: 100, tolerance: 1, title: Rising edges of D15, at: [864, 0]}
+  uart_edges: {type: convert.events, kind: both, at: [576, 184]}
+  events: {type: measure.count, total: false, at: [864, 208]}
+  show: {type: view.number, title: Edges on D9, at: [1152, 208]}
 edges:
   - la.device -> capture.device
   - capture.D15 -> rising.in

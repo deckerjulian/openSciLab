@@ -655,8 +655,8 @@ def test_update_firmware_from_the_shell(shell, monkeypatch):
 
     from openscilab.ui.documents.hardware import HardwareDocument
 
-    assert "Install or &update firmware..." in [action.text() for action in shell.devices_menu.actions()]
-    shell.action_update_firmware.trigger()
+    assert "&Boards and firmware" in [action.text() for action in shell.devices_menu.actions()]
+    shell.action_hardware.trigger()
     assert isinstance(shell.active_document(), HardwareDocument)  # one place for firmware
     simulated = open_simulated("free")
     shell.hub.add(simulated)

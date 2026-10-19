@@ -13,7 +13,7 @@ same inputs, outputs and command as the simulated stand-in of the project (remot
 * ``calibrate_latency`` - measures how late the blocks arrive with a loopback from ``do0`` to the
   digital input ``loop`` (wire them);
 * ``SYNC`` - a sync output: wire it to a channel of a logic analyzer for microsecond alignment
-  (node remote.sync), else the clock is measured over the network.
+  (node remote.align), else the clock is measured over the network.
 
 Fill in your hardware in the functions marked HARDWARE; without it the script makes up a 50 Hz sine,
 so it runs on any computer.

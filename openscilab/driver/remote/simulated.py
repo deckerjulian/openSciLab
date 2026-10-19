@@ -318,6 +318,6 @@ def open_simulated_remote(address: str, circuit_clock: Optional[Callable[[], flo
     except Exception:
         simulated.close()
         raise
-    instrument = make_instrument(server, connection.name, uri=address, kind=f"Simulation: remote {demo_name}",
+    instrument = make_instrument(server, connection.name, uri=address, kind=f"Simulated remote {demo_name}",
                                  simulated=simulated)
     return instrument

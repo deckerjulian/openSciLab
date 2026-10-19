@@ -1,0 +1,6 @@
+project: RC low pass
+description: 'An RC low pass simulated live: its output follows the sine with less amplitude and a phase lag; AC
+  sweep and transient under Results. The flow measures the output through the circuit''s probe.'
+open:
+- circuits/rc-filter.circuit.yaml
+- flows/measure.flow.yaml

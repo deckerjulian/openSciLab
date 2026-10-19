@@ -21,7 +21,7 @@ Starting points for a measurement of your own - open one, change the devices and
 | [Empty lab](00-start/01-empty-lab/) | An empty measuring station with a simulated logic analyzer; replace the device with yours in project.yaml (or in the device list) and build the flow. | `sim:free` |
 | [Logic Analyzer](00-start/02-logic-analyzer/) | A data view that captures with a connected device - settings, capture, decode protocols, measure and save. With several devices connected it asks which one; without one it shows the device list (or open a capture file). | the connected device |
 | [Data acquisition](00-start/03-data-acquisition/) | Records analog inputs of a measuring box until Stop - a strip chart per input, every block into data/recording.lac (opens in a data view) - and sets an analog output from the panel. The box is the simulated USB DAQ (sim:daq, AO0 wired to AI2); put the address of yours into project.yaml or choose it in the device list, and the channels into the stream node. | `sim:daq` |
-| [Synchronized instruments](00-start/04-synchronized-instruments/) | Two instruments on one time axis - a logic analyzer and a measuring box whose samples arrive late and uneven over USB and whose clock drifts. The logic analyzer drives a sync signal on GP16; a wire takes it to one of its own channels (GP17) and to a line of the box (P0.7); timing.align matches the edges and puts the box's samples on the logic analyzer's time to microseconds. Both are simulated; with hardware run a wire from the sync pin to a channel of every instrument. | `sim:pico`, `sim:daq` |
+| [Synchronized instruments](00-start/04-synchronized-instruments/) | Two instruments on one time axis - a logic analyzer and a measuring box whose samples arrive late and uneven over USB and whose clock drifts. The logic analyzer drives a sync signal on GP16; a wire takes it to one of its own channels (GP17) and to a line of the box (P0.7); time.align matches the edges and puts the box's samples on the logic analyzer's time to microseconds. Both are simulated; with hardware run a wire from the sync pin to a channel of every instrument. | `sim:pico`, `sim:daq` |
 | [Remote measuring device](00-start/05-remote-measuring-device/) | A measuring device on another computer (a Raspberry Pi, the PC of a DAQ) sends its samples to openSciLab with the time it took them; openSciLab measures that computer's clock, so they line up with everything else. device/my_device.py is the script for the other computer - fill in your hardware where it says so. Until it runs, a simulated remote DAQ stands in (remote-sim:daq); then set the device in project.yaml to remote:my-device. | `remote-sim:daq` |
 
 ## Basics
@@ -36,11 +36,11 @@ First steps with the simulated 16 channel logic analyzer (sim:free) - capture, t
 | [Read a capture file](01-basics/04-read-capture-file/) | Reads a saved capture (data/demo.lac) when the flow starts, shows it and measures the frequency of its clock channel (CLK) - the capture holds I²C (SCL, SDA), UART (RX) and a clock - a flow can work on recordings as well as on devices. | – |
 | [Stream](01-basics/05-stream/) | Streams D15 for 200 ms instead of capturing into the device's memory - the blocks arrive while the device records. Every block is measured; the strip chart shows the frequency over time. | `sim:free` |
 | [Repeated captures](01-basics/06-repeated-captures/) | A timer arms the capture five times, 200 ms apart. Each capture is measured; Run data in the toolbar shows all five captures and the measurements on one time axis. | `sim:free` |
-| [State mode](01-basics/07-state-mode/) | A capture clocked by the device under test - one sample on each rising edge of the clock on D8 instead of at a fixed rate. The simulated analyzer counts on D0-D7 with that clock, so every state is the next count; the pattern trigger 1111 starts at the count 15. convert.state_bit takes one channel of the states, its edges are counted. | `sim:free` |
+| [State mode](01-basics/07-state-mode/) | A capture clocked by the device under test - one sample on each rising edge of the clock on D8 instead of at a fixed rate. The simulated analyzer counts on D0-D7 with that clock, so every state is the next count; the pattern trigger 1111 starts at the count 15. convert.bit takes one channel of the states, its edges are counted. | `sim:free` |
 
 ## Digital I/O
 
-Outputs, inputs, PWM, pulses and the monitor of a simulated Arduino Uno (sim:uno) - the classic Arduino examples as flows.
+Outputs, inputs, PWM, pulses and the monitor of a simulated Arduino Uno (sim:uno) - the classic Arduino examples as flows - and loopbacks with a state capture on an Arduino Mega (sim:mega) and on a Pico W (sim:pico).
 
 | Example | What it shows | Devices |
 | --- | --- | --- |
@@ -49,6 +49,8 @@ Outputs, inputs, PWM, pulses and the monitor of a simulated Arduino Uno (sim:uno
 | [PWM](02-digital/03-pwm/) | PWM of 1 kHz with a duty cycle of 25 % on D9. A capture of D9 measures frequency and duty cycle; two checks compare them with what was set. | `sim:uno` |
 | [Pulse train](02-digital/04-pulse-train/) | Three pulses of 0.5 ms, one every 1 ms, timed by the board on D7. D7 is wired to D3 on the simulated Uno; a capture of D3 (448 samples at 100 kHz, what the Uno holds) waits for the first edge and measures count and width. A sequence starts the pulses 1 ms after the capture is armed - also in virtual time, where the capture lets the flow's time run on while it waits. | `sim:uno` |
 | [Monitor](02-digital/05-monitor/) | The monitor reads pins and analog inputs again and again (here 20 times a second) - the way to watch slow signals. PWM on D9 charges the RC low pass at A0; the strip chart shows the voltage rising, the LED shows D3. | `sim:uno` |
+| [Loopback with state mode (Arduino Mega)](02-digital/06-mega-loopback/) | One pattern on the Arduino Mega drives three outputs, wires take them back to inputs - an analog signal (A0 to A1, read by the ADC), a digital signal (D34 to D35) and a clock (D3 to D2). The monitor logs A1 and D35; a state capture takes D35 on each rising edge of the clock at D2 (the interrupt INT4). Runs on the simulated Mega (sim:mega, wired the same way); on a real board wire D34-D35, A0-A1 and D3-D2 and set the device to arduino:<port>. | `sim:mega` |
+| [Loopback test (Pico W)](02-digital/07-pico-loopback/) | A test bench for a Pico or Pico W with the openSciLab firmware and three wires, GP2 to GP6, GP3 to GP7 and GP4 to GP8. One pattern drives a clock, a data line and UART frames on GP2-GP4; a capture takes them back at GP6-GP8, a state capture takes GP7 on the clock edges at GP6; then a PWM on GP2 and an SPI transfer whose bytes come back over the wire GP3-GP7 (MISO). Every result is a check of the report. Runs on the simulated Pico (sim:pico, wired the same way); on a real board set the device to pico:<port>. | `sim:pico` |
 
 ## Analog
 
@@ -57,7 +59,7 @@ Voltages - analog inputs of the Arduino and the Pico, measurements, spectrum, fi
 | Example | What it shows | Devices |
 | --- | --- | --- |
 | [Analog read](03-analog/01-analog-read/) | Like "AnalogReadSerial" - a timer reads A0 ten times a second. PWM on D9 charges the RC low pass in front of A0, so the voltage rises towards 3 V (60 % of 5 V). | `sim:uno` |
-| [Voltage limits](03-analog/02-voltage-limits/) | Watches A0 against a window of 2.5 V to 3.5 V - control.limit tells for every reading whether it is inside; the LED shows it, the log lists the readings outside. | `sim:uno` |
+| [Voltage limits](03-analog/02-voltage-limits/) | Watches A0 against a window of 2.5 V to 3.5 V - control.range tells for every reading whether it is inside; the LED shows it, the log lists the readings outside. | `sim:uno` |
 | [Scope measurements](03-analog/03-scope-measurements/) | The four channels of a simulated oscilloscope (1 kHz sine, 10 kHz square, 500 Hz triangle, 100 Hz ramp) - mean, RMS, peak to peak and minimum/maximum of each, as the measurement menu of a scope shows them. | `sim:dho924s` |
 | [Spectrum](03-analog/04-spectrum/) | The FFT of the 10 kHz square wave on CH2 - its odd harmonics (30, 50, 70 kHz ...) stand out in the spectrum view. Compare with the sine on CH1 by changing the wire. | `sim:dho924s` |
 | [Low pass filter](03-analog/05-low-pass-filter/) | The 1 kHz sine on CH1 is noisy. A low pass filter (FIR, 3 kHz) removes the noise - the scopes show the signal before and after, the numbers its RMS. | `sim:dho924s` |
@@ -77,9 +79,9 @@ Decoding UART, SPI and I²C with the protocol decoders, checking what a device s
 | [Check a message](04-protocols/04-check-a-message/) | Does the device send what it should? The Pico sends "openSciLab Pico" on GP11; the flow decodes it and compares the text - a test that passes or fails, also on the command line (openscilab run flows/check.flow.yaml ends with 1 when it fails). | `sim:pico` |
 | [Send UART](04-protocols/05-send-uart/) | The Uno sends "Hi" with its own UART on D7 (9600 baud). D7 is wired to D3; a capture of D3 waits for the start bit (448 samples at 100 kHz, what the Uno holds) and the decoder reads the text back. | `sim:uno` |
 | [I²C sensor](04-protocols/06-i2c-sensor/) | Reads two bytes from the temperature sensor at address 0x48 on the I²C bus of the Pico (GP3 = SCL, GP2 = SDA) - the Pico is the master; the answer appears in the log. | `sim:pico` |
-| [Send SPI](04-protocols/07-send-spi/) | gen.tx_spi sends three bytes as SPI (mode 0, MSB first, 100 kHz). The simulated analyzer has no SPI of its own, so the frames play as a pattern on its pattern generator (D0-D7, looped back to the inputs) - CS on D0, SCK on D1, MOSI on D2. A capture of the same pins waits for CS to go low, the SPI decoder reads the bytes back. (A device with its own SPI, TX_SPI, sends them itself.) | `sim:free` |
+| [Send SPI](04-protocols/07-send-spi/) | generator.spi sends three bytes as SPI (mode 0, MSB first, 100 kHz). The simulated analyzer has no SPI of its own, so the frames play as a pattern on its pattern generator (D0-D7, looped back to the inputs) - CS on D0, SCK on D1, MOSI on D2. A capture of the same pins waits for CS to go low, the SPI decoder reads the bytes back. (A device with its own SPI, TX_SPI, sends them itself.) | `sim:free` |
 
-## Measurement
+## Measurements
 
 Timing measurements on digital signals - frequency, period, duty cycle, pulse width, edges, setup and hold -, statistics over many captures, a characteristic curve and a test bench with a report.
 
@@ -93,7 +95,7 @@ Timing measurements on digital signals - frequency, period, duty cycle, pulse wi
 | [Characteristic curve](05-measurement/06-characteristic-curve/) | Sweeps the PWM duty cycle of D9 of an Arduino Uno; an oscilloscope measures the voltage behind the RC low pass at A0, its mean per step makes the curve. A panel starts it, a report shows the curve and checks its slope. Both instruments are simulated. | `sim:uno`, `sim:dho924s` |
 | [Test bench](05-measurement/07-test-bench/) | Tests a device under test and writes a report with passed or failed. On the command line it is a test - "openscilab run flows/test.flow.yaml" ends with 1 when a check fails -, the panel runs it with a button. The device under test is simulated (sim:free). | `sim:free` |
 
-## Signal generation
+## Generators
 
 Making signals - waveforms on the function generator of an oscilloscope, digital patterns, square waves, arbitrary curves - and measuring them again.
 
@@ -104,8 +106,8 @@ Making signals - waveforms on the function generator of an oscilloscope, digital
 | [Arbitrary waveform](06-generators/03-arbitrary-waveform/) | A curve of your own - a formula over one period (x from 0 to 1) with numpy functions, here a sine with its third harmonic - played by the generator and captured on CH1. | `sim:dho924s` |
 | [Pattern generator](06-generators/04-pattern-generator/) | A digital pattern on D0-D3 written in SDL (h = samples high, l = low, {...}n = a group repeated n times, b = a byte) and played by the simulator's pattern generator; its outputs are looped back to the inputs, so the capture shows the pattern. | `sim:free` |
 | [Square wave](06-generators/05-square-wave/) | The square wave output of the Arduino Uno (a timer on D9) at 10 kHz, measured by a capture of the same pin. | `sim:uno` |
-| [Waveform file](06-generators/06-waveform-file/) | A waveform kept as a file (waveforms/triangle.wave.yaml, made and edited in the waveform document) played by gen.output on the generator of the oscilloscope; its sync starts the capture of CH1, which measures the frequency and the peak-to-peak voltage of the triangle. | `sim:dho924s` |
-| [Replay a capture](06-generators/07-replay-a-capture/) | A capture played back - the UART line D9 of the simulator is captured, gen.replay plays it on the pattern generator at D3 (pins picks the channel and renames it), a second capture of D3 records the replay, and the UART decoder reads the same text from both. | `sim:free` |
+| [Waveform file](06-generators/06-waveform-file/) | A waveform kept as a file (waveforms/triangle.wave.yaml, made and edited in the waveform document) played by generator.file on the generator of the oscilloscope; its sync starts the capture of CH1, which measures the frequency and the peak-to-peak voltage of the triangle. | `sim:dho924s` |
+| [Replay a capture](06-generators/07-replay-a-capture/) | A capture played back - the UART line D9 of the simulator is captured, generator.replay plays it on the pattern generator at D3 (pins picks the channel and renames it), a second capture of D3 records the replay, and the UART decoder reads the same text from both. | `sim:free` |
 
 ## Control
 
@@ -117,7 +119,7 @@ Flows that decide - timers, sweeps, sequences, state machines, comparisons and s
 | [PWM sweep](07-control/02-pwm-sweep/) | Steps the duty cycle of D9 from 0 to 100 % in five steps; after the RC low pass at A0 has settled, A0 is read. The table and the XY chart show the voltage over the duty cycle - a straight line up to 5 V. | `sim:uno` |
 | [Sequence](07-control/03-sequence/) | Steps without code - a sequence switches D13 on and off three times (on for 200 ms, off for 100 ms), then sends 'done'. The monitor shows the pin. | `sim:uno` |
 | [Traffic light](07-control/04-state-machine/) | A state machine drives a traffic light on D11 (red), D12 (yellow) and D13 (green) - red, red and yellow, green, yellow, red, then off. Every state says what its outputs are and when it goes on. | `sim:uno` |
-| [Threshold switch](07-control/05-threshold-switch/) | Switches an LED on D13 when A0 rises above 2.5 V - control.limit tells for every reading whether it is above the threshold. (control.compare does the same for any comparison, and its result counts as a check in the report.) | `sim:uno` |
+| [Threshold switch](07-control/05-threshold-switch/) | Switches an LED on D13 when A0 rises above 2.5 V - control.range tells for every reading whether it is above the threshold. (control.compare does the same for any comparison, and its result counts as a check in the report.) | `sim:uno` |
 | [Subflow](07-control/06-subflow/) | A part of a flow used like one node - the subflow 'duty_check' measures the duty cycle of a signal and checks it; the flow uses it twice, for D8 and for D15. Double-click a subflow node to open it. Select nodes and choose Make subflow to make your own. | `sim:free` |
 
 ## Data and reports
@@ -129,7 +131,7 @@ Keeping results - CSV logs, numbered capture files, buffers, bundles of values, 
 | [CSV logger](08-data/01-csv-logger/) | Writes every reading of A0 and D2 with its time into data/log.csv - one line per value, for a spreadsheet or a script. Set a duration in the inspector of the flow for a long recording. | `sim:uno` |
 | [Numbered files](08-data/02-numbered-files/) | Three captures, one per second, each in a file of its own - capture-001.lac, capture-002.lac, capture-003.lac in the data folder. Open them from the Project sidebar. | `sim:free` |
 | [Buffer](08-data/03-buffer/) | A stream of the counter keeps arriving; the buffer keeps only the last 5 ms. A timer reads the buffer three times - each time the scope shows the latest 5 ms, as a scope in roll mode. | `sim:free` |
-| [Bundle](08-data/04-bundle/) | Frequency and duty cycle of a capture travel together on one wire - structure.bundle makes one value of both; the log shows them side by side, the CSV file gets one line, and structure.unbundle takes them apart again (the frequency is checked). A group frame marks the measurements. | `sim:free` |
+| [Bundle](08-data/04-bundle/) | Frequency and duty cycle of a capture travel together on one wire - data.bundle makes one value of both; the log shows them side by side, the CSV file gets one line, and data.unbundle takes them apart again (the frequency is checked). A group frame marks the measurements. | `sim:free` |
 | [Read a table](08-data/05-read-a-table/) | Reads measured values from a CSV file (data/diode.csv, the curve of a diode) and makes a report with the table and its diagram - results of other tools fit into the same reports. | – |
 | [Report with a diagram](08-data/06-report-with-diagram/) | The voltage at A0 over the duty cycle of D9 as a table and a diagram in an HTML report - measured point by point and written when the flow ends. | `sim:uno` |
 | [Long-term logger](08-data/07-long-term-logger/) | Records inputs of a device for a long time into a CSV file and shows them as a strip chart. On the command line give the time, e.g. "openscilab run flows/logger.flow.yaml --duration 1h". The device is a simulated Arduino Uno (PWM of D9 through an RC low pass at A0, a push button on D2). | `sim:uno` |
@@ -173,7 +175,7 @@ Scripts on other computers as devices (package openscilab_device) - receiving va
 | [Climate station](12-remote/01-climate-station/) | A remote climate station (simulated - a script with openscilab_device on another computer works the same way) sends temperature, humidity and a door contact. The values carry the time they were measured on the station; openSciLab measures the station's clock, so they line up with everything else. Runs until Stop; data/climate.csv gets every value. | `remote-sim:climate` |
 | [Remote control panel](12-remote/02-remote-control-panel/) | A panel for the remote climate station - a slider sets the heating power, a switch the fan, a button calibrates the sensor; the panel shows temperature and humidity. Outputs are sent a little ahead with the time they should take effect, so the station applies them on time. | `remote-sim:climate` |
 | [Remote microphone](12-remote/03-remote-microphone/) | A remote microphone sends 8000 samples a second in blocks; every block carries the time of its first sample. The scope shows the signal, the spectrum its 440 Hz tone, the number the level the microphone computes itself. | `remote-sim:audio` |
-| [Sync signal](12-remote/04-sync-signal/) | For microsecond alignment the station drives a sync output (in the simulation it is wired to D5 of a simulated logic analyzer - with hardware, a wire from a GPIO of the station to a channel of the analyzer). The analyzer streams D5; remote.sync matches the edges and from then on the station's values are converted on the time axis of that recording. | `remote-sim:climate`, `sim:free` |
+| [Sync signal](12-remote/04-sync-signal/) | For microsecond alignment the station drives a sync output (in the simulation it is wired to D5 of a simulated logic analyzer - with hardware, a wire from a GPIO of the station to a channel of the analyzer). The analyzer streams D5; remote.align matches the edges and from then on the station's values are converted on the time axis of that recording. | `remote-sim:climate`, `sim:free` |
 
 ## Time
 
@@ -181,7 +183,7 @@ When samples were taken - a sync signal from openSciLab that aligns instruments 
 
 | Example | What it shows | Devices |
 | --- | --- | --- |
-| [Align instruments](13-time/01-align-instruments/) | timing.sync drives a sync signal on D7 of an Uno, wired to a simulator that knows its time and to a Pico behind (emulated) USB; timing.align places the Pico's samples on the reference's time to a few microseconds. | `sim:uno`, `sim:free`, `sim:pico` |
-| [Calibrate latency](13-time/02-calibrate-latency/) | GP16 of the Pico wired to GP17: timing.calibrate measures how late its samples arrive and keeps it; the stream that follows is placed with it. | `sim:pico` |
-| [Remote DAQ](13-time/03-remote-daq/) | A DAQ on another computer records openSciLab's sync signal on a line of its own; remote.sync aligns its samples with a logic analyzer to the precision of its sample rate. | `sim:uno`, `sim:free`, `remote-sim:daq` |
+| [Align instruments](13-time/01-align-instruments/) | time.sync drives a sync signal on D7 of an Uno, wired to a simulator that knows its time and to a Pico behind (emulated) USB; time.align places the Pico's samples on the reference's time to a few microseconds. | `sim:uno`, `sim:free`, `sim:pico` |
+| [Calibrate latency](13-time/02-calibrate-latency/) | GP16 of the Pico wired to GP17: time.latency measures how late its samples arrive and keeps it; the stream that follows is placed with it. | `sim:pico` |
+| [Remote DAQ](13-time/03-remote-daq/) | A DAQ on another computer records openSciLab's sync signal on a line of its own; remote.align aligns its samples with a logic analyzer to the precision of its sample rate. | `sim:uno`, `sim:free`, `remote-sim:daq` |
 | [DAQ latency](13-time/04-daq-latency/) | Without a sync signal: the DAQ measures the latency of its inputs with a loopback (its command calibrate_latency) and stamps its blocks with it. | `remote-sim:daq` |

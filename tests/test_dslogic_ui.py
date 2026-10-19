@@ -229,7 +229,7 @@ def test_main_window_shows_a_stream_while_it_runs(application, monkeypatch, make
         # the view follows the end of the growing capture
         assert all(end == count for _live, count, end in seen)
         assert np.array_equal(capture.capture_channels[0].samples, signals[0])
-        assert "Captured" in window.statusBar().currentMessage()
+        assert "Captured" in window.last_message
     finally:
         window.close()
 
@@ -242,7 +242,7 @@ def test_dialog_offers_an_endless_stream(pro32):
         assert not dialog.continuous_box.isHidden()
         dialog.immediate_radio.setChecked(True)
         dialog.continuous_box.setChecked(True)
-        assert dialog.post_label.text() == "Keep last samples:"
+        assert dialog.post_label.text() == "Keep last samples"
         assert "until stopped" in dialog.summary_label.text()
         dialog.post_samples_box.setValue(50_000)
         dialog._accept()
@@ -254,7 +254,7 @@ def test_dialog_offers_an_endless_stream(pro32):
         try:
             assert again.continuous_box.isChecked() and again.continuous()
             again.acquisition_box.setCurrentIndex(again.acquisition_box.findData("buffer"))
-            assert not again.continuous() and again.post_label.text() == "Post-trigger samples:"
+            assert not again.continuous() and again.post_label.text() == "Post-trigger samples"
         finally:
             again.close()
     finally:
@@ -293,7 +293,7 @@ def test_main_window_shows_an_endless_stream_in_a_moving_window(application, mon
                 break
             device.started.wait(0.01)
         assert model.is_live and model.sample_count == keep and window._live_first == streamed - keep
-        assert "until stopped" in window.statusBar().currentMessage()
+        assert "until stopped" in window.last_message
         # the moving index equals one built from the samples shown
         for channel, transitions in zip(model.session.capture_channels, model.transitions):
             fresh = ChannelTransitions(channel.samples, 1)

@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import logging
 import struct
+import time
 from typing import TYPE_CHECKING, Any, Optional
 
 import numpy as np
@@ -215,6 +216,24 @@ class ArduinoMonitor(_ArduinoFacet, MonitorFacet):
         self._request(protocol.MONITOR, struct.pack("<I", round(rate * 1000)) + self._mask(pins)
                       + struct.pack("<H", adc_mask))
         self._running = True
+
+    def sample(self, pins: list[str], analog: tuple[str, ...] = ()) -> MonitorState:
+        """The pins and analog inputs now (READ and ADC_READ): the monitor of a flow asks at its rate."""
+        names = self.driver.analog_channel_names()
+        unknown = [name for name in analog if name not in names]
+        if unknown:
+            raise InstrumentError(f"no analog input {', '.join(unknown)}")
+        digital: dict[str, int] = {}
+        if pins:
+            levels = protocol.unpack_pins(self._request(protocol.READ, self._mask(pins))[:self.driver.ports])
+            digital = {pin: (levels >> self._index(pin)) & 1 for pin in pins}
+        values: dict[str, float] = {}
+        if analog:
+            ordered = sorted(set(analog), key=names.index)
+            answer = self._request(protocol.ADC_READ, struct.pack("<H", sum(1 << names.index(name) for name in ordered)))
+            scale = self.driver.adc_scale()
+            values = {name: raw * scale for name, raw in zip(ordered, struct.unpack_from(f"<{len(ordered)}H", answer))}
+        return MonitorState(time.monotonic(), digital, values)
 
     def stop(self) -> None:
         if not self._running:

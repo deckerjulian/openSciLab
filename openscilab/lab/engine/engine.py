@@ -27,6 +27,7 @@ states, values on outputs, log lines. It has no Qt dependency; the editor runs i
 from __future__ import annotations
 
 import asyncio
+import functools
 import heapq
 import inspect
 import itertools
@@ -593,6 +594,11 @@ class Engine:
                     instrument = open_instrument(address, simulate=self.simulate, clock=self.clock, fast=self.clock.virtual,
                                                  seed=self.seed, wiring=self._wiring(name),
                                                  signals=self._signals(name, address))
+                elif address.startswith("circuit:"):
+                    # a circuit (Circuits) runs in virtual time with a flow that does; its file is of the project
+                    instrument = await self._external_call(
+                        functools.partial(open_instrument, project=self.project.root if self.project else None),
+                        address, False, self.clock, self.clock.virtual, self.seed)
                 else:
                     instrument = await self._external_call(open_instrument, address, False, self.clock, False, self.seed)
             except Exception as error:  # noqa: BLE001

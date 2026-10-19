@@ -206,7 +206,7 @@ class FirmwareDialog(QDialog):
         layout.addWidget(self.status_label)
 
         buttons = QDialogButtonBox(QDialogButtonBox.Close, self)
-        self.flash_button = buttons.addButton("Flash firmware", QDialogButtonBox.ActionRole)
+        self.flash_button = buttons.addButton("Install firmware", QDialogButtonBox.ActionRole)
         set_variant(self.flash_button, "primary")
         set_icon(self.flash_button, "chip")
         self.flash_button.clicked.connect(self.flash_selected)
@@ -241,7 +241,7 @@ class FirmwareDialog(QDialog):
         self._queries.pop(port, None)
         self._identities[port] = text
         if text and port == self.new_port:
-            self.status_label.setText(f"Firmware installed. The analyzer is available on {port}: {text}.")
+            self.status_label.setText(f"Firmware installed. The Pico is available on {port}: {text}.")
         self.refresh_targets()
 
     def refresh_targets(self) -> None:
@@ -255,7 +255,7 @@ class FirmwareDialog(QDialog):
                 info.append(f"before the restart: {self._previous_firmware}")
             entries.append(
                 (f"boot:{drive.path}",
-                 f"Bootloader drive {drive.name} ({drive.chip}) - ready to flash\n    {' · '.join(info)}",
+                 f"Bootloader drive {drive.name} ({drive.chip}) - ready to install\n    {' · '.join(info)}",
                  ("boot", drive))
             )
 
@@ -268,7 +268,7 @@ class FirmwareDialog(QDialog):
                 action, target = "restart it into the bootloader over USB", ("info", None)
             entries.append(
                 (f"connected:{number}",
-                 f"Connected analyzer on {device.location} - {action}\n    {device.firmware_text}",
+                 f"Connected device on {device.location} - {action}\n    {device.firmware_text}",
                  target)
             )
 
@@ -430,9 +430,9 @@ class FirmwareDialog(QDialog):
         drive = target[1]
         if not messages.confirm(
             self,
-            "Flash firmware",
+            "Install firmware",
             f"Write {image.file_name} to the board at {drive.path}?",
-            "Flash firmware",
+            "Install firmware",
             "The firmware currently on the board is replaced.",
         ):
             return
@@ -446,11 +446,11 @@ class FirmwareDialog(QDialog):
 
     def _on_flashed(self, error: object) -> None:
         if error is not None:
-            self.status_label.setText(f"Flashing failed: {error}")
+            self.status_label.setText(f"Installing failed: {error}")
             self._update_state()
             return
         self._previous_firmware = None
-        self.status_label.setText("Firmware written, waiting for the analyzer to start...")
+        self.status_label.setText("Firmware written, waiting for the Pico to start...")
         self._wait_deadline = time.monotonic() + WAIT_FOR_ANALYZER_S
         self._update_state()
 
@@ -467,13 +467,13 @@ class FirmwareDialog(QDialog):
             self._wait_deadline = None
             text = self._identities.get(self.new_port)
             self.status_label.setText(
-                f"Firmware installed. The analyzer is available on {self.new_port}"
+                f"Firmware installed. The Pico is available on {self.new_port}"
                 + (f": {text}." if text else ".")
             )
         elif time.monotonic() > self._wait_deadline:
             self._wait_deadline = None
             self.status_label.setText(
-                "The firmware was written, but no analyzer appeared within "
+                "The firmware was written, but no Pico appeared within "
                 f"{WAIT_FOR_ANALYZER_S} s. Reconnect the board and check that the image matches it."
             )
 

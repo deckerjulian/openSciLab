@@ -15,6 +15,7 @@ from PySide6.QtCore import QPointF, QRectF, Qt
 from PySide6.QtGui import QColor, QFontMetricsF, QPainter, QPainterPath, QPen
 
 from .. import colors
+from ..theme import qcolor
 from ..view_model import CURSORS, CaptureViewModel
 
 #: Pixels from a cursor line within which a press grabs it
@@ -104,7 +105,7 @@ def draw_cursors(
     a, b = model.cursor("A"), model.cursor("B")
     if ruler and a is not None and b is not None:
         left, right = sorted((x_for(a), x_for(b)))
-        painter.fillRect(QRectF(left, 0, right - left, bounds.height()), QColor(255, 255, 255, 18))
+        painter.fillRect(QRectF(left, 0, right - left, bounds.height()), qcolor("display.band.strong"))
     for name in CURSORS:
         sample = model.cursor(name)
         if sample is None or not _visible(model, sample):
@@ -116,7 +117,7 @@ def draw_cursors(
         if ruler:
             flag = QRectF(x - 7, bounds.height() - 15, 14, 13)
             painter.fillRect(flag, color)
-            painter.setPen(QColor(20, 20, 24))
+            painter.setPen(qcolor("display.ink.dark"))
             painter.drawText(flag, Qt.AlignCenter, name)
 
 

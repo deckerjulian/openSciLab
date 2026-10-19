@@ -1,8 +1,8 @@
 flow: Data acquisition
 description: 'The box streams AI0-AI2 at 1 kHz until Stop (the last 10 s are kept); every block goes into data/recording.lac and onto the strip charts, the mean of each block of AI0 into a number. The panel sets AO0 - in the simulator it is wired to AI2.'
 nodes:
-  daq: {type: device.instrument, at: [0, 352]}
-  output: {type: gpio.dac, pin: AO0, volts: 2 V, at: [272, 496]}
+  daq: {type: device.device, at: [0, 352]}
+  output: {type: gpio.analog_output, pin: AO0, value: 2 V, at: [272, 496]}
   stream:
     type: device.stream
     channels: [AI0, AI1, AI2]
@@ -11,9 +11,9 @@ nodes:
     until_stopped: true
     at: [272, 216]
   record: {type: data.logger, path: recording.lac, at: [544, 0]}
-  ai0_chart: {type: view.strip_chart, title: AI0, window: 10 s, at: [544, 224]}
-  ai1_chart: {type: view.strip_chart, title: AI1, window: 10 s, at: [544, 392]}
-  ai2_chart: {type: view.strip_chart, title: AI2 (AO0), window: 10 s, at: [544, 560]}
+  ai0_chart: {type: view.chart, title: AI0, window: 10 s, at: [544, 224]}
+  ai1_chart: {type: view.chart, title: AI1, window: 10 s, at: [544, 392]}
+  ai2_chart: {type: view.chart, title: AI2 (AO0), window: 10 s, at: [544, 560]}
   ai0_mean: {type: measure.mean, at: [544, 112]}
   note:
     type: structure.comment

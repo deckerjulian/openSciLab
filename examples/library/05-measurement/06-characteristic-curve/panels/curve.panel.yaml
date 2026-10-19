@@ -8,4 +8,4 @@ widgets:
   volts: {kind: chart, bind: mean.out, title: Mean voltage at A0, x: 16, y: 112, width: 456, height: 272, unit: V}
   scope: {kind: scope, bind: capture.CH1, title: CH1, x: 488, y: 112, width: 224, height: 272}
   slope: {kind: number, bind: fit.slope, title: Slope, x: 720, y: 112, width: 224, height: 80, unit: V}
-  passed: {kind: led, bind: check.pass, title: Passed, x: 720, y: 208, width: 224, height: 80}
+  passed: {kind: led, bind: check.result, title: Passed, x: 720, y: 208, width: 224, height: 80}

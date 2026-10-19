@@ -38,10 +38,10 @@ class RigolBackend(DeviceBackend):
 
     def manual_entries(self) -> list[DeviceEntry]:
         return [DeviceEntry(BACKEND_ID, KIND_ADDRESS, None, "Rigol oscilloscope by address..."),
-                DeviceEntry(BACKEND_ID, KIND_SIMULATED, "bridge", "Simulation: DHO924S with bridge app", simulated=True),
-                DeviceEntry(BACKEND_ID, KIND_SIMULATED, "direct", "Simulation: DHO924S without bridge app",
+                DeviceEntry(BACKEND_ID, KIND_SIMULATED, "bridge", "Simulated DHO924S with bridge app", simulated=True),
+                DeviceEntry(BACKEND_ID, KIND_SIMULATED, "direct", "Simulated DHO924S without bridge app",
                             simulated=True),
-                DeviceEntry(BACKEND_ID, KIND_SIMULATED, "usb", "Simulation: DHO924S on USB", simulated=True)]
+                DeviceEntry(BACKEND_ID, KIND_SIMULATED, "usb", "Simulated DHO924S on USB", simulated=True)]
 
     def connect(self, entry: DeviceEntry, parent: QWidget) -> Optional[AnalyzerDriverBase]:
         if entry.kind == KIND_SIMULATED:
