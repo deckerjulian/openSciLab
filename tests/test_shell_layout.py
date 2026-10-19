@@ -65,7 +65,7 @@ def wait_for_width(qtbot, condition, widths) -> None:
         raise AssertionError(f"the docks did not take their widths: {widths()}") from None
 
 
-def test_the_docks_start_at_their_widths(shell, qtbot):
+def test_the_docks_start_at_their_widths(shell, qtbot, idle_loop):
     from openscilab.ui.theme import size
 
     shell.resize(1600, 1000)
@@ -90,16 +90,20 @@ def test_the_docks_start_at_their_widths(shell, qtbot):
     # palette as well, nor as wide as a layout left it)
     assert not shell.sidebar_dock.isVisible()
     wait_for_width(qtbot, lambda: shell.inspector_dock.width() == shell.dock_width("inspector"), widths)
+    idle_loop()  # (the docks are sized by timers: not behind work the tests before left)
     shell.toggle_sidebar()
     wait_for_width(qtbot, lambda: shell.sidebar_dock.width() == shell.dock_width("sidebar"), widths)
     shell.resizeDocks([shell.sidebar_dock], [shell.width() // 2], Qt.Horizontal)  # dragged far too wide
     shell.toggle_sidebar()
+    idle_loop()
     shell.toggle_sidebar()
     wait_for_width(qtbot, lambda: shell.sidebar_dock.width() == shell.dock_width("sidebar"), widths)
+    idle_loop()
     shell.new_flow()
     wait_for_width(qtbot, lambda: shell.nodes_dock.width() == shell.dock_width("node-palette"), widths)
     assert shell.sidebar_dock.width() == shell.dock_width("sidebar")
     shell.sidebar_dock.setVisible(False)
+    idle_loop()
     shell.reset_layout()
     wait_for_width(qtbot, lambda: (shell.sidebar_dock.width(), shell.inspector_dock.width())
                    == (shell.dock_width("sidebar"), shell.dock_width("inspector")), widths)

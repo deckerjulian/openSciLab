@@ -32,45 +32,6 @@ def isolated_settings(tmp_path, monkeypatch):
     preferences.reload()
 
 
-#: Qt's windows a test may leave that are no test's to delete (Qt keeps pointers to them)
-_QT_OWN_WINDOWS = ("QTipLabel", "QComboBoxPrivateContainer", "QWhatsThat", "QBalloonTip", "QCompleter",
-                   "QColorDialog", "QFileDialog")
-
-
-def _top_level_windows() -> dict[int, object]:
-    from PySide6.QtWidgets import QApplication
-    from shiboken6 import Shiboken
-
-    application = QApplication.instance()
-    if application is None:
-        return {}
-    return {Shiboken.getCppPointer(widget)[0]: widget for widget in application.topLevelWidgets()
-            if widget.parent() is None}
-
-
-@pytest.fixture(autouse=True)
-def windows_closed_after_the_test():
-    """The windows a test made and left (documents, dialogs, a whole shell) are deleted after it: some
-    thousand left by the tests before made every change of the application's font or palette - each
-    shell of a test makes one - take seconds on Linux, and timers of the tests came too late."""
-    before = set(_top_level_windows())
-    yield
-    from PySide6.QtCore import QCoreApplication, QEvent
-
-    left = [widget for key, widget in _top_level_windows().items()
-            if key not in before and widget.metaObject().className() not in _QT_OWN_WINDOWS]
-    for widget in left:
-        try:
-            if hasattr(widget, "force_close"):
-                widget.force_close()  # (the shell: without asking, its devices and timers stopped)
-            widget.hide()  # (not closed: a close event may ask a question nobody answers)
-            widget.deleteLater()
-        except RuntimeError:  # (deleted meanwhile)
-            pass
-    if left:
-        QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
-
-
 @pytest.fixture(autouse=True)
 def no_usb_devices(monkeypatch):
     """The tests never touch real devices: no DSLogic and no USBTMC instrument through libusb, no
@@ -128,6 +89,31 @@ def decoder_registry():
     sys.modules.pop("testdec.pd", None)
 
 
+def idle_event_loop(limit: float = 30.0) -> None:
+    """Work off what is waiting for the event loop - above all the objects the tests before deleted
+    with ``deleteLater``: ``processEvents`` leaves those, the next real event loop deletes all of them
+    at once. Some hundred tests on, that took seconds on Linux, and a test that waits a few seconds for
+    a timer of its window (the size of a dock) ran out of time."""
+    import time
+
+    from PySide6.QtCore import QEventLoop, QTimer
+
+    end = time.monotonic() + limit
+    while time.monotonic() < end:
+        loop = QEventLoop()
+        started = time.monotonic()
+        QTimer.singleShot(0, loop.quit)
+        loop.exec()  # (a real loop: deferred deletes are done in it)
+        if time.monotonic() - started < 0.05:
+            return
+
+
+@pytest.fixture
+def idle_loop():
+    """:func:`idle_event_loop`, for a test that times what Qt does (sizes of docks, timers)."""
+    return idle_event_loop
+
+
 @pytest.fixture
 def shell():
     """The openSciLab shell, shown on the offscreen platform; closed without questions afterwards."""
@@ -139,9 +125,11 @@ def shell():
     from openscilab.ui.theme import apply_font
 
     apply_font(application)  # (as the application does)
+    idle_event_loop()
     window = ShellWindow()
     window.resize(1600, 1000)
     window.show()
+    idle_event_loop()  # (showing it: once seconds of work with the windows the tests before left)
     yield window
     window.force_close()
 
