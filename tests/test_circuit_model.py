@@ -544,3 +544,21 @@ def test_a_shorted_component_is_left_out_of_the_netlist(catalog):
     assert not any(line.startswith("R9 ") for line in circuit.lines)
     assert any(problem.item == "R9" and "shorted" in problem.text for problem in circuit.problems)
     assert not circuit.errors
+
+
+def test_a_plugin_brings_components_of_a_physics_of_its_own(tmp_path):
+    from openscilab.circuits.library import PLUGIN_FOLDERS, builtin, register_folder
+
+    (tmp_path / "pipes.yaml").write_text(
+        "- type: pipes.valve\n  title: Valve\n  category: Pipes\n  prefix: VL\n  physics: hydraulic\n"
+        "  symbol:\n    shapes: [{line: [-10, 0, 10, 0]}]\n"
+        "    pins: [{number: a, at: [-20, 0], angle: 0, length: 10}, {number: b, at: [20, 0], angle: 180, length: 10}]\n"
+        "  params: [{name: R, label: Resistance, default: '', kind: text}]\n")
+    try:
+        register_folder(str(tmp_path))
+        valve = builtin()["pipes.valve"]
+        assert valve.physics == "hydraulic" and valve.simulated  # (its plugin simulates it)
+        assert builtin()["resistor"].physics == ""  # (an electrical part)
+    finally:
+        PLUGIN_FOLDERS.remove(str(tmp_path))
+        register_folder.__globals__["_builtin"] = None

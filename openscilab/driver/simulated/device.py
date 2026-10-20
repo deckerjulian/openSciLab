@@ -423,10 +423,13 @@ class SimulatedDriver(AnalyzerDriverBase):
     def analog_channels_for(self, session: CaptureSession) -> list[AnalogChannel]:
         scale, offset, _bits = self.analog_scale()
         names = self.analog_channel_names()
+        # (the unit of each input: volts, unless the profile names others - mmHg, mL/s of a simulated patient)
+        units = list(self.profile.get("analog_units") or [])
         for channel in session.analog_channels:
             if not 0 <= channel.channel_number < len(names):
                 raise ValueError(f"no analog input {channel.channel_number}")
-            channel.scale, channel.offset, channel.unit = scale, offset, "V"
+            unit = units[channel.channel_number] if channel.channel_number < len(units) else "V"
+            channel.scale, channel.offset, channel.unit = scale, offset, unit
             channel.channel_name = channel.channel_name or names[channel.channel_number]
             channel.rate = None
         return session.analog_channels

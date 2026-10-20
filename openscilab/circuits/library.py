@@ -172,7 +172,13 @@ class ComponentSpec:
     def simulated(self) -> bool:
         """Whether a circuit with it can be simulated (it has a model, or it only connects)."""
         return self.model is not None or self.role in ("ground", "power", "probe.v", "probe.logic", "probe.scope",
-                                                       "port")
+                                                       "port") or bool(self.physics)
+
+    @property
+    def physics(self) -> str:
+        """The physics of a plugin that simulates it instead of ngspice (``physics:``, e.g. ``hydraulic``);
+        "" for an electrical component."""
+        return str(self.extra.get("physics", ""))
 
     def param(self, name: str) -> ParamSpec | None:
         return next((spec for spec in self.params if spec.name == name), None)
@@ -288,7 +294,8 @@ def spec_from_data(data: dict, source: str = "builtin", library: str = "") -> Co
         role=str(data.get("role", "")), source=source, datasheet=str(data.get("datasheet", "")),
         library=library or str(data.get("library", "")), board=str(data.get("board", "")),
         show=tuple(str(name) for name in data.get("show", ("value",))), current=str(data.get("current", "")),
-        extra={key: value for key, value in data.items() if key in ("mcu", "digital_model", "rf", "screen", "lights")})
+        extra={key: value for key, value in data.items() if key in ("mcu", "digital_model", "rf", "screen", "lights",
+                                                                    "physics")})
 
 
 def load_file(path: str, source: str = "builtin") -> tuple[list[ComponentSpec], list[str]]:
@@ -327,11 +334,33 @@ _builtin: dict[str, ComponentSpec] | None = None
 _builtin_problems: list[str] = []
 
 
+#: folders of components that plugins of openSciLab bring (:func:`register_folder`), read with its own
+PLUGIN_FOLDERS: list[str] = []
+
+
+def register_folder(folder: str) -> None:
+    """Add the components of ``folder`` (YAML of this format) to openSciLab's own - for a plugin that brings
+    components of a physics of its own). The catalog of the application is read again."""
+    folder = os.path.abspath(folder)
+    if folder in PLUGIN_FOLDERS:
+        return
+    PLUGIN_FOLDERS.append(folder)
+    global _builtin
+    _builtin = None
+    from .catalog import reset_default
+
+    reset_default()
+
+
 def builtin() -> dict[str, ComponentSpec]:
-    """openSciLab's own components by type (read once)."""
+    """openSciLab's own components by type (read once), with those of plugins (:data:`PLUGIN_FOLDERS`)."""
     global _builtin
     if _builtin is None:
         specs, problems = load_folder(LIBRARY_DIR)
+        for folder in PLUGIN_FOLDERS:
+            more, more_problems = load_folder(folder)
+            specs += more
+            problems += more_problems
         _builtin = {spec.type: spec for spec in specs}
         _builtin_problems[:] = problems
     return _builtin

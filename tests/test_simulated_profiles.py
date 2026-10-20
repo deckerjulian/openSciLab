@@ -230,3 +230,14 @@ def test_the_device_list_offers_the_simulators_and_the_fault_menu(shell):
     assert instrument.status == InstrumentStatus.DISCONNECTED
     submenu.actions()[1].trigger()  # reconnect
     assert instrument.status == InstrumentStatus.SIMULATED
+
+
+def test_a_profile_may_name_the_units_of_its_analog_inputs():
+    name = next(item for item in available_profiles() if load_profile(item).get("analog"))
+    driver = open_simulated(name, fast=True).capture.driver
+    session = CaptureSession(frequency=1000, pre_trigger_samples=0, post_trigger_samples=10,
+                             trigger_type=TriggerType.IMMEDIATE)
+    session.analog_channels = [AnalogChannel(channel_number=0)]
+    assert driver.analog_channels_for(session)[0].unit == "V"  # (volts, unless the profile names others)
+    driver.profile["analog_units"] = ["mmHg"]
+    assert driver.analog_channels_for(session)[0].unit == "mmHg"

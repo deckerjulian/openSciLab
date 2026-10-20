@@ -257,6 +257,10 @@ def emit(schematic: Schematic, resolve: Callable[[str], ComponentSpec | None], m
                              analysis)
             continue
         if spec.model is None:
+            if spec.physics:
+                result.problems.append(Problem("error", f"{spec.title} is no electrical part ({spec.physics}): "
+                                               "the plugin of that physics simulates it, not ngspice", ref))
+                continue
             result.problems.append(Problem("error", f"{spec.title} has no simulation model", ref))
             continue
         template = spec.model.template_for(component.unit)
