@@ -26,6 +26,9 @@ virtual time (see :attr:`Example.realtime`). Opening one copies it into a tempor
 example itself stays as it is, saving asks where to keep the copy. Besides files, ``open`` may name
 ``data`` - a data view that captures with the connected device (the Logic Analyzer).
 
+A plugin brings examples of its own as a library of the same form (:func:`register_library`); its
+categories follow openSciLab's.
+
 The user's own templates - projects saved with :func:`save_template` - are kept in the folder
 ``templates`` of the settings directory and come first, as the category *Your templates*
 (:data:`USER_CATEGORY`).
@@ -88,6 +91,19 @@ USER_CATEGORY = "my-templates"
 _SKIP = shutil.ignore_patterns("__pycache__", "*.pyc", ".DS_Store", ".git")
 
 
+#: the libraries of examples the plugins brought (:func:`register_library`)
+_PLUGIN_LIBRARIES: list[str] = []
+
+
+def register_library(directory: str) -> None:
+    """Add the library of examples of a plugin: category folders with their examples, as openSciLab's
+    (a plugin calls it when it is loaded). Its categories follow openSciLab's; a category whose folder
+    name openSciLab already has is left out."""
+    directory = os.path.normpath(os.path.abspath(directory))
+    if directory not in _PLUGIN_LIBRARIES:
+        _PLUGIN_LIBRARIES.append(directory)
+
+
 def library_directory() -> Optional[str]:
     for directory in LIBRARY_DIRECTORIES:
         directory = os.path.normpath(directory)
@@ -143,12 +159,23 @@ def user_templates() -> Optional[Category]:
 
 def catalog(directory: Optional[str] = None) -> list[Category]:
     """The categories with their examples, in the order of their folders; of the library openSciLab
-    brings (no ``directory``) with the user's templates first."""
+    brings and those of the plugins (no ``directory``), the user's templates first."""
     own = user_templates() if directory is None else None
-    directory = directory or library_directory()
-    if directory is None:
-        return [own] if own is not None else []
     result = [own] if own is not None else []
+    if directory is not None:
+        return result + _categories(directory)
+    base = library_directory()
+    if base is not None:
+        result += _categories(base)
+    for library in _PLUGIN_LIBRARIES:
+        if os.path.isdir(library):
+            known = {category.key for category in result}
+            result += [category for category in _categories(library) if category.key not in known]
+    return result
+
+
+def _categories(directory: str) -> list[Category]:
+    result = []
     for folder in sorted(os.listdir(directory)):
         path = os.path.join(directory, folder)
         if not os.path.isdir(path) or folder.startswith((".", "_")):

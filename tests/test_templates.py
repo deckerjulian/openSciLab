@@ -190,3 +190,21 @@ def test_the_shell_saves_a_project_as_a_template_and_lists_it_first(shell, monke
     page.tiles[key].context_menu().actions()[-1].trigger()  # Delete template...
     assert key not in page.tiles and page.sections[0].category.title == "Start a project"
     assert "Your templates" not in [action.menu().title() for action in shell.examples_menu.actions() if action.menu()]
+
+
+def test_a_plugin_brings_examples_of_its_own(tmp_path, monkeypatch):
+    library = tmp_path / "library"
+    (library / "40-brain" / "01-loop" / "flows").mkdir(parents=True)
+    (library / "40-brain" / "category.yaml").write_text("title: Brain\nicon: nodes\n", encoding="utf-8")
+    (library / "40-brain" / "01-loop" / "project.yaml").write_text("project: A loop\ndescription: Round.\n",
+                                                                   encoding="utf-8")
+    (library / "00-start" / "01-other").mkdir(parents=True)  # (a category openSciLab has: left out)
+    (library / "00-start" / "01-other" / "project.yaml").write_text("project: Other\n", encoding="utf-8")
+    monkeypatch.setattr(examples, "_PLUGIN_LIBRARIES", [])
+    examples.register_library(str(library))
+    examples.register_library(str(library))  # (once)
+    keys = [category.key for category in examples.catalog()]
+    assert keys[-1] == "40-brain" and keys.count("00-start") == 1
+    loop = examples.find("40-brain/01-loop")
+    assert loop.title == "A loop" and loop.icon == "nodes" and loop.path == str(library / "40-brain" / "01-loop")
+    assert "00-start/01-other" not in [example.key for example in examples.examples()]
