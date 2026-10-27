@@ -315,6 +315,7 @@
         "SoftwareTrigger": false,
         "ClockChannel": 30,
         "ClockEdge": "falling",
+        "ClockName": "Φ2 (E)",
         "Buses": [
           {
             "Name": "Address",

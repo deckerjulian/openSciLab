@@ -71,9 +71,18 @@ def settings_line(session: Any) -> str:
     if session.analog_channels:
         parts.append(f"{len(session.analog_channels)} analog")
     parts.append(f"trigger: {session.trigger_type.label.lower()}")
+    if getattr(session, "clock_channel", None) is not None:
+        parts.append(f"clock: {clock_text(session)}")
     if getattr(session, "acquisition_mode", "") == "stream":
         parts.append("stream")
     return " · ".join(parts)
+
+
+def clock_text(session: Any) -> str:
+    """The clock of a state capture: its name (or channel) and edge, e.g. ``Φ2 (E) ↓``."""
+    edge = {"rising": "↑", "falling": "↓"}.get(getattr(session.clock_edge, "value", session.clock_edge), "")
+    name = getattr(session, "clock_name", "") or f"channel {session.clock_channel + 1}"
+    return f"{name} {edge}".strip()
 
 
 class LimitCache:

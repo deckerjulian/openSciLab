@@ -203,12 +203,16 @@ class CaptureController(QObject):
         return next_session(self.driver)  # (no data view yet: what its capture bar will start with)
 
     def channel_names(self) -> dict[int, str]:
-        """Names of the channels in the settings: channel number -> name (digital channels)."""
+        """Names of the channels in the settings: channel number -> name (digital channels); the
+        clock of a state capture by its name, too."""
         session = self.settings()
         if session is None:
             return {}
-        return {channel.channel_number: channel.channel_name for channel in session.capture_channels
-                if channel.channel_name}
+        names = {channel.channel_number: channel.channel_name for channel in session.capture_channels
+                 if channel.channel_name}
+        if session.clock_channel is not None and session.clock_name:
+            names.setdefault(session.clock_channel, session.clock_name)
+        return names
 
     def analog_names(self) -> dict[int, str]:
         session = self.settings()

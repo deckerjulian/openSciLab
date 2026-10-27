@@ -32,6 +32,7 @@ from PySide6.QtWidgets import (
 )
 
 from ...core import units
+from ...core.device_summary import clock_text
 from ..icons import set_icon
 from ..theme import TEXT_MUTED, set_role, set_variant, token
 from ..widgets.quick_capture import QuickCaptureBar
@@ -211,6 +212,8 @@ class CaptureControls(QObject):
         if session.analog_channels:
             parts.append(f"{len(session.analog_channels)} analog")
         parts.append(f"trigger: {session.trigger_type.label.lower()}")
+        if session.clock_channel is not None:
+            parts.append(f"clock: {clock_text(session)}")
         if getattr(session, "acquisition_mode", "") == "stream":
             parts.append("stream")
         return " · ".join(parts)
@@ -228,13 +231,15 @@ class CaptureControls(QObject):
         analog_names = controller.analog_names()
         analog_captured = {channel.channel_number for channel in settings.analog_channels} if settings else set()
         analog = list(driver.analog_channel_names()) if driver.analog_channel_count else []
+        clock = settings.clock_channel if settings else None
         rows = [(f"D{number}" if not pins else f"{number}", pins.get(number, "–"), names.get(number, ""),
-                 number in captured) for number in range(driver.channel_count)]
+                 "clock" if number == clock else number in captured) for number in range(driver.channel_count)]
         rows += [(f"A{number}", label, analog_names.get(number, ""), number in analog_captured)
                  for number, label in enumerate(analog)]
         self.channel_table.setRowCount(len(rows))
         for row, (channel, pin, name, used) in enumerate(rows):
-            for column, value in enumerate((channel, pin, name or "–", "✓" if used else "")):
+            for column, value in enumerate((channel, pin, name or "–",
+                                            used if isinstance(used, str) else "✓" if used else "")):
                 item = QTableWidgetItem(value)
                 if column == 2 and not name:
                     item.setForeground(QColor(TEXT_MUTED))

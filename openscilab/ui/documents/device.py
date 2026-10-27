@@ -7,7 +7,7 @@
 """The device card: an instrument of the hub as a document.
 
 Header: name, status, what the device is (kind, address), the settings of the next capture,
-*Capture...* (its data view), *Profiles* and *Disconnect*. Tabs, as far as the device has them:
+*Data view*, *Profiles* and *Disconnect*. Tabs, as far as the device has them:
 **Remote** (remote devices), **Pins** (one table: pin, channel, name, capabilities and – with GPIO –
 mode, value and actions; pin strip, monitor, *All outputs safe* (Esc), stimulus and capture),
 **Signals** and **Events** (simulators), **Send** (protocol transmitters), **Timing** (how its samples
@@ -37,6 +37,7 @@ from PySide6.QtWidgets import (
     QHeaderView,
     QLabel,
     QListWidget,
+    QMenu,
     QPushButton,
     QScrollArea,
     QSizePolicy,
@@ -426,7 +427,17 @@ class DeviceDocument(DocumentWidget):
         self.web_control_button.clicked.connect(self.open_web_control)
         self.web_control_button.setVisible(False)
         header.addWidget(self.web_control_button)
-        # (the capture profiles of the device are where captures are set up: the data view)
+        # the capture profiles of the device: saved settings (and decoders) loaded at a click - the
+        # same menu as in the data view
+        self.profiles_button = QPushButton("Profiles", self)
+        set_icon(self.profiles_button, "bookmark")
+        self.profiles_button.setToolTip("Capture profiles: load saved settings for this device, save the current "
+                                        "ones, the standard profiles")
+        self.profiles_menu = QMenu(self.profiles_button)
+        self.profiles_menu.aboutToShow.connect(self._fill_profiles)
+        self.profiles_button.setMenu(self.profiles_menu)
+        self.profiles_button.setVisible(getattr(self, "controller", None) is not None)
+        header.addWidget(self.profiles_button)
         # what concerns the device itself: buttons on the Details tab (made here, placed there)
         controller = self.controller
         self.action_settings = QAction(icon("gear"), "Capture setup...", self)
@@ -578,6 +589,11 @@ class DeviceDocument(DocumentWidget):
             return self.controller.analog_names().get(pin.analog_channel, "")
         return ""
 
+    def _fill_profiles(self) -> None:
+        self.profiles_menu.clear()
+        if self.controller is not None:
+            self.controller.fill_profiles_menu(self.profiles_menu, self)
+
     def capture_summary(self) -> str:
         """The settings of the next capture in a line."""
         from ...core.device_summary import settings_line
@@ -593,6 +609,7 @@ class DeviceDocument(DocumentWidget):
         connected = self.instrument in self.hub and self.instrument.status != InstrumentStatus.DISCONNECTED
         self.action_reconnect.setVisible(bool(self.instrument.uri))
         self.action_copy.setVisible(True)
+        self.profiles_button.setVisible(controller is not None)
         self.capture_label.setVisible(controller is not None)
         if controller is None:
             for action in (self.action_settings, self.action_self_test, self.action_generated, self.action_network,
@@ -606,6 +623,7 @@ class DeviceDocument(DocumentWidget):
         summary = self.capture_summary()
         self.capture_label.setText(summary)
         self.capture_label.setToolTip(summary)
+        self.profiles_button.setEnabled(connected and not capturing)
         for action, visible in ((self.action_settings, True),
                                 (self.action_generated, connected and controller.can_simulate_on_board()),
                                 (self.action_self_test, bool(driver.has_self_test)),

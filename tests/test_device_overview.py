@@ -54,7 +54,10 @@ def test_the_details_tab_holds_what_the_device_information_showed(shell):
 
 def test_profiles_load_where_captures_are_set_up(shell):
     card = card_of(shell)
-    assert not hasattr(card, "profiles_button")  # (one place for profiles: the data view)
+    # the card offers the same profiles menu as the data view
+    assert card.profiles_button.isVisibleTo(card) and card.profiles_button.isEnabled()
+    card._fill_profiles()
+    assert "Standard profiles" in [action.text() for action in card.profiles_menu.actions()]
     view = shell.show_data(card.instrument)
     controls = view.capture_controls
     controls._fill_profiles()

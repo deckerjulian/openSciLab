@@ -342,6 +342,9 @@ class CaptureSession:
     #: internal rate (capability ``STATE_MODE``); ``None``: timing mode
     clock_channel: Optional[int] = None
     clock_edge: EdgeKind = EdgeKind.RISING
+    #: The name of the clock signal (e.g. ``"Φ2 (E)"``): the clock is no channel of the capture,
+    #: so its name is kept here (``""``: none)
+    clock_name: str = ""
     #: Buses and groups shown with the capture
     buses: list[BusDefinition] = field(default_factory=list)
     #: Analog channels (devices with ``CAPABILITY_ANALOG``), on the rate of the session unless

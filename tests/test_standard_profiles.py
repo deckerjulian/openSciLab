@@ -163,6 +163,7 @@ def test_the_c64_profiles_say_the_device_they_are_for():
     mega = standard("c64-arduino-mega").capture_settings
     named = {channel.channel_name: channel.channel_number for channel in mega.capture_channels}
     assert mega.clock_channel == 30 and mega.clock_edge == EdgeKind.FALLING  # D2
+    assert mega.clock_name == "Φ2 (E)"  # the clock is no channel of the capture: named on its own
     assert named["A15 (F)"] == 0 and named["A0 (Y)"] == 9 and named["D7 (14)"] == 42 and named["D0 (21)"] == 8
     assert [bus.name for bus in mega.buses] == ["Address", "Data"]
     assert mega.buses[0].channels == [named[f"A{bit} ({pin})"] for bit, pin in enumerate("YXWVUTSRPNMLKJHF")]

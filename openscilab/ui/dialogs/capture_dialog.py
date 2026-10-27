@@ -518,6 +518,8 @@ class CaptureDialog(QDialog):
             clock_channels = list(range(self.driver.channel_count))
         for number in clock_channels:
             self.clock_channel_box.addItem(f"Channel {number + 1}", number)
+        #: (channel, name) of the clock of the loaded settings (``CaptureSession.clock_name``)
+        self._clock_name: tuple[Optional[int], str] = (None, "")
         grid.addWidget(self.clock_channel_box, 3, 1)
         self.clock_edge_box = QComboBox(group)
         self.clock_edge_box.addItem("Rising ↑", EdgeKind.RISING)
@@ -1365,9 +1367,18 @@ class CaptureDialog(QDialog):
                 selector.channel_name = "" if channel.channel_name == default else channel.channel_name
                 selector.channel_color = channel.channel_color
                 selector._update_color()
+        self._clock_name = (None, "")
+        for item in range(self.clock_channel_box.count()):
+            self.clock_channel_box.setItemText(item, f"Channel {self.clock_channel_box.itemData(item) + 1}")
         if session.clock_channel is not None and CAPABILITY_STATE_MODE in self.capabilities:
             self.clock_box.setChecked(True)
-            self.clock_channel_box.setCurrentIndex(max(self.clock_channel_box.findData(session.clock_channel), 0))
+            index = self.clock_channel_box.findData(session.clock_channel)
+            if index >= 0 and session.clock_name:
+                # the clock is no channel of the capture: its name (Φ2 ...) stays with its channel here
+                self._clock_name = (session.clock_channel, session.clock_name)
+                self.clock_channel_box.setItemText(index, f"Channel {session.clock_channel + 1} · "
+                                                          f"{session.clock_name}")
+            self.clock_channel_box.setCurrentIndex(max(index, 0))
             self.clock_edge_box.setCurrentIndex(max(self.clock_edge_box.findData(session.clock_edge), 0))
 
         if session.trigger_type == TriggerType.BLAST and self.blast_box.isEnabled():
@@ -1563,6 +1574,8 @@ class CaptureDialog(QDialog):
         if self.clock_box.isVisible() and self.clock_box.isChecked():
             session.clock_channel = self.clock_channel_box.currentData()
             session.clock_edge = self.clock_edge_box.currentData()
+            named, name = self._clock_name
+            session.clock_name = name if named == session.clock_channel else ""
 
         if self.sequence_radio.isChecked():
             try:

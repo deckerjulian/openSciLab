@@ -280,6 +280,8 @@ def session_to_dict(session: CaptureSession, include_samples: bool = True, compa
         "StateTimes": None if state_times is None or not compatible
         else [float(value) for value in np.asarray(state_times, dtype=np.float64)],
     }
+    if session.clock_name:
+        data["ClockName"] = session.clock_name  # (the clock is no channel: its name, e.g. Φ2)
     if session.device_settings:
         data["DeviceSettings"] = True  # (captured as set on the device: "Again" does so too)
     if state_times is not None and not compatible:
@@ -317,6 +319,7 @@ def session_from_dict(data: dict) -> CaptureSession:
             int(data["ClockChannel"]) if data.get("ClockChannel") is not None else None
         ),
         clock_edge=_enum(EdgeKind, data.get("ClockEdge"), EdgeKind.RISING),
+        clock_name=str(data.get("ClockName") or ""),
         buses=[
             bus_from_dict(item) for item in (data.get("Buses") or []) if isinstance(item, dict)
         ],

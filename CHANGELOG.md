@@ -193,6 +193,12 @@ theme). Checked by `tests/test_terminology.py`, `tests/test_theme_tokens.py` and
 
 ### Application
 
+- **The clock of a state capture has a name**: the clock is no channel of the capture, so its name went
+  nowhere - the profile *C64 expansion port - Arduino Mega 2560 (Ben Eater's wiring)* showed no Φ2.
+  Settings and profiles keep it (`ClockName`, written only when set); the clock choice of the capture
+  setup (*Channel 31 · Φ2 (E)*), the channel table and the pins of the device card (D2: *Φ2 (E)*,
+  captured: *clock*) and the line of the next capture (*clock: Φ2 (E) ↓*) show it. The device card has
+  *Profiles* again, the same menu as in the data view.
 - Bus rows of a long capture: a value that began exactly at the edge of a pixel column could be
   drawn one column off (the quick way of looking up a whole capture rounded the column edges
   differently from the runs); now both round the same.
