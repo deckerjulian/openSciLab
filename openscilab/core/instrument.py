@@ -459,8 +459,8 @@ class SettingsFacet(Facet):
 
     A setting is a ``dict``: ``name``, ``label``, ``group`` (a box of the panel), ``kind``
     (``number``, ``choice``, ``bool``, ``text`` read only, ``action`` a button), for numbers
-    ``unit``, ``minimum``, ``maximum`` and ``steps`` (``"125"``: steps through 1, 2, 5 × 10ⁿ),
-    for choices ``choices``: ``[[value, label], …]``."""
+    ``unit``, ``minimum``, ``maximum``, ``steps`` (``"125"``: steps through 1, 2, 5 × 10ⁿ) and
+    ``digits`` (significant digits shown, 4 when not given), for choices ``choices``: ``[[value, label], …]``."""
 
     title = "Settings"
 

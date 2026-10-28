@@ -244,6 +244,11 @@ theme). Checked by `tests/test_terminology.py`, `tests/test_theme_tokens.py` and
 
 ### Devices
 
+- **HTOOL HT008 RF signal source** (`ht008:<port>`, found on the ports of its CH340): a generator
+  output CH1, a sine of 23.5 MHz to 6 GHz in 1 kHz steps at −4, −1, +2 or +5 dBm (the amplitude of a
+  waveform into 50 Ω), and its frequency and power on the front panel. Its serial protocol, not
+  documented by the maker, is in docs/protocols.md.
+- Settings of a front panel show as many digits as they give (`digits`).
 - **The monitor of a Pico with its analog inputs**: the pin table of the device document starts the
   monitor with the pins of the ADC (GP26–GP28), which the Pico refused ("no analog input 'GP26'
   (A0, A1, …)"); the monitor and the analog inputs of a Pico take A0–A2 and their pins alike.

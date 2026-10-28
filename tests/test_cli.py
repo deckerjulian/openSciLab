@@ -476,11 +476,12 @@ def test_api_save_and_load(tmp_path):
 
 # ------------------------------------------------------------------ discovery
 def test_list_devices(monkeypatch):
-    from openscilab.driver import usbtmc
+    from openscilab.driver import ports, usbtmc
     from openscilab.driver.dslogic import usb
     from openscilab.driver.pico import detector
     from openscilab.driver.rigoldho import driver as rigol
 
+    monkeypatch.setattr(ports, "comports", lambda: [])  # (no board of the computer in the list)
     monkeypatch.setattr(detector, "detect", lambda: [detector.DetectedDevice("/dev/cu.usbmodem1", "E661")])
     monkeypatch.setattr(usb, "list_devices", lambda: [usb.UsbDeviceInfo(1, 4, 0x0030, "DSLogic U2Pro16")])
     monkeypatch.setattr(rigol, "usb_instruments", lambda: [usbtmc.UsbTmcInfo(0, 3, 0x1AB1, 0x044C, "Rigol", "DHO924S",

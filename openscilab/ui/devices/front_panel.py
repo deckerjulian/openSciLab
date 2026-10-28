@@ -365,7 +365,7 @@ class SettingsPanel(QScrollArea):
                 index = widget.count() - 1
             widget.setCurrentIndex(index)
         elif not widget.edit.hasFocus():
-            widget.edit.setText(units.format_quantity(float(value), setting.get("unit", "")))
+            widget.edit.setText(units.format_quantity(float(value), setting.get("unit", ""), setting.get("digits", 4)))
             widget.value = float(value)
 
     def _write_text(self, name: str, edit: QLineEdit) -> None:
@@ -396,7 +396,8 @@ class SettingsPanel(QScrollArea):
             widget = self.widgets[name]
             widget.value = float(value)
             if not widget.edit.hasFocus():
-                widget.edit.setText(units.format_quantity(float(value), self.settings[name].get("unit", "")))
+                widget.edit.setText(units.format_quantity(float(value), self.settings[name].get("unit", ""),
+                                                          self.settings[name].get("digits", 4)))
 
         def write() -> None:
             try:

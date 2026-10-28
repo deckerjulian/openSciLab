@@ -436,3 +436,37 @@ the interface is opened. There is no bridge
 app on USB: captures are read as without it. On Linux the udev rule
 `packaging/linux/60-rigol.rules` gives access (the `usbtmc` kernel module is detached); on Windows
 the interface needs the WinUSB driver instead of a VISA one.
+
+## HTOOL HT008 (RF signal source)
+
+The HTOOL HT008 (MAX2871 synthesizer, GD32F303 controller, CH340 USB serial chip, 115200 baud 8N1)
+is driven by `openscilab/driver/htool/` (`ht008:<serial port>`). Its manual names serial commands
+without giving them; what follows was found on an HT008 with firmware V6.0.1
+(`*IDN?` → `HTOOL,HT008,37373439,V6.0.1`).
+
+**The first thing it gets after it is switched on decides how it listens until it is switched off:**
+
+* **A frame** (below): it takes the frame without an answer and from then on takes only frames,
+  each answered with 9 bytes (an echo of the frame, or zeros) and `OK`, within 0.3 s. Frames may
+  follow each other as fast as they are answered. Its switch no longer switches it off then (unplug
+  it). The driver opens it this way.
+* **Anything else**: an SCPI parser (scpi-parser, `SYSTem:VERSion?` → `1999.0`) with `*IDN?`,
+  `*RST`, `*CLS`, `*OPC?`, `*TST?`, `*STB?`, `*ESR?`, `SYSTem:ERRor?` and the sweep set up
+  `FREQuency:STARt`, `FREQuency:STOP` (MHz, limited to 23.5–5999, both read back the value set last),
+  `FREQuency:SPAN` and `FREQuency:TIME` (`?` reads them back); nothing sets the output or starts the
+  sweep, frames are refused (`-101,"Invalid character"`). A line needs about 0.25 s before the next
+  one: sooner, lines arrive garbled.
+
+A frame is 9 bytes, the protocol of the LTDZ MAX2870 sources:
+
+| Bytes | Meaning |
+| --- | --- |
+| `55 55` | head (the second byte is not checked) |
+| 2 bytes, big endian | whole megahertz |
+| 2 bytes, big endian | kilohertz beyond them, 0–999 |
+| 1 byte | power of CH1: `00` −4 dBm, `01` −1 dBm, `02` +2 dBm, `03` +5 dBm (the LTDZ counts 1–4); higher values show no level |
+| `0D 0A` | tail |
+
+`55 55 01 B1 03 98 03 0D 0A` sets 433.920 MHz at +5 dBm. No frame sets CH2 (its attenuated output),
+switches the output off or starts the sweep of the device. After it is switched on it shows
+3000.000 MHz at −4 dBm, the frame the driver opens it with.

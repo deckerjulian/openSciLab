@@ -30,18 +30,20 @@ openscilab/
 │   │                  instrument.py: the facets of firmware 8
 │   ├── arduino/       Arduino boards: COBS protocol, connection with a reader thread, driver, facets
 │   ├── rigoldho/      Rigol DHO900: SCPI, driver, bridge transfer (fetcher, codec), generator, beacon
+│   ├── htool/         HTOOL HT008 RF signal source: frames, generator and settings (no capture)
 │   ├── simulated/     simulator profiles; arduino_shell.py and scpi_shell.py play the Arduino
 │   │                  firmware and the DHO with the bridge app over their real protocols
 │   ├── dslogic/       DreamSourceLab DSLogic over USB (libusb)
 │   ├── kinds.py       the registry of the kinds of devices
 │   └── discovery.py   list_devices(), open_device(address): through the registry
 ├── plugins/           the plugin loader; the plugins of openSciLab's own devices:
-│                      pico.py, arduino.py, dslogic.py, rigol.py, simulation.py, remote.py
+│                      pico.py, arduino.py, dslogic.py, rigol.py, htool.py, simulation.py, remote.py
 └── ui/devices/
     ├── __init__.py    DeviceBackend, DeviceEntry, backends(), register_backend()
     ├── pico.py        autodetect, USB boards, network device, multi device sets
     ├── arduino.py     boards by USB ID, simulated boards with the firmware protocol
     ├── rigoldho.py    oscilloscopes by beacon or address, simulated DHO924S
+    ├── htool.py       HT008 on the ports of its CH340
     └── dslogic.py     USB devices, asks for a missing FPGA bitstream
 ```
 
