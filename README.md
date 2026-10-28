@@ -60,6 +60,7 @@ view* of the lab. Windows, macOS and Linux; GPL-3.0.
 | Arduino Uno, Nano, Mega 2560, Uno R4 Minima, ESP32, ESP32-S3 | USB; openSciLab Arduino firmware | logic analyzer of its pins (buffer, stream, state), analog inputs, GPIO, PWM, monitor, pattern/square/arbitrary generator, UART/SPI/I²C | tested on a Mega 2560 (all 70 pins): inputs and outputs, analog inputs, monitor, buffer and stream captures, pattern generator; the other boards not yet |
 | DreamSourceLab DSLogic Plus, U2Pro16, U3Pro16, U3Pro32 | USB; DSView firmware | logic analyzer up to 1 GHz, streams, record to disk | experimental, tested on a U2Pro16 |
 | Rigol DHO900 (DHO924S ...) | network: SCPI, or the bridge app on the instrument; USB (USBTMC) | 4 analog channels, edge trigger on them or on the 16 logic channels, large captures arriving progressively, generator, its screen live with its settings beside it (front panel, also in a window of its own), captures as set on the instrument | tested on a DHO924S (modified firmware NK v0.5.2): network, bridge app (installed from its document), USB; the logic channels D0–D15 too, together with the analog ones - they need a firmware that gives them out over SCPI (Rigol 00.01.05.00.00 or later by its release notes; the NK mod only with a patch of its library) |
+| HTOOL HT008 RF signal source (MAX2871) | USB (CH340 serial) | generator output CH1: sine 23.5 MHz – 6 GHz in 1 kHz steps at −4, −1, +2 or +5 dBm, as a generator of flows and from its front panel; not CH2, no switching off, no sweep of its own (see [docs/protocols.md](docs/protocols.md#htool-ht008-rf-signal-source)) | tested on an HT008 with firmware V6.0.1 (frequency and level checked on its display) |
 | Measuring devices on other computers | network; Python package `openscilab_device` | values, streams, outputs and commands with their time | beta |
 | Circuits (`circuit:<file>`) | built in; ngspice and the AVR emulator installed into openSciLab's vendor folder when first needed (not bundled) | the probes of a circuit simulated live as analog and logic channels; Arduino Uno, Nano, Mega 2560 and ATmega chips running a firmware file | new |
 | Simulators (`sim:free`, `sim:uno`, `sim:uno_r4`, `sim:pico`, `sim:daq`, `sim:dho924s`, `remote-sim:…`) | built in | everything above, several at once, wired together | ready |
@@ -144,7 +145,7 @@ ruff check openscilab tests
 ```
 openscilab/
 ├── core/        signals, analysis, files, timing, firmware handling (no Qt)
-├── driver/      devices: pico/, arduino/, dslogic/, rigoldho/, remote/, simulated/, process/ (devices in a process of their own)
+├── driver/      devices: pico/, arduino/, dslogic/, rigoldho/, htool/, remote/, simulated/, process/ (devices in a process of their own)
 ├── circuits/    circuits: model, catalog (own, KiCad, SPICE), netlist, ngspice, microcontrollers (no Qt)
 ├── lab/         flows: model, engine, nodes/, projects, panels, reports, examples (no Qt)
 ├── plugins/     plugin loader; the plugins of openSciLab's own devices (registered like any other)

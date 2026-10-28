@@ -12,6 +12,7 @@ import pytest
 from PySide6.QtWidgets import QApplication
 
 from openscilab.core import device_info, settings
+from openscilab.driver import ports
 from openscilab.driver.base import AnalyzerDriverBase, CaptureError
 from openscilab.driver.emulated import EmulatedAnalyzerDriver
 from openscilab.ui import devices
@@ -82,6 +83,7 @@ def application():
 def minimal_backend(monkeypatch):
     devices.backends()  # (the built-in plugins register theirs)
     monkeypatch.setattr(devices, "_added", list(devices._added))
+    monkeypatch.setattr(ports, "comports", lambda: [])  # (no board of the computer in the list)
     backend = MinimalBackend()
     devices.register_backend(backend)
     return backend
@@ -158,6 +160,7 @@ def no_picos(monkeypatch):
     monkeypatch.setattr(pico_devices.detector, "detect", lambda: [])
     monkeypatch.setattr(pico_devices.firmware_images, "find_boot_drives", lambda: [])
     monkeypatch.setattr(pico_devices.detector, "detect_foreign_picos", lambda: [])
+    monkeypatch.setattr(ports, "comports", lambda: [])  # (no board of the computer in the list)
     devices.backends()
     monkeypatch.setattr(devices, "_added", list(devices._added))
     devices.register_backend(MinimalBackend())

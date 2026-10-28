@@ -20,6 +20,7 @@ Every device has an identifier:
 | `arduino-sim:uno`, `arduino-sim:uno_r4` | A simulated Arduino that speaks the firmware protocol |
 | `rigol:192.168.1.20`, `rigol:192.168.1.20:5555` | Rigol DHO900 oscilloscope (through its bridge app when it runs) |
 | `rigol-sim:bridge`, `rigol-sim:direct` | A simulated DHO924S with or without the bridge app |
+| `ht008:/dev/cu.wchusbserial210` | HTOOL HT008 RF signal source (23.5 MHz – 6 GHz) on a serial port |
 | `<kind>:...`, e.g. `counter:8` | A device of a plugin ([drivers.md](drivers.md#plugins); `openscilab-cli plugins` lists them) |
 
 A plain serial port, `address:port` and a comma separated list of ports work as well. Without a

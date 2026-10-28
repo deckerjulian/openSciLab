@@ -148,8 +148,8 @@ def test_the_devices_of_openscilab_are_plugins_as_well():
     pico = kinds.find("pico")
     assert pico.builtin and pico.module == "openscilab.plugins.pico" and pico.process and pico.simulation == "pico"
     assert [kind.kind for kind in kinds.registered() if kind.builtin] == [
-        "pico", "pico-net", "pico-multi", "arduino", "arduino-sim", "dslogic", "rigol", "rigol-sim", "sim", "emulated",
-        "remote", "remote-sim", "circuit"]
+        "pico", "pico-net", "pico-multi", "arduino", "arduino-sim", "dslogic", "rigol", "rigol-sim", "ht008", "sim",
+        "emulated", "remote", "remote-sim", "circuit"]
     assert simulation_profile_for("COM5") == "pico" and simulation_profile_for("arduino:COM3") == "uno"
     assert simulation_profile_for("rigol:192.168.1.20") == "dho924s"
     with pytest.raises(DeviceConnectionError, match="no capture driver"):

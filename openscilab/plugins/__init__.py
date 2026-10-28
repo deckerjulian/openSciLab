@@ -45,7 +45,7 @@ ENVIRONMENT = "OPENSCILAB_PLUGINS"
 #: the modules of plugin files are named so (pickled objects of a plugin find their class by it)
 PREFIX = "openscilab_plugin_"
 #: the plugins that come with openSciLab (modules of this package), in the order of the device list
-BUILT_IN = ("pico", "arduino", "dslogic", "rigol", "simulation", "remote", "circuits")
+BUILT_IN = ("pico", "arduino", "dslogic", "rigol", "htool", "simulation", "remote", "circuits")
 
 
 @dataclass
