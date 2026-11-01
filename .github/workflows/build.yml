@@ -307,7 +307,7 @@ jobs:
           distribution: temurin
           java-version: "17"
 
-      - uses: android-actions/setup-android@v3
+      - uses: android-actions/setup-android@v4
         with:
           # (the default asks for the package "tools", which current command line tools no longer have)
           packages: platform-tools
